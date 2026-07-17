@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"log/slog"
 	"net/url"
+	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/observe"
 	"github.com/modernagent/modern-agent/backend/internal/ports"
+	workboardsvc "github.com/modernagent/modern-agent/backend/internal/service/workboard"
 )
 
 const (
@@ -31,15 +33,24 @@ const (
 	intakePromptFooter           = "\nImplement the requested change in this repository, run the relevant checks, and open or update a pull request when ready."
 )
 
+const defaultBoardID = "default"
+
 // Store is the durable read surface the observer needs.
 type Store interface {
 	ListProjects(ctx context.Context) ([]domain.ProjectRecord, error)
 	ListAllSessions(ctx context.Context) ([]domain.SessionRecord, error)
+	ListWorkCards(ctx context.Context, projectID, boardID string) ([]domain.WorkCard, error)
+	ListWorkspaceRepos(ctx context.Context, projectID string) ([]domain.WorkspaceRepoRecord, error)
 }
 
 // Spawner is the session creation surface used by intake.
 type Spawner interface {
 	Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Session, error)
+}
+
+// CardCreator persists triage work cards for workboard intake.
+type CardCreator interface {
+	Create(ctx context.Context, in workboardsvc.CreateInput) (domain.WorkCard, error)
 }
 
 // TrackerResolver picks the tracker adapter for a project's configured
@@ -74,6 +85,7 @@ type Config struct {
 	FailureBackoff time.Duration
 	Clock          func() time.Time
 	Logger         *slog.Logger
+	CardCreator    CardCreator
 }
 
 // Observer polls configured projects and starts sessions for eligible issues.
@@ -81,6 +93,7 @@ type Observer struct {
 	resolver       TrackerResolver
 	store          Store
 	spawner        Spawner
+	cardCreator    CardCreator
 	tick           time.Duration
 	failureBackoff time.Duration
 	clock          func() time.Time
@@ -90,7 +103,11 @@ type Observer struct {
 
 // New constructs an Observer with safe defaults.
 func New(resolver TrackerResolver, store Store, spawner Spawner, cfg Config) *Observer {
-	o := &Observer{resolver: resolver, store: store, spawner: spawner, tick: cfg.Tick, failureBackoff: cfg.FailureBackoff, clock: cfg.Clock, logger: cfg.Logger, backoffUntil: map[string]time.Time{}}
+	o := &Observer{
+		resolver: resolver, store: store, spawner: spawner, cardCreator: cfg.CardCreator,
+		tick: cfg.Tick, failureBackoff: cfg.FailureBackoff, clock: cfg.Clock, logger: cfg.Logger,
+		backoffUntil: map[string]time.Time{},
+	}
 	if o.tick <= 0 {
 		o.tick = DefaultTickInterval
 	}
@@ -120,7 +137,7 @@ func (o *Observer) Poll(ctx context.Context) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	if o.resolver == nil || o.store == nil || o.spawner == nil {
+	if o.resolver == nil || o.store == nil || (o.spawner == nil && o.cardCreator == nil) {
 		return nil
 	}
 	now := o.clock().UTC()
@@ -150,7 +167,17 @@ func (o *Observer) Poll(ctx context.Context) error {
 			o.logger.Debug("tracker intake: project in failure backoff", "project", project.ID, "until", until)
 			continue
 		}
-		if failed := o.pollProject(ctx, project, seen); failed {
+		projectSeen := cloneIssueSeen(seen)
+		if project.Config.Workboard.IntakeEnabled() && o.cardCreator != nil {
+			cards, err := o.store.ListWorkCards(ctx, project.ID, defaultBoardID)
+			if err != nil {
+				o.logger.Error("tracker intake: list work cards failed", "project", project.ID, "err", err)
+				o.backoffUntil[project.ID] = now.Add(o.failureBackoff)
+				continue
+			}
+			mergeIssueSeen(projectSeen, seenIssueIDsFromCards(cards))
+		}
+		if failed := o.pollProject(ctx, project, projectSeen); failed {
 			o.backoffUntil[project.ID] = now.Add(o.failureBackoff)
 		} else {
 			delete(o.backoffUntil, project.ID)
@@ -188,7 +215,8 @@ func (o *Observer) pollProject(ctx context.Context, project domain.ProjectRecord
 		o.logger.Error("tracker intake: list issues failed", "project", project.ID, "repo", repo.Native, "err", err)
 		return true
 	}
-	var spawnFailed bool
+	useWorkboard := project.Config.Workboard.IntakeEnabled() && o.cardCreator != nil
+	var actionFailed bool
 	for _, issue := range issues {
 		if ctx.Err() != nil {
 			return true
@@ -203,19 +231,62 @@ func (o *Observer) pollProject(ctx context.Context, project domain.ProjectRecord
 		if issueID == "" || seen[issueID] {
 			continue
 		}
-		if _, err := o.spawner.Spawn(ctx, ports.SpawnConfig{
+		if useWorkboard {
+			if err := o.createTriageCard(ctx, project, issue, issueID); err != nil {
+				o.logger.Error("tracker intake: create triage card failed", "project", project.ID, "issue", issueID, "err", err)
+				actionFailed = true
+				continue
+			}
+		} else if o.spawner == nil {
+			o.logger.Warn("tracker intake: skipping issue without spawner", "project", project.ID, "issue", issueID)
+			continue
+		} else if _, err := o.spawner.Spawn(ctx, ports.SpawnConfig{
 			ProjectID: domain.ProjectID(project.ID),
 			IssueID:   issueID,
 			Kind:      domain.KindWorker,
 			Prompt:    BuildIssuePrompt(issue),
 		}); err != nil {
 			o.logger.Error("tracker intake: spawn issue session failed", "project", project.ID, "issue", issueID, "err", err)
-			spawnFailed = true
+			actionFailed = true
 			continue
 		}
 		seen[issueID] = true
 	}
-	return spawnFailed
+	return actionFailed
+}
+
+func (o *Observer) createTriageCard(ctx context.Context, project domain.ProjectRecord, issue domain.Issue, issueID domain.IssueID) error {
+	targetPath, err := intakeTargetPath(ctx, o.store, project)
+	if err != nil {
+		return err
+	}
+	agent, err := intakeWorkerAgent(project)
+	if err != nil {
+		return err
+	}
+	title := strings.TrimSpace(issue.Title)
+	if title == "" {
+		title = fmt.Sprintf("Issue %s", issueID)
+	}
+	notes := BuildIssueCardNotes(issue)
+	if strings.TrimSpace(notes) == "" {
+		notes = fmt.Sprintf("Tracker issue %s", issueID)
+	}
+	labels := append([]string(nil), issue.Labels...)
+	if len(labels) == 0 {
+		labels = []string{"tracker-intake"}
+	}
+	_, err = o.cardCreator.Create(ctx, workboardsvc.CreateInput{
+		ProjectID:  project.ID,
+		Title:      title,
+		Notes:      notes,
+		Priority:   domain.CardPriorityNormal,
+		Labels:     labels,
+		Status:     domain.CardStatusTriage,
+		TargetPath: targetPath,
+		Agent:      agent,
+	})
+	return err
 }
 
 func issueMatchesConfig(issue domain.Issue, cfg domain.TrackerIntakeConfig) bool {
@@ -239,6 +310,82 @@ func containsFold(values []string, needle string) bool {
 		}
 	}
 	return false
+}
+
+// BuildIssueCardNotes turns normalized issue facts into triage-card notes.
+func BuildIssueCardNotes(issue domain.Issue) string {
+	return strings.TrimSuffix(BuildIssuePrompt(issue), intakePromptFooter)
+}
+
+func intakeWorkerAgent(project domain.ProjectRecord) (string, error) {
+	if agent := strings.TrimSpace(string(project.Config.Worker.Harness)); agent != "" {
+		return agent, nil
+	}
+	return "", fmt.Errorf("tracker intake: project %q has no worker.agent configured", project.ID)
+}
+
+func intakeTargetPath(ctx context.Context, store Store, project domain.ProjectRecord) (string, error) {
+	path := strings.TrimSpace(project.Path)
+	if path == "" {
+		return "", fmt.Errorf("tracker intake: project %q has no path", project.ID)
+	}
+	if project.Kind.WithDefault() != domain.ProjectKindWorkspace {
+		return path, nil
+	}
+	repos, err := store.ListWorkspaceRepos(ctx, project.ID)
+	if err != nil {
+		return "", err
+	}
+	for _, repo := range repos {
+		rel := strings.TrimSpace(repo.RelativePath)
+		if rel == "" || rel == domain.RootWorkspaceRepoName {
+			continue
+		}
+		return filepath.Join(path, rel), nil
+	}
+	return path, nil
+}
+
+func cloneIssueSeen(seen map[domain.IssueID]bool) map[domain.IssueID]bool {
+	out := make(map[domain.IssueID]bool, len(seen))
+	for id, ok := range seen {
+		if ok {
+			out[id] = true
+		}
+	}
+	return out
+}
+
+func mergeIssueSeen(dst, src map[domain.IssueID]bool) {
+	for id := range src {
+		dst[id] = true
+	}
+}
+
+func seenIssueIDsFromCards(cards []domain.WorkCard) map[domain.IssueID]bool {
+	seen := make(map[domain.IssueID]bool, len(cards))
+	for _, card := range cards {
+		if id := issueIDFromCardNotes(card.Notes); id != "" {
+			seen[id] = true
+		}
+	}
+	return seen
+}
+
+func issueIDFromCardNotes(notes string) domain.IssueID {
+	const prefix = "Work on tracker issue "
+	for _, line := range strings.Split(notes, "\n") {
+		line = strings.TrimSpace(line)
+		if !strings.HasPrefix(line, prefix) {
+			continue
+		}
+		rest := strings.TrimSpace(strings.TrimPrefix(line, prefix))
+		rest = strings.TrimSuffix(rest, ".")
+		if rest != "" {
+			return domain.IssueID(rest)
+		}
+	}
+	return ""
 }
 
 func seenIssueIDs(sessions []domain.SessionRecord) map[domain.IssueID]bool {

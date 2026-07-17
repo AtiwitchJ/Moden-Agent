@@ -202,6 +202,35 @@ type WorkboardConfig struct {
 	AnswerTimeoutMinutes int                       `json:"answerTimeoutMinutes,omitempty"`
 	Autonomous           WorkboardAutonomousConfig `json:"autonomous,omitempty"`
 	AnswerDenylist       []string                  `json:"answerDenylist,omitempty"`
+	// WorkboardIntake controls whether tracker intake creates triage cards
+	// instead of spawning worker sessions. When the workboard section is
+	// present, intake defaults to triage unless explicitly set to false.
+	WorkboardIntake *bool `json:"workboardIntake,omitempty"`
+}
+
+// IntakeEnabled reports whether tracker intake should create triage work cards
+// for this project. A missing workboard section keeps legacy direct spawn.
+func (c WorkboardConfig) IntakeEnabled() bool {
+	if !c.isConfigured() {
+		return false
+	}
+	if c.WorkboardIntake != nil {
+		return *c.WorkboardIntake
+	}
+	return true
+}
+
+func (c WorkboardConfig) isConfigured() bool {
+	if c.WIPLimit != 0 || c.LimitCooldownMinutes != 0 || c.AnswerTimeoutMinutes != 0 {
+		return true
+	}
+	if len(c.FallbackAgents) > 0 || len(c.AnswerDenylist) > 0 {
+		return true
+	}
+	if c.Autonomous != (WorkboardAutonomousConfig{}) {
+		return true
+	}
+	return c.WorkboardIntake != nil
 }
 
 func DefaultWorkboardConfig() WorkboardConfig {

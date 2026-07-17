@@ -14,6 +14,7 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/ports"
 	aoprocess "github.com/modernagent/modern-agent/backend/internal/process"
 	sessionsvc "github.com/modernagent/modern-agent/backend/internal/service/session"
+	workboardsvc "github.com/modernagent/modern-agent/backend/internal/service/workboard"
 	"github.com/modernagent/modern-agent/backend/internal/storage/sqlite"
 )
 
@@ -24,12 +25,15 @@ import (
 // stays lazy so daemon readiness is not blocked by credential probing or a gh
 // CLI call, and no token is resolved until some enabled project is actually
 // polled.
-func startTrackerIntake(ctx context.Context, store *sqlite.Store, sessions *sessionsvc.Service, logger *slog.Logger) <-chan struct{} {
+func startTrackerIntake(ctx context.Context, store *sqlite.Store, sessions *sessionsvc.Service, workboard *workboardsvc.Service, logger *slog.Logger) <-chan struct{} {
 	resolver := trackerintake.SingleTrackerResolver{
 		Provider: domain.TrackerProviderGitHub,
 		Adapter:  newLazyGitHubTracker(logger),
 	}
-	observer := trackerintake.New(resolver, store, sessions, trackerintake.Config{Logger: logger})
+	observer := trackerintake.New(resolver, store, sessions, trackerintake.Config{
+		Logger:      logger,
+		CardCreator: workboard,
+	})
 	return observer.Start(ctx)
 }
 

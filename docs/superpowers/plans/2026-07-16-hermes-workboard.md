@@ -669,7 +669,7 @@ Expected: PASS
 **Files:**
 - Modify `observe/trackerintake` to call `workboard.Create` with status `triage` instead of/in addition to direct session spawn — **replace** direct spawn when `config.workboard` present or feature flag `workboardIntake: true` default true once phase 4 ships
 
-- [ ] Commit: `feat(intake): create triage work cards from matching issues`
+- [x] Commit: `feat(intake): create triage work cards from matching issues`
 
 ### Task 17: Home route + Add to Workboard
 

@@ -5,18 +5,21 @@ import (
 	"errors"
 	"io"
 	"log/slog"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/ports"
+	workboardsvc "github.com/modernagent/modern-agent/backend/internal/service/workboard"
 )
 
 func TestPollSpawnsWorkerForEligibleIssue(t *testing.T) {
 	store := &fakeStore{
 		projects: []domain.ProjectRecord{{
 			ID:            "demo",
+			Path:          "/tmp/demo",
 			RepoOriginURL: "https://github.com/acme/demo.git",
 			Config: domain.ProjectConfig{TrackerIntake: domain.TrackerIntakeConfig{
 				Enabled:  true,
@@ -56,6 +59,151 @@ func TestPollSpawnsWorkerForEligibleIssue(t *testing.T) {
 	}
 	if got := tracker.filters[0]; got.State != domain.ListOpen || got.Assignee != "alice" || len(got.Labels) != 0 {
 		t.Fatalf("tracker filter = %+v", got)
+	}
+}
+
+func TestPollCreatesTriageCardForWorkboardProject(t *testing.T) {
+	root := t.TempDir()
+	store := &fakeStore{
+		projects: []domain.ProjectRecord{{
+			ID:            "demo",
+			Path:          root,
+			RepoOriginURL: "https://github.com/acme/demo.git",
+			Config: domain.ProjectConfig{
+				Worker: domain.RoleOverride{Harness: domain.HarnessCodex},
+				TrackerIntake: domain.TrackerIntakeConfig{
+					Enabled:  true,
+					Assignee: "alice",
+				},
+				Workboard: domain.WorkboardConfig{WIPLimit: 3},
+			},
+		}},
+	}
+	tracker := &fakeTracker{issues: []domain.Issue{{
+		ID:        domain.TrackerID{Provider: domain.TrackerProviderGitHub, Native: "acme/demo#12"},
+		Title:     "Fix login",
+		Body:      "The login form submits twice.",
+		State:     domain.IssueOpen,
+		URL:       "https://github.com/acme/demo/issues/12",
+		Labels:    []string{"agent-ready"},
+		Assignees: []string{"alice"},
+	}}}
+	spawner := &fakeSpawner{}
+	cards := &fakeCardCreator{}
+
+	if err := New(singleResolver(tracker), store, spawner, Config{
+		Logger:      discardLogger(),
+		CardCreator: cards,
+	}).Poll(context.Background()); err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if len(spawner.calls) != 0 {
+		t.Fatalf("spawn calls = %d, want 0 for workboard intake", len(spawner.calls))
+	}
+	if len(cards.calls) != 1 {
+		t.Fatalf("card create calls = %d, want 1", len(cards.calls))
+	}
+	call := cards.calls[0]
+	if call.ProjectID != "demo" || call.Status != domain.CardStatusTriage || call.Agent != "codex" {
+		t.Fatalf("create input = %+v", call)
+	}
+	if call.Title != "Fix login" {
+		t.Fatalf("Title = %q, want issue title", call.Title)
+	}
+	if call.TargetPath != root {
+		t.Fatalf("TargetPath = %q, want %q", call.TargetPath, root)
+	}
+	if !strings.Contains(call.Notes, "Fix login") || !strings.Contains(call.Notes, "The login form submits twice.") {
+		t.Fatalf("notes missing issue context:\n%s", call.Notes)
+	}
+	if len(call.Labels) != 1 || call.Labels[0] != "agent-ready" {
+		t.Fatalf("Labels = %#v", call.Labels)
+	}
+}
+
+func TestPollSkipsExistingTriageCards(t *testing.T) {
+	root := t.TempDir()
+	store := &fakeStore{
+		projects: []domain.ProjectRecord{{
+			ID:            "demo",
+			Path:          root,
+			RepoOriginURL: "https://github.com/acme/demo.git",
+			Config: domain.ProjectConfig{
+				Worker: domain.RoleOverride{Harness: domain.HarnessCodex},
+				TrackerIntake: domain.TrackerIntakeConfig{
+					Enabled:  true,
+					Assignee: "alice",
+				},
+				Workboard: domain.WorkboardConfig{WIPLimit: 3},
+			},
+		}},
+		cards: []domain.WorkCard{{
+			ID:        "card-1",
+			ProjectID: "demo",
+			Notes:     BuildIssueCardNotes(domain.Issue{ID: domain.TrackerID{Provider: domain.TrackerProviderGitHub, Native: "acme/demo#12"}, Title: "Already triaged"}),
+		}},
+	}
+	tracker := &fakeTracker{issues: []domain.Issue{{
+		ID:        domain.TrackerID{Provider: domain.TrackerProviderGitHub, Native: "acme/demo#12"},
+		Title:     "Already triaged",
+		State:     domain.IssueOpen,
+		Assignees: []string{"alice"},
+	}}}
+	cards := &fakeCardCreator{}
+
+	if err := New(singleResolver(tracker), store, &fakeSpawner{}, Config{
+		Logger:      discardLogger(),
+		CardCreator: cards,
+	}).Poll(context.Background()); err != nil {
+		t.Fatalf("Poll() error = %v", err)
+	}
+	if len(cards.calls) != 0 {
+		t.Fatalf("card create calls = %d, want 0", len(cards.calls))
+	}
+}
+
+func TestWorkboardIntakeGate(t *testing.T) {
+	t.Run("absent workboard keeps legacy spawn", func(t *testing.T) {
+		var cfg domain.WorkboardConfig
+		if cfg.IntakeEnabled() {
+			t.Fatal("empty workboard config should not enable intake cards")
+		}
+	})
+	t.Run("workboard section defaults intake on", func(t *testing.T) {
+		cfg := domain.WorkboardConfig{WIPLimit: 2}
+		if !cfg.IntakeEnabled() {
+			t.Fatal("workboard section should default intake to triage cards")
+		}
+	})
+	t.Run("explicit false opts out", func(t *testing.T) {
+		off := false
+		cfg := domain.WorkboardConfig{WIPLimit: 2, WorkboardIntake: &off}
+		if cfg.IntakeEnabled() {
+			t.Fatal("workboardIntake=false should keep legacy spawn")
+		}
+	})
+}
+
+func TestIntakeTargetPathUsesFirstWorkspaceRepo(t *testing.T) {
+	root := t.TempDir()
+	store := &fakeStore{
+		workspaceRepos: []domain.WorkspaceRepoRecord{
+			{RelativePath: domain.RootWorkspaceRepoName},
+			{RelativePath: "child-app"},
+		},
+	}
+	project := domain.ProjectRecord{
+		ID:   "ws",
+		Path: root,
+		Kind: domain.ProjectKindWorkspace,
+	}
+	got, err := intakeTargetPath(context.Background(), store, project)
+	if err != nil {
+		t.Fatalf("intakeTargetPath() error = %v", err)
+	}
+	want := filepath.Join(root, "child-app")
+	if got != want {
+		t.Fatalf("target path = %q, want %q", got, want)
 	}
 }
 
@@ -288,9 +436,12 @@ func singleResolver(tracker ports.Tracker) TrackerResolver {
 }
 
 type fakeStore struct {
-	projects    []domain.ProjectRecord
-	sessions    []domain.SessionRecord
-	sessionsErr error
+	projects       []domain.ProjectRecord
+	sessions       []domain.SessionRecord
+	sessionsErr    error
+	cards          []domain.WorkCard
+	cardsErr       error
+	workspaceRepos []domain.WorkspaceRepoRecord
 }
 
 func (f *fakeStore) ListProjects(context.Context) ([]domain.ProjectRecord, error) {
@@ -299,6 +450,23 @@ func (f *fakeStore) ListProjects(context.Context) ([]domain.ProjectRecord, error
 
 func (f *fakeStore) ListAllSessions(context.Context) ([]domain.SessionRecord, error) {
 	return append([]domain.SessionRecord(nil), f.sessions...), f.sessionsErr
+}
+
+func (f *fakeStore) ListWorkCards(_ context.Context, projectID, _ string) ([]domain.WorkCard, error) {
+	if f.cardsErr != nil {
+		return nil, f.cardsErr
+	}
+	out := make([]domain.WorkCard, 0, len(f.cards))
+	for _, card := range f.cards {
+		if card.ProjectID == projectID {
+			out = append(out, card)
+		}
+	}
+	return out, nil
+}
+
+func (f *fakeStore) ListWorkspaceRepos(context.Context, string) ([]domain.WorkspaceRepoRecord, error) {
+	return append([]domain.WorkspaceRepoRecord(nil), f.workspaceRepos...), nil
 }
 
 type fakeTracker struct {
@@ -338,6 +506,19 @@ func (f *fakeSpawner) Spawn(_ context.Context, cfg ports.SpawnConfig) (domain.Se
 		return domain.Session{}, errors.New("spawn failed")
 	}
 	return domain.Session{SessionRecord: domain.SessionRecord{ID: domain.SessionID(string(cfg.ProjectID) + "-1"), ProjectID: cfg.ProjectID, IssueID: cfg.IssueID, Kind: cfg.Kind}}, nil
+}
+
+type fakeCardCreator struct {
+	calls []workboardsvc.CreateInput
+	err   error
+}
+
+func (f *fakeCardCreator) Create(_ context.Context, in workboardsvc.CreateInput) (domain.WorkCard, error) {
+	f.calls = append(f.calls, in)
+	if f.err != nil {
+		return domain.WorkCard{}, f.err
+	}
+	return domain.WorkCard{ID: "card-1", ProjectID: in.ProjectID, Title: in.Title, Notes: in.Notes, Status: in.Status}, nil
 }
 
 func discardLogger() *slog.Logger {

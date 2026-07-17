@@ -18,6 +18,7 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/lifecycle"
 	"github.com/modernagent/modern-agent/backend/internal/ports"
+	workboardsvc "github.com/modernagent/modern-agent/backend/internal/service/workboard"
 	sessionmanager "github.com/modernagent/modern-agent/backend/internal/session_manager"
 	"github.com/modernagent/modern-agent/backend/internal/storage/sqlite"
 )
@@ -191,8 +192,12 @@ func TestStartTrackerIntake_RunsEvenWithoutEnabledProjects(t *testing.T) {
 		t.Fatalf("startSession: %v", err)
 	}
 
+	workboardSvc := workboardsvc.NewWithDeps(workboardsvc.Deps{
+		Store: store, Sender: svc, Spawner: svc, Killer: svc,
+	})
+
 	ctx, cancel := context.WithCancel(context.Background())
-	done := startTrackerIntake(ctx, store, svc, log)
+	done := startTrackerIntake(ctx, store, svc, workboardSvc, log)
 
 	select {
 	case <-done:
