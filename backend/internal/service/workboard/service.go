@@ -61,16 +61,22 @@ type OptionalTime struct {
 
 // Service owns work-card validation and orchestration-free CRUD.
 type Service struct {
-	store Store
-	clock func() time.Time
-	newID func() string
+	store   Store
+	sender  SessionMessenger
+	spawner WorkerSpawner
+	killer  SessionKiller
+	clock   func() time.Time
+	newID   func() string
 }
 
 // Deps configures optional collaborators for Service.
 type Deps struct {
-	Store Store
-	Clock func() time.Time
-	NewID func() string
+	Store   Store
+	Sender  SessionMessenger
+	Spawner WorkerSpawner
+	Killer  SessionKiller
+	Clock   func() time.Time
+	NewID   func() string
 }
 
 // New creates a workboard service backed by store.
@@ -80,7 +86,10 @@ func New(store Store) *Service {
 
 // NewWithDeps creates a workboard service with testable time and id sources.
 func NewWithDeps(d Deps) *Service {
-	s := &Service{store: d.Store, clock: d.Clock, newID: d.NewID}
+	s := &Service{
+		store: d.Store, sender: d.Sender, spawner: d.Spawner, killer: d.Killer,
+		clock: d.Clock, newID: d.NewID,
+	}
 	if s.clock == nil {
 		s.clock = time.Now
 	}

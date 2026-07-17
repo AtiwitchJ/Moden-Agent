@@ -25,6 +25,12 @@ type fakeWorkboardService struct {
 	moveID     string
 	moveStatus domain.CardStatus
 	movePos    int64
+	nudgeID    string
+	nudgeIn    workboardsvc.NudgeInput
+	retargetID string
+	retargetIn workboardsvc.RetargetInput
+	splitID    string
+	splitIn    workboardsvc.SplitInput
 }
 
 func (f *fakeWorkboardService) Create(_ context.Context, in workboardsvc.CreateInput) (domain.WorkCard, error) {
@@ -56,6 +62,21 @@ func (f *fakeWorkboardService) Update(_ context.Context, id string, in workboard
 func (f *fakeWorkboardService) Move(_ context.Context, id string, status domain.CardStatus, position int64) (domain.WorkCard, error) {
 	f.moveID, f.moveStatus, f.movePos = id, status, position
 	return f.cards[0], nil
+}
+
+func (f *fakeWorkboardService) Nudge(_ context.Context, id string, in workboardsvc.NudgeInput) (domain.WorkCard, error) {
+	f.nudgeID, f.nudgeIn = id, in
+	return f.cards[0], nil
+}
+
+func (f *fakeWorkboardService) Retarget(_ context.Context, id string, in workboardsvc.RetargetInput) (domain.WorkCard, error) {
+	f.retargetID, f.retargetIn = id, in
+	return f.cards[0], nil
+}
+
+func (f *fakeWorkboardService) Split(_ context.Context, id string, in workboardsvc.SplitInput) (workboardsvc.SplitResult, error) {
+	f.splitID, f.splitIn = id, in
+	return workboardsvc.SplitResult{OldCard: f.cards[0], NewCard: f.cards[0]}, nil
 }
 
 func newWorkboardTestServer(t *testing.T, svc *fakeWorkboardService) *httptest.Server {
@@ -242,6 +263,40 @@ func TestWorkboardAPI_CardCRUDAndMove(t *testing.T) {
 	}
 	if svc.moveID != "card_1" || svc.moveStatus != domain.CardStatusReady || svc.movePos != 0 {
 		t.Fatalf("move = id=%q status=%q position=%d", svc.moveID, svc.moveStatus, svc.movePos)
+	}
+}
+
+func TestWorkboardAPI_RunningCardActions(t *testing.T) {
+	now := time.Date(2026, 7, 17, 10, 0, 0, 0, time.UTC)
+	svc := &fakeWorkboardService{cards: []domain.WorkCard{{
+		ID: "card_1", ProjectID: "proj", BoardID: "default", Title: "Card", Notes: "Details",
+		Priority: domain.CardPriorityNormal, Labels: []string{"api"}, Status: domain.CardStatusRunning,
+		TargetPath: "/repo", Agent: "codex", SessionID: "sess-1", GoalVersion: 1, CreatedAt: now, UpdatedAt: now,
+	}}}
+	srv := newWorkboardTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, http.MethodPost, "/api/v1/workboard/cards/card_1/nudge", `{"message":"Keep going"}`)
+	if status != http.StatusOK {
+		t.Fatalf("nudge status = %d, want 200; body=%s", status, body)
+	}
+	if svc.nudgeID != "card_1" || svc.nudgeIn.Message != "Keep going" {
+		t.Fatalf("nudge = id=%q input=%+v", svc.nudgeID, svc.nudgeIn)
+	}
+
+	body, status, _ = doRequest(t, srv, http.MethodPost, "/api/v1/workboard/cards/card_1/retarget", `{"title":"New goal"}`)
+	if status != http.StatusOK {
+		t.Fatalf("retarget status = %d, want 200; body=%s", status, body)
+	}
+	if svc.retargetID != "card_1" || svc.retargetIn.Title == nil || *svc.retargetIn.Title != "New goal" {
+		t.Fatalf("retarget = id=%q input=%+v", svc.retargetID, svc.retargetIn)
+	}
+
+	body, status, _ = doRequest(t, srv, http.MethodPost, "/api/v1/workboard/cards/card_1/split", `{"title":"Split card","notes":"Follow-up","startImmediately":true}`)
+	if status != http.StatusOK {
+		t.Fatalf("split status = %d, want 200; body=%s", status, body)
+	}
+	if svc.splitID != "card_1" || svc.splitIn.Title != "Split card" || !svc.splitIn.StartImmediately {
+		t.Fatalf("split = id=%q input=%+v", svc.splitID, svc.splitIn)
 	}
 }
 

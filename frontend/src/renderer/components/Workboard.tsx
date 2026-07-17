@@ -126,7 +126,7 @@ export function Workboard({ projectId, onShowSessions }: { projectId: string; on
 						</div>
 					)}
 				</div>
-				{focusedCard ? <WorkCardFocusPanel card={focusedCard} session={focusedSession} theme={theme} daemonReady={daemonStatus.state === "ready"} onClose={() => setFocusedCardId(undefined)} onShowSessions={onShowSessions} /> : null}
+				{focusedCard ? <WorkCardFocusPanel card={focusedCard} projectId={projectId} session={focusedSession} theme={theme} daemonReady={daemonStatus.state === "ready"} onClose={() => setFocusedCardId(undefined)} onShowSessions={onShowSessions} /> : null}
 			</div>
 			{moveError ? <p className="px-[18px] pb-3 text-[12px] text-destructive" role="alert">{moveError}</p> : null}
 			{moveAnnouncement ? <p aria-live="polite" className="sr-only">{moveAnnouncement}</p> : null}

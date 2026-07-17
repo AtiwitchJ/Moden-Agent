@@ -656,7 +656,7 @@ Expected: PASS
 - `POST .../split` → create card, set `superseded_by` / fate status on old, optional immediate ready
 - UI menu on running card per locked Retarget design
 
-- [ ] Commit: `feat(workboard): nudge, retarget, and split for running cards`
+- [x] Commit: `feat(workboard): nudge, retarget, and split for running cards`
 
 ### Task 15: Scheduled promotion
 

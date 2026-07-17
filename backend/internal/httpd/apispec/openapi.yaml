@@ -2427,6 +2427,160 @@ paths:
       summary: Move a work card to a status and board position
       tags:
       - workboard
+  /api/v1/workboard/cards/{cardId}/nudge:
+    post:
+      operationId: nudgeWorkCard
+      parameters:
+      - description: Work card identifier.
+        in: path
+        name: cardId
+        required: true
+        schema:
+          description: Work card identifier.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NudgeWorkCardRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkCardResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Send a nudge message to a running card's linked worker session
+      tags:
+      - workboard
+  /api/v1/workboard/cards/{cardId}/retarget:
+    post:
+      operationId: retargetWorkCard
+      parameters:
+      - description: Work card identifier.
+        in: path
+        name: cardId
+        required: true
+        schema:
+          description: Work card identifier.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RetargetWorkCardRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkCardResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Retarget a running card's goal and hand off to Hermes or respawn the
+        worker
+      tags:
+      - workboard
+  /api/v1/workboard/cards/{cardId}/split:
+    post:
+      operationId: splitWorkCard
+      parameters:
+      - description: Work card identifier.
+        in: path
+        name: cardId
+        required: true
+        schema:
+          description: Work card identifier.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SplitWorkCardRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SplitWorkCardResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Split a running card into a successor card and archive the original
+      tags:
+      - workboard
 components:
   schemas:
     APIError:
@@ -3169,6 +3323,13 @@ components:
       - kind
       - sessionId
       type: object
+    NudgeWorkCardRequest:
+      properties:
+        message:
+          type: string
+      required:
+      - message
+      type: object
     OrchestratorResponse:
       properties:
         id:
@@ -3572,6 +3733,17 @@ components:
       - ok
       - sessionId
       - session
+      type: object
+    RetargetWorkCardRequest:
+      properties:
+        notes:
+          type:
+          - "null"
+          - string
+        title:
+          type:
+          - "null"
+          - string
       type: object
     ReviewRun:
       properties:
@@ -4087,6 +4259,34 @@ components:
           type: string
       required:
       - projectId
+      type: object
+    SplitWorkCardRequest:
+      properties:
+        notes:
+          type: string
+        oldCardFate:
+          enum:
+          - todo
+          - blocked
+          - done
+          type: string
+        startImmediately:
+          type: boolean
+        title:
+          type: string
+      required:
+      - title
+      - notes
+      type: object
+    SplitWorkCardResponse:
+      properties:
+        newCard:
+          $ref: '#/components/schemas/WorkCardResponse'
+        oldCard:
+          $ref: '#/components/schemas/WorkCardResponse'
+      required:
+      - oldCard
+      - newCard
       type: object
     SubmitReviewInput:
       properties:

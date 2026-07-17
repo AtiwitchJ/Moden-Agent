@@ -187,6 +187,46 @@ type ListWorkCardsResponse struct {
 	Cards []WorkCardResponse `json:"cards"`
 }
 
+// NudgeWorkCardRequest is the body of POST /api/v1/workboard/cards/{cardId}/nudge.
+type NudgeWorkCardRequest struct {
+	Message string `json:"message"`
+}
+
+func (r NudgeWorkCardRequest) toInput() workboardsvc.NudgeInput {
+	return workboardsvc.NudgeInput{Message: r.Message}
+}
+
+// RetargetWorkCardRequest is the body of POST /api/v1/workboard/cards/{cardId}/retarget.
+type RetargetWorkCardRequest struct {
+	Title *string `json:"title,omitempty"`
+	Notes *string `json:"notes,omitempty"`
+}
+
+func (r RetargetWorkCardRequest) toInput() workboardsvc.RetargetInput {
+	return workboardsvc.RetargetInput{Title: r.Title, Notes: r.Notes}
+}
+
+// SplitWorkCardRequest is the body of POST /api/v1/workboard/cards/{cardId}/split.
+type SplitWorkCardRequest struct {
+	Title            string `json:"title"`
+	Notes            string `json:"notes"`
+	OldCardFate      string `json:"oldCardFate,omitempty" enum:"todo,blocked,done"`
+	StartImmediately bool   `json:"startImmediately,omitempty"`
+}
+
+func (r SplitWorkCardRequest) toInput() workboardsvc.SplitInput {
+	return workboardsvc.SplitInput{
+		Title: r.Title, Notes: r.Notes, OldCardFate: domain.CardStatus(r.OldCardFate),
+		StartImmediately: r.StartImmediately,
+	}
+}
+
+// SplitWorkCardResponse is the body of POST /api/v1/workboard/cards/{cardId}/split.
+type SplitWorkCardResponse struct {
+	OldCard WorkCardResponse `json:"oldCard"`
+	NewCard WorkCardResponse `json:"newCard"`
+}
+
 // UpdateWorkboardAutonomousRequest is a sparse update for a project's
 // workboard autonomous settings. Omitted fields retain their stored values.
 type UpdateWorkboardAutonomousRequest struct {

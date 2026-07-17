@@ -816,6 +816,57 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workboard/cards/{cardId}/nudge": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Send a nudge message to a running card's linked worker session */
+        post: operations["nudgeWorkCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workboard/cards/{cardId}/retarget": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Retarget a running card's goal and hand off to Hermes or respawn the worker */
+        post: operations["retargetWorkCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workboard/cards/{cardId}/split": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /** Split a running card into a successor card and archive the original */
+        post: operations["splitWorkCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
 }
 export type webhooks = Record<string, never>;
 export interface components {
@@ -1099,6 +1150,9 @@ export interface components {
             prUrl?: string;
             sessionId: string;
         };
+        NudgeWorkCardRequest: {
+            message: string;
+        };
         OrchestratorResponse: {
             id: string;
             projectId: string;
@@ -1258,6 +1312,10 @@ export interface components {
             ok: boolean;
             session: components["schemas"]["ControllersSessionView"];
             sessionId: string;
+        };
+        RetargetWorkCardRequest: {
+            notes?: null | string;
+            title?: null | string;
         };
         ReviewRun: {
             batchId: string;
@@ -1449,6 +1507,17 @@ export interface components {
             kind?: "worker" | "orchestrator";
             projectId: string;
             prompt?: string;
+        };
+        SplitWorkCardRequest: {
+            notes: string;
+            /** @enum {string} */
+            oldCardFate?: "todo" | "blocked" | "done";
+            startImmediately?: boolean;
+            title: string;
+        };
+        SplitWorkCardResponse: {
+            newCard: components["schemas"]["WorkCardResponse"];
+            oldCard: components["schemas"]["WorkCardResponse"];
         };
         SubmitReviewInput: {
             /** @description Review body recorded by AO. Required for changes_requested. */
@@ -4657,6 +4726,195 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkCardResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    nudgeWorkCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Work card identifier. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NudgeWorkCardRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkCardResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    retargetWorkCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Work card identifier. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RetargetWorkCardRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkCardResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    splitWorkCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Work card identifier. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["SplitWorkCardRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SplitWorkCardResponse"];
                 };
             };
             /** @description Bad Request */

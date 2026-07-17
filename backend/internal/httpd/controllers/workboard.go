@@ -21,6 +21,9 @@ type WorkboardService interface {
 	Get(ctx context.Context, id string) (domain.WorkCard, error)
 	Update(ctx context.Context, id string, in workboardsvc.UpdateInput) (domain.WorkCard, error)
 	Move(ctx context.Context, id string, status domain.CardStatus, position int64) (domain.WorkCard, error)
+	Nudge(ctx context.Context, id string, in workboardsvc.NudgeInput) (domain.WorkCard, error)
+	Retarget(ctx context.Context, id string, in workboardsvc.RetargetInput) (domain.WorkCard, error)
+	Split(ctx context.Context, id string, in workboardsvc.SplitInput) (workboardsvc.SplitResult, error)
 }
 
 // WorkboardController owns the project-scoped work-card routes.
@@ -37,6 +40,9 @@ func (c *WorkboardController) Register(r chi.Router) {
 	r.Get("/workboard/cards/{cardId}", c.get)
 	r.Patch("/workboard/cards/{cardId}", c.update)
 	r.Post("/workboard/cards/{cardId}/move", c.move)
+	r.Post("/workboard/cards/{cardId}/nudge", c.nudge)
+	r.Post("/workboard/cards/{cardId}/retarget", c.retarget)
+	r.Post("/workboard/cards/{cardId}/split", c.split)
 }
 
 func (c *WorkboardController) updateAutonomous(w http.ResponseWriter, r *http.Request) {
@@ -147,4 +153,61 @@ func (c *WorkboardController) move(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envelope.WriteJSON(w, http.StatusOK, newWorkCardResponse(card))
+}
+
+func (c *WorkboardController) nudge(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodPost, "/api/v1/workboard/cards/{cardId}/nudge")
+		return
+	}
+	var req NudgeWorkCardRequest
+	if err := decodeJSONStrict(r, &req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	card, err := c.Svc.Nudge(r.Context(), chi.URLParam(r, "cardId"), req.toInput())
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, newWorkCardResponse(card))
+}
+
+func (c *WorkboardController) retarget(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodPost, "/api/v1/workboard/cards/{cardId}/retarget")
+		return
+	}
+	var req RetargetWorkCardRequest
+	if err := decodeJSONStrict(r, &req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	card, err := c.Svc.Retarget(r.Context(), chi.URLParam(r, "cardId"), req.toInput())
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, newWorkCardResponse(card))
+}
+
+func (c *WorkboardController) split(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodPost, "/api/v1/workboard/cards/{cardId}/split")
+		return
+	}
+	var req SplitWorkCardRequest
+	if err := decodeJSONStrict(r, &req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	result, err := c.Svc.Split(r.Context(), chi.URLParam(r, "cardId"), req.toInput())
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, SplitWorkCardResponse{
+		OldCard: newWorkCardResponse(result.OldCard),
+		NewCard: newWorkCardResponse(result.NewCard),
+	})
 }
