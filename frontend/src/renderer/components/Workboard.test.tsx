@@ -3,8 +3,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 
-const { postMock, useWorkboardCardsMock, useWorkspaceQueryMock } = vi.hoisted(() => ({
+const { getMock, postMock, putMock, useWorkboardCardsMock, useWorkspaceQueryMock } = vi.hoisted(() => ({
+	getMock: vi.fn(),
 	postMock: vi.fn(),
+	putMock: vi.fn(),
 	useWorkboardCardsMock: vi.fn(),
 	useWorkspaceQueryMock: vi.fn(),
 }));
@@ -15,7 +17,7 @@ vi.mock("../hooks/useWorkboardQuery", () => ({
 }));
 
 vi.mock("../lib/api-client", () => ({
-	apiClient: { POST: (...args: unknown[]) => postMock(...args) },
+	apiClient: { GET: (...args: unknown[]) => getMock(...args), POST: (...args: unknown[]) => postMock(...args), PUT: (...args: unknown[]) => putMock(...args) },
 	apiErrorMessage: () => "Request failed",
 }));
 
@@ -56,6 +58,8 @@ beforeEach(() => {
 	useWorkboardCardsMock.mockReset().mockReturnValue({ data: [card], isError: false });
 	useWorkspaceQueryMock.mockReset().mockReturnValue({ data: [] });
 	postMock.mockReset().mockResolvedValue({ data: { ...card, status: "ready" }, error: undefined });
+	putMock.mockReset().mockResolvedValue({ data: { status: "ok" }, error: undefined });
+	getMock.mockReset().mockResolvedValue({ data: { status: "ok", project: { id: "proj-1", config: { workboard: { autonomous: { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined });
 });
 
 describe("Workboard", () => {
@@ -80,6 +84,21 @@ describe("Workboard", () => {
 		await waitFor(() => expect(postMock).toHaveBeenCalledWith("/api/v1/workboard/cards/{cardId}/move", {
 			params: { path: { cardId: "card-1" } },
 			body: { status: "ready", position: 0 },
+		}));
+	});
+
+	it("opens autonomous settings and saves only the autonomous workboard config", async () => {
+		renderBoard();
+		fireEvent.click(screen.getByRole("button", { name: "Autonomous" }));
+
+		expect(await screen.findByRole("heading", { name: "Autonomous mode" })).toBeInTheDocument();
+		fireEvent.click(await screen.findByRole("checkbox", { name: "Enable autonomous mode" }));
+		fireEvent.change(screen.getByLabelText("Short timeout (minutes)"), { target: { value: "5" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await waitFor(() => expect(putMock).toHaveBeenCalledWith("/api/v1/projects/{id}/config", {
+			params: { path: { id: "proj-1" } },
+			body: { config: { workboard: { autonomous: { enabled: true, mode: "skip_timeout", shortTimeoutMinutes: 5, sticky: true } } } },
 		}));
 	});
 

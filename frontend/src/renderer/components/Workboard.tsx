@@ -1,6 +1,6 @@
-import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Plus } from "lucide-react";
-import { type DragEvent, useMemo, useState } from "react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { Plus, SlidersHorizontal } from "lucide-react";
+import { type DragEvent, useEffect, useMemo, useState } from "react";
 import type { components } from "../../api/schema";
 import { useWorkboardCards, workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
@@ -13,9 +13,19 @@ import { Button } from "./ui/button";
 import { useWorkspaceQuery } from "../hooks/useWorkspaceQuery";
 import { useShell } from "../lib/shell-context";
 import { useUiStore } from "../stores/ui-store";
+import { Sheet, SheetContent, SheetDescription, SheetFooter, SheetHeader, SheetTitle } from "./ui/sheet";
+import { Label } from "./ui/label";
 
 type CardStatus = WorkboardCard["status"];
 type MoveWorkCardRequest = components["schemas"]["MoveWorkCardRequest"];
+type Project = components["schemas"]["Project"];
+type AutonomousConfig = components["schemas"]["WorkboardAutonomousConfig"];
+
+const projectQueryKey = (id: string) => ["project", id] as const;
+const AUTONOMOUS_MODE_OPTIONS = [
+	{ value: "skip_timeout", label: "Skip timeout" },
+	{ value: "short_timeout", label: "Short timeout" },
+] as const;
 
 export const WORKBOARD_COLUMNS: { status: CardStatus; label: string; rail: string }[] = [
 	{ status: "triage", label: "Triage", rail: "var(--purple)" },
@@ -40,6 +50,7 @@ export function Workboard({ projectId, onShowSessions }: { projectId: string; on
 	const [draggedCardId, setDraggedCardId] = useState<string>();
 	const [moveError, setMoveError] = useState<string>();
 	const [moveAnnouncement, setMoveAnnouncement] = useState<string>();
+	const [isAutonomousOpen, setIsAutonomousOpen] = useState(false);
 	const cardsByStatus = useMemo(() => {
 		const grouped = new Map<CardStatus, WorkboardCard[]>();
 		for (const card of cardsQuery.data ?? []) (grouped.get(card.status) ?? grouped.set(card.status, []).get(card.status)!).push(card);
@@ -87,7 +98,7 @@ export function Workboard({ projectId, onShowSessions }: { projectId: string; on
 			<DashboardSubhead
 				title="Workboard"
 				subtitle="Durable work cards in OpenClaw flow order."
-				actions={<><Button onClick={() => setIsCreateOpen(true)} size="sm"><Plus className="size-3.5" aria-hidden="true" />Create card</Button>{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">Sessions</Button> : null}</>}
+				actions={<><Button onClick={() => setIsAutonomousOpen(true)} size="sm" variant="ghost"><SlidersHorizontal className="size-3.5" aria-hidden="true" />Autonomous</Button><Button onClick={() => setIsCreateOpen(true)} size="sm"><Plus className="size-3.5" aria-hidden="true" />Create card</Button>{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">Sessions</Button> : null}</>}
 			/>
 			<p className="sr-only" id="workboard-keyboard-help">Press Left or Right Arrow to move the focused card between columns.</p>
 			<div className="flex min-h-0 flex-1">
@@ -117,6 +128,71 @@ export function Workboard({ projectId, onShowSessions }: { projectId: string; on
 			{moveError ? <p className="px-[18px] pb-3 text-[12px] text-destructive" role="alert">{moveError}</p> : null}
 			{moveAnnouncement ? <p aria-live="polite" className="sr-only">{moveAnnouncement}</p> : null}
 			<CreateWorkCardDialog open={isCreateOpen} projectId={projectId} onCreated={() => undefined} onOpenChange={setIsCreateOpen} />
+			<AutonomousSettings projectId={projectId} open={isAutonomousOpen} onOpenChange={setIsAutonomousOpen} />
 		</div>
 	);
+}
+
+function AutonomousSettings({ projectId, open, onOpenChange }: { projectId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
+	const queryClient = useQueryClient();
+	const projectQuery = useQuery({
+		queryKey: projectQueryKey(projectId),
+		enabled: open,
+		queryFn: async () => {
+			const { data, error } = await apiClient.GET("/api/v1/projects/{id}", { params: { path: { id: projectId } } });
+			if (error || data?.status !== "ok") throw new Error(apiErrorMessage(error, "Could not load autonomous settings."));
+			return data.project as Project;
+		},
+	});
+	const loaded = projectQuery.data?.config?.workboard?.autonomous;
+	const defaults: Required<AutonomousConfig> = { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true };
+	const [form, setForm] = useState(defaults);
+	const [loadedProjectId, setLoadedProjectId] = useState<string>();
+	useEffect(() => {
+		if (projectQuery.data && loadedProjectId !== projectQuery.data.id) {
+			setLoadedProjectId(projectQuery.data.id);
+			setForm({ ...defaults, ...loaded });
+		}
+	}, [loaded, loadedProjectId, projectQuery.data]);
+	const mutation = useMutation({
+		mutationFn: async () => {
+			if (!projectQuery.data) throw new Error("Project config is unavailable.");
+			const nextConfig = {
+				...projectQuery.data.config,
+				workboard: {
+					...projectQuery.data.config?.workboard,
+					autonomous: { ...form, shortTimeoutMinutes: Math.max(1, Math.round(form.shortTimeoutMinutes)) },
+				},
+			};
+			const { error } = await apiClient.PUT("/api/v1/projects/{id}/config", { params: { path: { id: projectId } }, body: { config: nextConfig } });
+			if (error) throw new Error(apiErrorMessage(error, "Could not save autonomous settings."));
+		},
+		onSuccess: () => {
+			void queryClient.invalidateQueries({ queryKey: projectQueryKey(projectId) });
+			onOpenChange(false);
+		},
+	});
+
+	return <Sheet open={open} onOpenChange={onOpenChange}>
+		<SheetContent aria-label="Autonomous settings" className="border-slate-700 bg-background sm:max-w-md">
+			<SheetHeader className="border-b border-border px-5 py-4">
+				<SheetTitle className="text-base">Autonomous mode</SheetTitle>
+				<SheetDescription>Let Hermes answer eligible workboard prompts on your behalf.</SheetDescription>
+			</SheetHeader>
+			<div className="flex flex-col gap-5 overflow-y-auto px-5 py-4">
+				{projectQuery.isLoading ? <p className="text-[12px] text-muted-foreground">Loading settings…</p> : null}
+				{projectQuery.isError ? <p className="text-[12px] text-error" role="alert">{projectQuery.error instanceof Error ? projectQuery.error.message : "Could not load settings."}</p> : null}
+				{projectQuery.data ? <>
+					<label className="flex items-start gap-3 rounded-md border border-border bg-card p-3">
+						<input aria-label="Enable autonomous mode" checked={form.enabled} className="mt-0.5 accent-[var(--accent)]" type="checkbox" onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} />
+						<span><span className="block text-[13px] font-medium">Enable autonomous mode</span><span className="mt-1 block text-[12px] text-muted-foreground">Automatically handle allowed questions after the configured timeout.</span></span>
+					</label>
+					<div className="flex flex-col gap-1.5"><Label htmlFor="autonomous-mode" className="text-[12px] text-muted-foreground">Mode</Label><select id="autonomous-mode" value={form.mode} className="h-8 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-foreground" onChange={(event) => setForm((current) => ({ ...current, mode: event.target.value }))}>{AUTONOMOUS_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
+					<div className="flex flex-col gap-1.5"><Label htmlFor="autonomous-short-minutes" className="text-[12px] text-muted-foreground">Short timeout (minutes)</Label><input id="autonomous-short-minutes" min={1} step={1} type="number" value={form.shortTimeoutMinutes} className="h-8 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-foreground" onChange={(event) => setForm((current) => ({ ...current, shortTimeoutMinutes: Number(event.target.value) || 1 }))} /></div>
+					<label className="flex items-center gap-3 text-[13px]"><input aria-label="Keep autonomous mode enabled" checked={form.sticky} className="accent-[var(--accent)]" type="checkbox" onChange={(event) => setForm((current) => ({ ...current, sticky: event.target.checked }))} /><span>Keep enabled for future prompts</span></label>
+				</> : null}
+			</div>
+			<SheetFooter className="border-t border-border px-5 py-4"><Button disabled={!projectQuery.data || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? "Saving…" : "Save changes"}</Button>{mutation.isError ? <p className="text-[12px] text-error" role="alert">{mutation.error instanceof Error ? mutation.error.message : "Could not save settings."}</p> : null}</SheetFooter>
+		</SheetContent>
+	</Sheet>;
 }
