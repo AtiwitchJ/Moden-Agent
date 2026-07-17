@@ -23,6 +23,46 @@ func (s *Store) UpsertProject(ctx context.Context, r domain.ProjectRecord) error
 	return upsertProject(ctx, s.qw, r, config)
 }
 
+// PatchWorkboardAutonomous applies a sparse autonomous-config mutation while
+// holding writeMu and the write transaction. It therefore serializes with both
+// whole-project config writes and PrepareHermesAnswerAttempt's one-shot
+// consumption, avoiding stale read-modify-write restoration of a consumed
+// override.
+func (s *Store) PatchWorkboardAutonomous(ctx context.Context, id string, patch domain.WorkboardAutonomousPatch) (domain.ProjectRecord, bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+
+	var updated domain.ProjectRecord
+	found := false
+	err := s.inTx(ctx, "patch workboard autonomous config", func(q *gen.Queries) error {
+		project, err := q.GetProject(ctx, domain.ProjectID(id))
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil
+		}
+		if err != nil {
+			return err
+		}
+		found = true
+		if project.ArchivedAt.Valid {
+			updated = projectRowFromGen(project)
+			return nil
+		}
+		config := unmarshalProjectConfig(project.Config)
+		config.Workboard.Autonomous = patch.ApplyTo(config.Workboard.Autonomous.WithDefaults()).WithDefaults()
+		encoded, err := marshalProjectConfig(config)
+		if err != nil {
+			return err
+		}
+		if err := q.UpdateProjectConfig(ctx, gen.UpdateProjectConfigParams{Config: encoded, ID: domain.ProjectID(id)}); err != nil {
+			return err
+		}
+		project.Config = encoded
+		updated = projectRowFromGen(project)
+		return nil
+	})
+	return updated, found, err
+}
+
 // UpsertWorkspaceProject inserts or replaces a workspace project and its child
 // repository registry in one transaction. The child set is authoritative.
 func (s *Store) UpsertWorkspaceProject(ctx context.Context, r domain.ProjectRecord, repos []domain.WorkspaceRepoRecord) error {

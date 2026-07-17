@@ -108,8 +108,8 @@ type WorkCardEvent struct {
 
 type WorkboardAutonomousConfig struct {
 	Enabled             bool   `json:"enabled,omitempty"`
-	Mode                string `json:"mode,omitempty"` // skip_timeout | short_timeout
-	ShortTimeoutMinutes int    `json:"shortTimeoutMinutes,omitempty"`
+	Mode                string `json:"mode,omitempty" enum:"skip_timeout,short_timeout"`
+	ShortTimeoutMinutes int    `json:"shortTimeoutMinutes,omitempty" minimum:"1" maximum:"1440"`
 	Sticky              bool   `json:"sticky,omitempty"`
 }
 
@@ -131,10 +131,66 @@ func (c WorkboardAutonomousConfig) Validate() error {
 	if c.Mode != WorkboardAutonomousModeSkipTimeout && c.Mode != WorkboardAutonomousModeShortTimeout {
 		return fmt.Errorf("workboard.autonomous.mode: must be %q or %q", WorkboardAutonomousModeSkipTimeout, WorkboardAutonomousModeShortTimeout)
 	}
-	if c.Mode == WorkboardAutonomousModeShortTimeout && (c.ShortTimeoutMinutes < MinWorkboardAutonomousShortTimeoutMinutes || c.ShortTimeoutMinutes > MaxWorkboardAutonomousShortTimeoutMinutes) {
+	if c.ShortTimeoutMinutes != 0 && (c.ShortTimeoutMinutes < MinWorkboardAutonomousShortTimeoutMinutes || c.ShortTimeoutMinutes > MaxWorkboardAutonomousShortTimeoutMinutes) {
+		return fmt.Errorf("workboard.autonomous.shortTimeoutMinutes: must be between %d and %d", MinWorkboardAutonomousShortTimeoutMinutes, MaxWorkboardAutonomousShortTimeoutMinutes)
+	}
+	if c.Mode == WorkboardAutonomousModeShortTimeout && c.ShortTimeoutMinutes == 0 {
 		return fmt.Errorf("workboard.autonomous.shortTimeoutMinutes: must be between %d and %d", MinWorkboardAutonomousShortTimeoutMinutes, MaxWorkboardAutonomousShortTimeoutMinutes)
 	}
 	return nil
+}
+
+// WorkboardAutonomousPatch is a sparse update to autonomous workboard
+// settings. Nil fields leave the persisted value unchanged.
+type WorkboardAutonomousPatch struct {
+	Enabled             *bool
+	Mode                *string
+	ShortTimeoutMinutes *int
+	Sticky              *bool
+}
+
+// Validate checks values explicitly supplied in a sparse patch.
+func (p WorkboardAutonomousPatch) Validate() error {
+	if p.Mode != nil && *p.Mode != WorkboardAutonomousModeSkipTimeout && *p.Mode != WorkboardAutonomousModeShortTimeout {
+		return fmt.Errorf("workboard.autonomous.mode: must be %q or %q", WorkboardAutonomousModeSkipTimeout, WorkboardAutonomousModeShortTimeout)
+	}
+	if p.ShortTimeoutMinutes != nil && (*p.ShortTimeoutMinutes < MinWorkboardAutonomousShortTimeoutMinutes || *p.ShortTimeoutMinutes > MaxWorkboardAutonomousShortTimeoutMinutes) {
+		return fmt.Errorf("workboard.autonomous.shortTimeoutMinutes: must be between %d and %d", MinWorkboardAutonomousShortTimeoutMinutes, MaxWorkboardAutonomousShortTimeoutMinutes)
+	}
+	return nil
+}
+
+// ApplyTo applies p to c without changing fields that p omits.
+func (p WorkboardAutonomousPatch) ApplyTo(c WorkboardAutonomousConfig) WorkboardAutonomousConfig {
+	if p.Enabled != nil {
+		c.Enabled = *p.Enabled
+	}
+	if p.Mode != nil {
+		c.Mode = *p.Mode
+	}
+	if p.ShortTimeoutMinutes != nil {
+		c.ShortTimeoutMinutes = *p.ShortTimeoutMinutes
+	}
+	if p.Sticky != nil {
+		c.Sticky = *p.Sticky
+	}
+	return c
+}
+
+// WithDefaults fills values required to make a sparse autonomous config
+// actionable while preserving skip-timeout's intentionally absent minutes.
+func (c WorkboardAutonomousConfig) WithDefaults() WorkboardAutonomousConfig {
+	defaults := DefaultWorkboardConfig().Autonomous
+	if c == (WorkboardAutonomousConfig{}) {
+		return defaults
+	}
+	if c.Mode == "" {
+		c.Mode = defaults.Mode
+	}
+	if c.Mode == WorkboardAutonomousModeShortTimeout && c.ShortTimeoutMinutes == 0 {
+		c.ShortTimeoutMinutes = defaults.ShortTimeoutMinutes
+	}
+	return c
 }
 
 type WorkboardConfig struct {

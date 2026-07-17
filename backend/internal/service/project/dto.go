@@ -36,20 +36,10 @@ type UpdateWorkboardAutonomousInput struct {
 	Sticky              *bool
 }
 
-func (in UpdateWorkboardAutonomousInput) applyTo(config domain.WorkboardAutonomousConfig) domain.WorkboardAutonomousConfig {
-	if in.Enabled != nil {
-		config.Enabled = *in.Enabled
+func (in UpdateWorkboardAutonomousInput) toPatch() domain.WorkboardAutonomousPatch {
+	return domain.WorkboardAutonomousPatch{
+		Enabled: in.Enabled, Mode: in.Mode, ShortTimeoutMinutes: in.ShortTimeoutMinutes, Sticky: in.Sticky,
 	}
-	if in.Mode != nil {
-		config.Mode = *in.Mode
-	}
-	if in.ShortTimeoutMinutes != nil {
-		config.ShortTimeoutMinutes = *in.ShortTimeoutMinutes
-	}
-	if in.Sticky != nil {
-		config.Sticky = *in.Sticky
-	}
-	return config
 }
 
 // RemoveResult reports what DELETE /api/v1/projects/{id} actually did.

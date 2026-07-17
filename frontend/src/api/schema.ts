@@ -1556,7 +1556,8 @@ export interface components {
         };
         WorkboardAutonomousConfig: {
             enabled?: boolean;
-            mode?: string;
+            /** @enum {string} */
+            mode?: "skip_timeout" | "short_timeout";
             shortTimeoutMinutes?: number;
             sticky?: boolean;
         };

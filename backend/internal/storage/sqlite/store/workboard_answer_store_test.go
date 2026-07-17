@@ -38,6 +38,36 @@ func TestPrepareHermesAnswerAttemptAtomicallyConsumesOneShot(t *testing.T) {
 	}
 }
 
+func TestPatchWorkboardAutonomousDoesNotRestoreConsumedOneShot(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
+	project := domain.ProjectRecord{
+		ID: "mer", Path: "/tmp/mer", RegisteredAt: now,
+		Config: domain.ProjectConfig{Workboard: domain.WorkboardConfig{Autonomous: domain.WorkboardAutonomousConfig{Enabled: true, Mode: "skip_timeout", Sticky: false}}},
+	}
+	if err := s.UpsertProject(ctx, project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	card := domain.WorkCard{ID: "card-1", ProjectID: "mer", BoardID: "default", Title: "Ship API", Priority: domain.CardPriorityNormal, Labels: []string{}, Status: domain.CardStatusRunning, TargetPath: "/tmp/mer", Agent: "codex", GoalVersion: 1, CreatedAt: now, UpdatedAt: now}
+	if err := s.CreateWorkCard(ctx, card); err != nil {
+		t.Fatalf("create card: %v", err)
+	}
+	event := domain.WorkCardEvent{ID: "attempt-1", CardID: card.ID, ProjectID: card.ProjectID, Kind: "hermes_answer_requested", Payload: `{}`, CreatedAt: now}
+	prepared, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, project.Config.Workboard, event, true)
+	if err != nil || !prepared {
+		t.Fatalf("PrepareHermesAnswerAttempt: prepared=%t err=%v", prepared, err)
+	}
+	sticky := true
+	updated, ok, err := s.PatchWorkboardAutonomous(ctx, project.ID, domain.WorkboardAutonomousPatch{Sticky: &sticky})
+	if err != nil || !ok {
+		t.Fatalf("PatchWorkboardAutonomous: updated=%+v ok=%t err=%v", updated, ok, err)
+	}
+	if updated.Config.Workboard.Autonomous.Enabled || !updated.Config.Workboard.Autonomous.Sticky {
+		t.Fatalf("patched autonomous config = %+v, want consumed enabled=false and sticky=true", updated.Config.Workboard.Autonomous)
+	}
+}
+
 func TestPrepareHermesAnswerAttemptRollsBackOneShotWithoutEvent(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

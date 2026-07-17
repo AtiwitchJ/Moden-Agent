@@ -4389,8 +4389,13 @@ components:
         enabled:
           type: boolean
         mode:
+          enum:
+          - skip_timeout
+          - short_timeout
           type: string
         shortTimeoutMinutes:
+          maximum: 1440
+          minimum: 1
           type: integer
         sticky:
           type: boolean

@@ -151,17 +151,30 @@ function AutonomousSettings({ projectId, open, onOpenChange }: { projectId: stri
 	const loaded = projectQuery.data?.config?.workboard?.autonomous;
 	const defaults: AutonomousForm = { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true };
 	const [form, setForm] = useState(defaults);
+	const [savedForm, setSavedForm] = useState<AutonomousForm>();
 	useEffect(() => {
 		if (projectQuery.data) {
 			const mode: AutonomousMode = loaded?.mode === "short_timeout" ? "short_timeout" : "skip_timeout";
-			setForm({ ...defaults, ...loaded, mode });
+			const next = { ...defaults, ...loaded, mode };
+			setForm(next);
+			setSavedForm(next);
 		}
 	}, [loaded, projectQuery.data]);
+	const dirtyPatch = (): UpdateWorkboardAutonomousRequest => {
+		const patch: UpdateWorkboardAutonomousRequest = {};
+		if (!savedForm) return patch;
+		if (form.enabled !== savedForm.enabled) patch.enabled = form.enabled;
+		if (form.mode !== savedForm.mode) patch.mode = form.mode;
+		const shortTimeoutMinutes = Math.max(1, Math.round(form.shortTimeoutMinutes));
+		if (shortTimeoutMinutes !== savedForm.shortTimeoutMinutes) patch.shortTimeoutMinutes = shortTimeoutMinutes;
+		if (form.sticky !== savedForm.sticky) patch.sticky = form.sticky;
+		return patch;
+	};
 	const mutation = useMutation({
-		mutationFn: async () => {
+		mutationFn: async (body: UpdateWorkboardAutonomousRequest) => {
 			const { error } = await apiClient.PATCH("/api/v1/projects/{id}/workboard/autonomous", {
 				params: { path: { id: projectId } },
-				body: { ...form, shortTimeoutMinutes: Math.max(1, Math.round(form.shortTimeoutMinutes)) },
+				body,
 			});
 			if (error) throw new Error(apiErrorMessage(error, "Could not save autonomous settings."));
 		},
@@ -170,6 +183,14 @@ function AutonomousSettings({ projectId, open, onOpenChange }: { projectId: stri
 			onOpenChange(false);
 		},
 	});
+	const save = () => {
+		const patch = dirtyPatch();
+		if (Object.keys(patch).length === 0) {
+			onOpenChange(false);
+			return;
+		}
+		mutation.mutate(patch);
+	};
 
 	return <Sheet open={open} onOpenChange={onOpenChange}>
 		<SheetContent aria-label="Autonomous settings" className="border-border bg-background sm:max-w-md">
@@ -190,7 +211,7 @@ function AutonomousSettings({ projectId, open, onOpenChange }: { projectId: stri
 					<label className="flex items-center gap-3 text-[13px]"><input aria-label="Keep autonomous mode enabled" checked={form.sticky} className="accent-[var(--accent)]" type="checkbox" onChange={(event) => setForm((current) => ({ ...current, sticky: event.target.checked }))} /><span>Keep enabled for future prompts</span></label>
 				</> : null}
 			</div>
-			<SheetFooter className="border-t border-border px-5 py-4"><Button disabled={!projectQuery.data || mutation.isPending} onClick={() => mutation.mutate()}>{mutation.isPending ? "Saving…" : "Save changes"}</Button>{mutation.isError ? <p className="text-[12px] text-error" role="alert">{mutation.error instanceof Error ? mutation.error.message : "Could not save settings."}</p> : null}</SheetFooter>
+			<SheetFooter className="border-t border-border px-5 py-4"><Button disabled={!projectQuery.data || mutation.isPending} onClick={save}>{mutation.isPending ? "Saving…" : "Save changes"}</Button>{mutation.isError ? <p className="text-[12px] text-error" role="alert">{mutation.error instanceof Error ? mutation.error.message : "Could not save settings."}</p> : null}</SheetFooter>
 		</SheetContent>
 	</Sheet>;
 }

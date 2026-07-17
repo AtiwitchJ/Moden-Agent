@@ -98,7 +98,21 @@ describe("Workboard", () => {
 
 		await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/api/v1/projects/{id}/workboard/autonomous", {
 			params: { path: { id: "proj-1" } },
-			body: { enabled: true, mode: "skip_timeout", shortTimeoutMinutes: 5, sticky: true },
+			body: { enabled: true, shortTimeoutMinutes: 5 },
+		}));
+	});
+
+	it("does not resend a stale autonomous enabled value when another field changes", async () => {
+		getMock.mockResolvedValueOnce({ data: { status: "ok", project: { id: "proj-1", config: { workboard: { autonomous: { enabled: true, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined });
+		renderBoard();
+		fireEvent.click(screen.getByRole("button", { name: "Autonomous" }));
+
+		fireEvent.change(await screen.findByLabelText("Short timeout (minutes)"), { target: { value: "5" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/api/v1/projects/{id}/workboard/autonomous", {
+			params: { path: { id: "proj-1" } },
+			body: { shortTimeoutMinutes: 5 },
 		}));
 	});
 

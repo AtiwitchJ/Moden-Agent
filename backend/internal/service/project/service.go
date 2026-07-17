@@ -60,8 +60,8 @@ type Service struct {
 	// covered by the store's own writeMu, so path/id conflict checks plus the
 	// subsequent mutation must be atomic from the perspective of concurrent callers.
 	addMu sync.Mutex
-	// configMu serialises whole-config replacement with sparse config mutations,
-	// so a PATCH cannot overwrite a concurrent PUT (or vice versa).
+	// configMu serialises whole-config replacements while they verify the
+	// project exists and write the replacement.
 	configMu sync.Mutex
 }
 
@@ -326,46 +326,23 @@ func (m *Service) SetConfig(ctx context.Context, id domain.ProjectID, in SetConf
 	return m.projectFromRow(row), nil
 }
 
-// UpdateWorkboardAutonomous applies a sparse autonomous-workboard update while
-// holding the same config lock as SetConfig. The read-modify-write sequence is
-// therefore atomic with respect to project-service config mutations.
+// UpdateWorkboardAutonomous applies a sparse autonomous-workboard update. The
+// store performs its read-modify-write under its write serialization so it
+// cannot restore a one-shot autonomous override consumed by Hermes.
 func (m *Service) UpdateWorkboardAutonomous(ctx context.Context, id domain.ProjectID, in UpdateWorkboardAutonomousInput) (Project, error) {
 	if err := validateProjectID(id); err != nil {
 		return Project{}, err
 	}
-	if in.ShortTimeoutMinutes != nil && (*in.ShortTimeoutMinutes < domain.MinWorkboardAutonomousShortTimeoutMinutes || *in.ShortTimeoutMinutes > domain.MaxWorkboardAutonomousShortTimeoutMinutes) {
-		return Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", "workboard.autonomous.shortTimeoutMinutes: must be between 1 and 1440", nil)
+	patch := in.toPatch()
+	if err := patch.Validate(); err != nil {
+		return Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
 	}
-
-	m.configMu.Lock()
-	defer m.configMu.Unlock()
-
-	row, ok, err := m.store.GetProject(ctx, string(id))
+	row, ok, err := m.store.PatchWorkboardAutonomous(ctx, string(id), patch)
 	if err != nil {
-		return Project{}, apierr.Internal("PROJECT_LOAD_FAILED", "Failed to load project")
+		return Project{}, apierr.Internal("PROJECT_CONFIG_UPDATE_FAILED", "Failed to update project config")
 	}
 	if !ok || !row.ArchivedAt.IsZero() {
 		return Project{}, apierr.NotFound("PROJECT_NOT_FOUND", "Unknown project")
-	}
-
-	autonomous := row.Config.Workboard.Autonomous
-	defaults := domain.DefaultWorkboardConfig().Autonomous
-	if autonomous == (domain.WorkboardAutonomousConfig{}) {
-		autonomous = defaults
-	} else {
-		if autonomous.Mode == "" {
-			autonomous.Mode = defaults.Mode
-		}
-		if autonomous.Mode == domain.WorkboardAutonomousModeShortTimeout && autonomous.ShortTimeoutMinutes == 0 {
-			autonomous.ShortTimeoutMinutes = defaults.ShortTimeoutMinutes
-		}
-	}
-	row.Config.Workboard.Autonomous = in.applyTo(autonomous)
-	if err := row.Config.Validate(); err != nil {
-		return Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
-	}
-	if err := m.store.UpsertProject(ctx, row); err != nil {
-		return Project{}, apierr.Internal("PROJECT_CONFIG_UPDATE_FAILED", "Failed to update project config")
 	}
 	return m.projectFromRow(row), nil
 }
