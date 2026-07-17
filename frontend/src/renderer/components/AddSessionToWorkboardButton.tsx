@@ -29,7 +29,12 @@ export function AddSessionToWorkboardButton({
 	const workspace = workspaceQuery.data?.find((item) => item.id === session.workspaceId);
 	const cardsQuery = useWorkboardCards(session.workspaceId);
 	const linkedCard = sessionLinkedWorkCard(cardsQuery.data, session.id);
-	const canAdd = Boolean(workspace) && sessionCanJoinWorkboard(session) && !linkedCard;
+	const canAdd =
+		Boolean(workspace) &&
+		sessionCanJoinWorkboard(session) &&
+		cardsQuery.isFetched &&
+		!cardsQuery.isLoading &&
+		!linkedCard;
 
 	const addToWorkboard = useMutation({
 		mutationFn: async () => {
@@ -41,6 +46,10 @@ export function AddSessionToWorkboardButton({
 			void navigate({ to: "/projects/$projectId", params: { projectId: session.workspaceId } });
 		},
 	});
+
+	if (!cardsQuery.isFetched || cardsQuery.isLoading) {
+		return null;
+	}
 
 	if (!canAdd) {
 		if (linkedCard) {
@@ -62,24 +71,31 @@ export function AddSessionToWorkboardButton({
 	}
 
 	return (
-		<Button
-			aria-label={`Add ${session.title} to Workboard`}
-			className={cn("gap-1.5", className)}
-			disabled={addToWorkboard.isPending}
-			onClick={(event) => {
-				event.stopPropagation();
-				addToWorkboard.mutate();
-			}}
-			size={size}
-			type="button"
-			variant={variant}
-		>
-			{addToWorkboard.isPending ? (
-				<Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
-			) : (
-				<LayoutGrid className="size-3.5" aria-hidden="true" />
-			)}
-			{showLabel ? (addToWorkboard.isPending ? "Adding…" : "Add to Workboard") : null}
-		</Button>
+		<div className={cn("flex flex-col items-start gap-1", className)}>
+			<Button
+				aria-label={`Add ${session.title} to Workboard`}
+				className="gap-1.5"
+				disabled={addToWorkboard.isPending}
+				onClick={(event) => {
+					event.stopPropagation();
+					addToWorkboard.mutate();
+				}}
+				size={size}
+				type="button"
+				variant={variant}
+			>
+				{addToWorkboard.isPending ? (
+					<Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" />
+				) : (
+					<LayoutGrid className="size-3.5" aria-hidden="true" />
+				)}
+				{showLabel ? (addToWorkboard.isPending ? "Adding…" : "Add to Workboard") : null}
+			</Button>
+			{addToWorkboard.isError ? (
+				<p className="text-[12px] text-error" role="alert">
+					{addToWorkboard.error instanceof Error ? addToWorkboard.error.message : "Could not add session to Workboard."}
+				</p>
+			) : null}
+		</div>
 	);
 }

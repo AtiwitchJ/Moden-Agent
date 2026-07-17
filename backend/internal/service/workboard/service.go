@@ -36,6 +36,7 @@ type CreateInput struct {
 	Status      domain.CardStatus
 	TargetPath  string
 	Agent       string
+	SessionID   string
 	ScheduledAt *time.Time
 }
 
@@ -137,6 +138,10 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.WorkCard, 
 	if err != nil {
 		return domain.WorkCard{}, err
 	}
+	sessionID := strings.TrimSpace(in.SessionID)
+	if err := s.ensureSessionIDAvailable(ctx, projectID, "", sessionID); err != nil {
+		return domain.WorkCard{}, err
+	}
 
 	now := s.clock().UTC()
 	card := domain.WorkCard{
@@ -151,6 +156,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.WorkCard, 
 		ScheduledAt: cloneTime(in.ScheduledAt),
 		TargetPath:  targetPath,
 		Agent:       agent,
+		SessionID:   sessionID,
 		GoalVersion: 1,
 		CreatedAt:   now,
 		UpdatedAt:   now,
@@ -274,7 +280,11 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (domain
 		}
 	}
 	if in.SessionID != nil {
-		card.SessionID = strings.TrimSpace(*in.SessionID)
+		sessionID := strings.TrimSpace(*in.SessionID)
+		if err := s.ensureSessionIDAvailable(ctx, card.ProjectID, card.ID, sessionID); err != nil {
+			return domain.WorkCard{}, err
+		}
+		card.SessionID = sessionID
 	}
 	if in.Position != nil {
 		card.Position = *in.Position
@@ -299,6 +309,29 @@ func (s *Service) validateTargetPath(ctx context.Context, projectID, targetPath 
 		return "", apierr.Invalid("WORK_CARD_TARGET_PATH_INVALID", err.Error(), nil)
 	}
 	return path, nil
+}
+
+func (s *Service) ensureSessionIDAvailable(ctx context.Context, projectID, cardID, sessionID string) error {
+	sessionID = strings.TrimSpace(sessionID)
+	if sessionID == "" {
+		return nil
+	}
+	cards, err := s.store.ListWorkCards(ctx, projectID, defaultBoardID)
+	if err != nil {
+		return apierr.Internal("WORK_CARDS_LIST_FAILED", "Failed to load work cards")
+	}
+	for _, other := range cards {
+		if other.ID == cardID {
+			continue
+		}
+		if other.SessionID == sessionID {
+			return apierr.Conflict("WORK_CARD_SESSION_IN_USE", "Session is already linked to another work card", map[string]any{
+				"sessionId": sessionID,
+				"cardId":    other.ID,
+			})
+		}
+	}
+	return nil
 }
 
 func (s *Service) repoRoots(ctx context.Context, projectID string) ([]string, error) {

@@ -22,6 +22,7 @@ export function buildLegacyWorkCardInput(session: WorkspaceSession, workspace: W
 		status: "running",
 		targetPath: workspace.path,
 		agent: session.provider,
+		sessionId: session.id,
 	};
 }
 
@@ -36,14 +37,7 @@ export async function addSessionToWorkboard(session: WorkspaceSession, workspace
 	});
 	if (error) throw new Error(apiErrorMessage(error, "Could not create work card."));
 	if (!data?.id) throw new Error("Work card creation returned no card.");
-
-	const { data: linked, error: linkError } = await apiClient.PATCH("/api/v1/workboard/cards/{cardId}", {
-		params: { path: { cardId: data.id } },
-		body: { sessionId: session.id },
-	});
-	if (linkError) throw new Error(apiErrorMessage(linkError, "Could not link session to work card."));
-	if (!linked) throw new Error("Work card link returned no card.");
-	return linked;
+	return data;
 }
 
 export function sessionLinkedWorkCard(cards: readonly WorkCard[] | undefined, sessionId: string): WorkCard | undefined {

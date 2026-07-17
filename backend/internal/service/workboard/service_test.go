@@ -135,6 +135,76 @@ func TestUpdateLinksSessionID(t *testing.T) {
 	}
 }
 
+func TestCreateLinksSessionIDAtomically(t *testing.T) {
+	svc, sqliteStore, root := newTestService(t)
+	ctx := context.Background()
+	session, err := sqliteStore.CreateSession(ctx, domain.SessionRecord{
+		ProjectID: domain.ProjectID("p1"),
+		Kind:      domain.KindWorker,
+		Harness:   domain.HarnessCodex,
+		Activity:  domain.Activity{State: domain.ActivityActive, LastActivityAt: testNow},
+		CreatedAt: testNow,
+		UpdatedAt: testNow,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	card, err := svc.Create(ctx, workboard.CreateInput{
+		ProjectID: "p1", Title: "legacy", Notes: "notes", Priority: domain.CardPriorityNormal,
+		Labels: []string{"legacy"}, Status: domain.CardStatusRunning, TargetPath: root, Agent: "codex",
+		SessionID: string(session.ID),
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if card.SessionID != string(session.ID) {
+		t.Fatalf("SessionID = %q", card.SessionID)
+	}
+	_, err = svc.Create(ctx, workboard.CreateInput{
+		ProjectID: "p1", Title: "dup", Notes: "notes", Priority: domain.CardPriorityNormal,
+		Labels: []string{"legacy"}, Status: domain.CardStatusRunning, TargetPath: root, Agent: "codex",
+		SessionID: string(session.ID),
+	})
+	if err == nil {
+		t.Fatal("expected conflict on duplicate session link")
+	}
+}
+
+func TestUpdateRejectsDuplicateSessionID(t *testing.T) {
+	svc, sqliteStore, root := newTestService(t)
+	ctx := context.Background()
+	session, err := sqliteStore.CreateSession(ctx, domain.SessionRecord{
+		ProjectID: domain.ProjectID("p1"),
+		Kind:      domain.KindWorker,
+		Harness:   domain.HarnessCodex,
+		Activity:  domain.Activity{State: domain.ActivityActive, LastActivityAt: testNow},
+		CreatedAt: testNow,
+		UpdatedAt: testNow,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	first, err := svc.Create(ctx, workboard.CreateInput{
+		ProjectID: "p1", Title: "one", Notes: "notes", Priority: domain.CardPriorityNormal,
+		Labels: []string{"legacy"}, Status: domain.CardStatusRunning, TargetPath: root, Agent: "codex",
+		SessionID: string(session.ID),
+	})
+	if err != nil {
+		t.Fatalf("Create first: %v", err)
+	}
+	second, err := svc.Create(ctx, workboard.CreateInput{
+		ProjectID: "p1", Title: "two", Notes: "notes", Priority: domain.CardPriorityNormal,
+		Labels: []string{"legacy"}, Status: domain.CardStatusRunning, TargetPath: root, Agent: "codex",
+	})
+	if err != nil {
+		t.Fatalf("Create second: %v", err)
+	}
+	sessionID := string(session.ID)
+	if _, err := svc.Update(ctx, second.ID, workboard.UpdateInput{SessionID: &sessionID}); err == nil {
+		t.Fatalf("expected conflict against card %s", first.ID)
+	}
+}
+
 func TestUpdateClearsScheduledAtWhenExplicitlySetToNil(t *testing.T) {
 	svc, _, root := newTestService(t)
 	ctx := context.Background()

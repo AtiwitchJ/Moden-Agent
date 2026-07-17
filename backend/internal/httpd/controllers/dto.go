@@ -79,6 +79,7 @@ type CreateWorkCardRequest struct {
 	Status      string     `json:"status,omitempty" enum:"triage,backlog,todo,scheduled,ready,running,review,blocked,done"`
 	TargetPath  string     `json:"targetPath"`
 	Agent       string     `json:"agent"`
+	SessionID   string     `json:"sessionId,omitempty"`
 	ScheduledAt *time.Time `json:"scheduledAt,omitempty"`
 }
 
@@ -86,7 +87,7 @@ func (r CreateWorkCardRequest) toInput(projectID string) workboardsvc.CreateInpu
 	return workboardsvc.CreateInput{
 		ProjectID: projectID, Title: r.Title, Notes: r.Notes,
 		Priority: domain.CardPriority(r.Priority), Labels: r.Labels, Status: domain.CardStatus(r.Status),
-		TargetPath: r.TargetPath, Agent: r.Agent, ScheduledAt: r.ScheduledAt,
+		TargetPath: r.TargetPath, Agent: r.Agent, SessionID: r.SessionID, ScheduledAt: r.ScheduledAt,
 	}
 }
 

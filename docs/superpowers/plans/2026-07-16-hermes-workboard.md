@@ -680,13 +680,26 @@ Expected: PASS
 
 ### Task 18: Final gate
 
+- [x] **Step 1: Automated gate** (2026-07-17)
+
 ```bash
-cd backend && go test ./... -count=1
-cd frontend && npm run typecheck
-npm run api  # clean drift
+cd backend && go test ./... -count=1   # PASS
+cd frontend && npm run typecheck       # PASS
+npm run api                            # PASS — no drift
 ```
 
-Manual checklist from design: create→ready→claim→TUI; timeout answer; limit switch; retarget; intake triage; done is manual.
+- [ ] **Step 2: Manual checklist** (design sign-off — human QA)
+
+| Flow | Status |
+|------|--------|
+| create→ready→claim→TUI | not run this gate |
+| timeout answer | not run this gate |
+| limit switch | not run this gate |
+| retarget | not run this gate |
+| intake triage | not run this gate |
+| done is manual (no auto-done) | by design — verified in Task 6 tests |
+
+**Remaining unchecked:** Task 7 Step 2 manual smoke (add project, open workboard, create card in triage, drag to ready, refresh persists) — deferred to human QA alongside Step 2 above.
 
 ---
 

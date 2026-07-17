@@ -990,6 +990,7 @@ export interface components {
             priority: "low" | "normal" | "high" | "urgent";
             /** Format: date-time */
             scheduledAt?: null | string;
+            sessionId?: string;
             /** @enum {string} */
             status?: "triage" | "backlog" | "todo" | "scheduled" | "ready" | "running" | "review" | "blocked" | "done";
             targetPath: string;

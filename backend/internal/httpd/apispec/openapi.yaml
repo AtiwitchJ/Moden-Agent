@@ -2898,6 +2898,8 @@ components:
           type:
           - "null"
           - string
+        sessionId:
+          type: string
         status:
           enum:
           - triage

@@ -1,4 +1,4 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it, vi, beforeEach } from "vitest";
 import type { WorkspaceSession, WorkspaceSummary } from "../types/workspace";
 
 const { postMock, patchMock } = vi.hoisted(() => ({
@@ -34,18 +34,20 @@ const session: WorkspaceSession = {
 };
 
 describe("addSessionToWorkboard", () => {
-	it("creates a running card then patches the session link", async () => {
+	beforeEach(() => {
+		postMock.mockReset();
+		patchMock.mockReset();
+	});
+
+	it("creates a running card with the session link in one request", async () => {
 		postMock.mockResolvedValueOnce({
 			data: {
 				id: "card-1",
 				projectId: "proj-1",
 				status: "running",
 				title: "Fix checkout",
+				sessionId: "sess-1",
 			},
-			error: undefined,
-		});
-		patchMock.mockResolvedValueOnce({
-			data: { id: "card-1", sessionId: "sess-1", status: "running" },
 			error: undefined,
 		});
 
@@ -58,12 +60,10 @@ describe("addSessionToWorkboard", () => {
 				status: "running",
 				targetPath: "/repo/proj-1",
 				agent: "codex",
+				sessionId: "sess-1",
 			}),
 		});
-		expect(patchMock).toHaveBeenCalledWith("/api/v1/workboard/cards/{cardId}", {
-			params: { path: { cardId: "card-1" } },
-			body: { sessionId: "sess-1" },
-		});
+		expect(patchMock).not.toHaveBeenCalled();
 		expect(card.sessionId).toBe("sess-1");
 	});
 });
