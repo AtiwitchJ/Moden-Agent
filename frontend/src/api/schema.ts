@@ -1581,6 +1581,7 @@ export interface components {
              * @description Optional scheduled timestamp; set to null to clear.
              */
             scheduledAt?: null | string;
+            sessionId?: null | string;
             /** @enum {null|string} */
             status?: "triage" | "backlog" | "todo" | "scheduled" | "ready" | "running" | "review" | "blocked" | "done" | null;
             targetPath?: null | string;
@@ -1641,6 +1642,7 @@ export interface components {
             fallbackAgents?: string[];
             limitCooldownMinutes?: number;
             wipLimit?: number;
+            workboardIntake?: null | boolean;
         };
         WorkspaceRepo: {
             name: string;

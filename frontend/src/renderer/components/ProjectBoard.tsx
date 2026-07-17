@@ -1,10 +1,14 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { SessionMessagesPanel } from "./SessionMessagesPanel";
 import { SessionsBoard } from "./SessionsBoard";
 import { Workboard } from "./Workboard";
+import { writeLastProjectId } from "../lib/workboard-home";
 
 export function ProjectBoard({ projectId }: { projectId: string }) {
 	const [showSessions, setShowSessions] = useState(false);
+	useEffect(() => {
+		writeLastProjectId(projectId);
+	}, [projectId]);
 	return (
 		<div className="flex h-full min-h-0">
 			<div className="min-w-0 flex-1">

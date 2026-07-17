@@ -15,6 +15,7 @@ import {
 } from "lucide-react";
 import { useRef, useState, type ReactNode } from "react";
 import {
+	isOrchestratorSession,
 	attentionZone,
 	groupWorkspacesByCompany,
 	newestActiveOrchestrator,
@@ -65,6 +66,7 @@ import {
 	type CreateProjectAgentSelection,
 	type WorkspaceDetectionResult,
 } from "./CreateProjectAgentSheet";
+import { AddSessionToWorkboardButton } from "./AddSessionToWorkboardButton";
 
 // The macOS hiddenInset traffic lights and the fixed TitlebarNav overlay live
 // in the full-width topbar's left inset (_shell renders the bar above the
@@ -818,7 +820,7 @@ function SessionRow({ session, active, onOpen }: { session: WorkspaceSession; ac
 	}
 
 	return (
-		<SidebarMenuSubItem>
+		<SidebarMenuSubItem className="group/menu-sub-item">
 			<button
 				aria-current={active ? "page" : undefined}
 				aria-label={`Open ${session.title}`}
@@ -852,6 +854,17 @@ function SessionRow({ session, active, onOpen }: { session: WorkspaceSession; ac
 			>
 				<Pencil aria-hidden="true" />
 			</button>
+			{!isOrchestratorSession(session) ? (
+				<div
+					className={cn(
+						"absolute top-1/2 right-7 -translate-y-1/2 opacity-0",
+						"group-focus-within/menu-sub-item:opacity-100 group-hover/menu-sub-item:opacity-100",
+					)}
+					onClick={(event) => event.stopPropagation()}
+				>
+					<AddSessionToWorkboardButton session={session} showLabel={false} size="icon" variant="ghost" />
+				</div>
+			) : null}
 		</SidebarMenuSubItem>
 	);
 }

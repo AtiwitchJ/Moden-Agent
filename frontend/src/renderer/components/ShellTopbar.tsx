@@ -18,6 +18,7 @@ import { addRendererExceptionStep, captureRendererEvent, captureRendererExceptio
 import { useUiStore } from "../stores/ui-store";
 import { OrchestratorIcon } from "./icons";
 import { NewTaskDialog } from "./NewTaskDialog";
+import { AddSessionToWorkboardButton } from "./AddSessionToWorkboardButton";
 import { cn } from "../lib/utils";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
@@ -195,6 +196,7 @@ export function ShellTopbar() {
 						) : null}
 						{/* Kill control sits beside the orchestrator link for active workers —
 						    moved here from the inspector's Summary "Danger zone". */}
+						{!isOrchestrator && session ? <AddSessionToWorkboardButton session={session} variant="outline" /> : null}
 						{!isOrchestrator && session && sessionIsActive(session) ? <TopbarKillButton session={session} /> : null}
 						{!isOrchestrator && (
 							<button

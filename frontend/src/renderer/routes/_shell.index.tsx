@@ -1,4 +1,4 @@
-import { createFileRoute, useNavigate } from "@tanstack/react-router";
+import { createFileRoute, redirect, useNavigate } from "@tanstack/react-router";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useState } from "react";
 import { Building2, Plus, ArrowRight, Briefcase, Pencil, Terminal } from "lucide-react";
@@ -17,8 +17,15 @@ import { MigrationPopup } from "../components/MigrationPopup";
 import { HQSection } from "../components/HQSection";
 import { HeartbeatPauseSwitch } from "../components/HeartbeatPauseSwitch";
 import { cn } from "../lib/utils";
+import { workspaceQueryOptions } from "../hooks/useWorkspaceQuery";
+import { workboardHomeRedirectTarget } from "../lib/workboard-home";
 
 export const Route = createFileRoute("/_shell/")({
+	beforeLoad: async ({ context }) => {
+		const workspaces = await context.queryClient.ensureQueryData(workspaceQueryOptions);
+		const target = workboardHomeRedirectTarget(workspaces);
+		if (target) throw redirect(target);
+	},
 	component: CEODashboard,
 });
 

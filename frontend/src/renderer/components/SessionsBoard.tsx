@@ -22,6 +22,7 @@ import { restartProjectOrchestrator } from "../lib/restart-orchestrator";
 import { prDiffSummary, sessionPRDisplaySummaries } from "../lib/pr-display";
 import { cn } from "../lib/utils";
 import { PRAttentionPanel, PRStatusStrip } from "./PRSummaryDisplay";
+import { AddSessionToWorkboardButton } from "./AddSessionToWorkboardButton";
 import { useUiStore } from "../stores/ui-store";
 
 type SessionsBoardProps = {
@@ -365,6 +366,9 @@ function SessionCard({ session, onOpen }: { session: WorkspaceSession; onOpen: (
 				) : (
 					"no PR yet"
 				)}
+			</div>
+			<div className="border-t border-border px-[13px] py-2" onClick={(event) => event.stopPropagation()} onKeyDown={(event) => event.stopPropagation()}>
+				<AddSessionToWorkboardButton session={session} variant="ghost" />
 			</div>
 		</div>
 	);

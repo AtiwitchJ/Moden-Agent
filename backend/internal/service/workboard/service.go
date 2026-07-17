@@ -49,6 +49,7 @@ type UpdateInput struct {
 	ScheduledAt OptionalTime
 	TargetPath  *string
 	Agent       *string
+	SessionID   *string
 	Position    *int64
 }
 
@@ -271,6 +272,9 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (domain
 		if card.Agent == "" {
 			return domain.WorkCard{}, apierr.Invalid("WORK_CARD_AGENT_REQUIRED", "Agent is required", nil)
 		}
+	}
+	if in.SessionID != nil {
+		card.SessionID = strings.TrimSpace(*in.SessionID)
 	}
 	if in.Position != nil {
 		card.Position = *in.Position

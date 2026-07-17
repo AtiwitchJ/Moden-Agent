@@ -4449,6 +4449,10 @@ components:
           type:
           - "null"
           - string
+        sessionId:
+          type:
+          - "null"
+          - string
         status:
           enum:
           - triage
@@ -4631,6 +4635,10 @@ components:
           type: integer
         wipLimit:
           type: integer
+        workboardIntake:
+          type:
+          - "null"
+          - boolean
       type: object
     WorkspaceRepo:
       properties:

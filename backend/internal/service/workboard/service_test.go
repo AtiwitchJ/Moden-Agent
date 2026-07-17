@@ -9,10 +9,11 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/service/workboard"
 	"github.com/modernagent/modern-agent/backend/internal/storage/sqlite"
+	"github.com/modernagent/modern-agent/backend/internal/storage/sqlite/store"
 )
 
 func TestCreateRequiresAgentAndPath(t *testing.T) {
-	svc, _ := newTestService(t)
+	svc, _, _ := newTestService(t)
 	_, err := svc.Create(context.Background(), workboard.CreateInput{
 		ProjectID: "p1", Title: "t", Notes: "n", Priority: domain.CardPriorityNormal,
 		Labels: []string{"bug"}, TargetPath: "/nope", Agent: "",
@@ -23,7 +24,7 @@ func TestCreateRequiresAgentAndPath(t *testing.T) {
 }
 
 func TestCreateDefaultsAndReadyTimestamp(t *testing.T) {
-	svc, root := newTestService(t)
+	svc, _, root := newTestService(t)
 	ctx := context.Background()
 
 	card, err := svc.Create(ctx, workboard.CreateInput{
@@ -50,7 +51,7 @@ func TestCreateDefaultsAndReadyTimestamp(t *testing.T) {
 }
 
 func TestCreateRequiresLabels(t *testing.T) {
-	svc, root := newTestService(t)
+	svc, _, root := newTestService(t)
 	_, err := svc.Create(context.Background(), workboard.CreateInput{
 		ProjectID: "p1", Title: "missing labels", Notes: "notes", Priority: domain.CardPriorityNormal,
 		TargetPath: root, Agent: "codex",
@@ -61,7 +62,7 @@ func TestCreateRequiresLabels(t *testing.T) {
 }
 
 func TestCRUDUsesPartialUpdateAndMove(t *testing.T) {
-	svc, root := newTestService(t)
+	svc, _, root := newTestService(t)
 	ctx := context.Background()
 	card, err := svc.Create(ctx, workboard.CreateInput{
 		ProjectID: "p1", Title: "original", Notes: "notes", Priority: domain.CardPriorityNormal,
@@ -103,8 +104,39 @@ func TestCRUDUsesPartialUpdateAndMove(t *testing.T) {
 	}
 }
 
+func TestUpdateLinksSessionID(t *testing.T) {
+	svc, sqliteStore, root := newTestService(t)
+	ctx := context.Background()
+	session, err := sqliteStore.CreateSession(ctx, domain.SessionRecord{
+		ProjectID: domain.ProjectID("p1"),
+		Kind:      domain.KindWorker,
+		Harness:   domain.HarnessCodex,
+		Activity:  domain.Activity{State: domain.ActivityActive, LastActivityAt: testNow},
+		CreatedAt: testNow,
+		UpdatedAt: testNow,
+	})
+	if err != nil {
+		t.Fatalf("CreateSession: %v", err)
+	}
+	card, err := svc.Create(ctx, workboard.CreateInput{
+		ProjectID: "p1", Title: "legacy", Notes: "notes", Priority: domain.CardPriorityNormal,
+		Labels: []string{"legacy"}, Status: domain.CardStatusRunning, TargetPath: root, Agent: "codex",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	sessionID := string(session.ID)
+	updated, err := svc.Update(ctx, card.ID, workboard.UpdateInput{SessionID: &sessionID})
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.SessionID != sessionID {
+		t.Fatalf("SessionID = %q, want %q", updated.SessionID, sessionID)
+	}
+}
+
 func TestUpdateClearsScheduledAtWhenExplicitlySetToNil(t *testing.T) {
-	svc, root := newTestService(t)
+	svc, _, root := newTestService(t)
 	ctx := context.Background()
 	scheduledAt := testNow.Add(time.Hour)
 	card, err := svc.Create(ctx, workboard.CreateInput{
@@ -134,7 +166,7 @@ func TestUpdateClearsScheduledAtWhenExplicitlySetToNil(t *testing.T) {
 
 func TestMoveAndUpdatePreserveReadyTimestamp(t *testing.T) {
 	now := testNow
-	svc, root := newTestServiceWithClock(t, func() time.Time { return now })
+	svc, _, root := newTestServiceWithClock(t, func() time.Time { return now })
 	ctx := context.Background()
 	card, err := svc.Create(ctx, workboard.CreateInput{
 		ProjectID: "p1", Title: "ready", Notes: "notes", Priority: domain.CardPriorityNormal,
@@ -167,22 +199,22 @@ func TestMoveAndUpdatePreserveReadyTimestamp(t *testing.T) {
 
 var testNow = time.Date(2026, 7, 17, 8, 0, 0, 0, time.UTC)
 
-func newTestService(t *testing.T) (*workboard.Service, string) {
+func newTestService(t *testing.T) (*workboard.Service, *store.Store, string) {
 	return newTestServiceWithClock(t, func() time.Time { return testNow })
 }
 
-func newTestServiceWithClock(t *testing.T, clock func() time.Time) (*workboard.Service, string) {
+func newTestServiceWithClock(t *testing.T, clock func() time.Time) (*workboard.Service, *store.Store, string) {
 	t.Helper()
 	root := t.TempDir()
-	store, err := sqlite.Open(t.TempDir())
+	sqliteStore, err := sqlite.Open(t.TempDir())
 	if err != nil {
 		t.Fatalf("open store: %v", err)
 	}
-	t.Cleanup(func() { _ = store.Close() })
-	if err := store.UpsertProject(context.Background(), domain.ProjectRecord{
+	t.Cleanup(func() { _ = sqliteStore.Close() })
+	if err := sqliteStore.UpsertProject(context.Background(), domain.ProjectRecord{
 		ID: "p1", Path: root, DisplayName: "Project", RegisteredAt: testNow,
 	}); err != nil {
 		t.Fatalf("register project: %v", err)
 	}
-	return workboard.NewWithDeps(workboard.Deps{Store: store, Clock: clock}), root
+	return workboard.NewWithDeps(workboard.Deps{Store: sqliteStore, Clock: clock}), sqliteStore, root
 }

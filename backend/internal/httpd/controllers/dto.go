@@ -100,6 +100,7 @@ type UpdateWorkCardRequest struct {
 	ScheduledAt *time.Time `json:"scheduledAt,omitempty" description:"Optional scheduled timestamp; set to null to clear."`
 	TargetPath  *string    `json:"targetPath,omitempty"`
 	Agent       *string    `json:"agent,omitempty"`
+	SessionID   *string    `json:"sessionId,omitempty"`
 	Position    *int64     `json:"position,omitempty"`
 
 	scheduledAtSet bool
@@ -109,7 +110,7 @@ func (r UpdateWorkCardRequest) toInput() workboardsvc.UpdateInput {
 	in := workboardsvc.UpdateInput{
 		Title: r.Title, Notes: r.Notes, Labels: r.Labels,
 		ScheduledAt: workboardsvc.OptionalTime{Set: r.scheduledAtSet, Value: r.ScheduledAt},
-		TargetPath:  r.TargetPath, Agent: r.Agent, Position: r.Position,
+		TargetPath: r.TargetPath, Agent: r.Agent, SessionID: r.SessionID, Position: r.Position,
 	}
 	if r.Priority != nil {
 		priority := domain.CardPriority(*r.Priority)

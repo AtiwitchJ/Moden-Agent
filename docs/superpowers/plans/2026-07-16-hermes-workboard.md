@@ -676,7 +676,7 @@ Expected: PASS
 - Default navigate to last project workboard
 - Action on legacy session: create card linked to session_id in `running`
 
-- [ ] Commit: `feat(ui): workboard home and add-session-to-card`
+- [x] Commit: `feat(ui): workboard home and add-session-to-card`
 
 ### Task 18: Final gate
 
