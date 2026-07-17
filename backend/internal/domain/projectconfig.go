@@ -341,6 +341,9 @@ func (c ProjectConfig) Validate() error {
 	if err := c.Heartbeat.Validate(); err != nil {
 		return err
 	}
+	if err := c.Workboard.Autonomous.Validate(); err != nil {
+		return err
+	}
 	return nil
 }
 

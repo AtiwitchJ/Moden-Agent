@@ -88,7 +88,7 @@ func NewAPI(cfg config.Config, deps APIDeps) *API {
 		policy:        &controllers.PolicyController{Projects: deps.Projects, Engine: deps.Policy},
 		notifications: &controllers.NotificationsController{Svc: deps.Notifications, Stream: deps.NotificationStream},
 		imports:       &controllers.ImportController{Svc: deps.Import},
-		workboard:     &controllers.WorkboardController{Svc: deps.Workboard},
+		workboard:     &controllers.WorkboardController{Svc: deps.Workboard, Projects: deps.Projects},
 		events:        &EventsController{Source: deps.CDC, Live: deps.Events},
 	}
 }

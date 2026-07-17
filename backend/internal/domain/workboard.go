@@ -113,6 +113,30 @@ type WorkboardAutonomousConfig struct {
 	Sticky              bool   `json:"sticky,omitempty"`
 }
 
+const (
+	WorkboardAutonomousModeSkipTimeout  = "skip_timeout"
+	WorkboardAutonomousModeShortTimeout = "short_timeout"
+
+	MinWorkboardAutonomousShortTimeoutMinutes = 1
+	MaxWorkboardAutonomousShortTimeoutMinutes = 24 * 60
+)
+
+// Validate rejects autonomous settings that could produce an unsafe answer
+// timeout. The all-zero config remains valid so projects without workboard
+// settings continue to store no workboard override.
+func (c WorkboardAutonomousConfig) Validate() error {
+	if c == (WorkboardAutonomousConfig{}) {
+		return nil
+	}
+	if c.Mode != WorkboardAutonomousModeSkipTimeout && c.Mode != WorkboardAutonomousModeShortTimeout {
+		return fmt.Errorf("workboard.autonomous.mode: must be %q or %q", WorkboardAutonomousModeSkipTimeout, WorkboardAutonomousModeShortTimeout)
+	}
+	if c.Mode == WorkboardAutonomousModeShortTimeout && (c.ShortTimeoutMinutes < MinWorkboardAutonomousShortTimeoutMinutes || c.ShortTimeoutMinutes > MaxWorkboardAutonomousShortTimeoutMinutes) {
+		return fmt.Errorf("workboard.autonomous.shortTimeoutMinutes: must be between %d and %d", MinWorkboardAutonomousShortTimeoutMinutes, MaxWorkboardAutonomousShortTimeoutMinutes)
+	}
+	return nil
+}
+
 type WorkboardConfig struct {
 	WIPLimit             int                       `json:"wipLimit,omitempty"`
 	FallbackAgents       []string                  `json:"fallbackAgents,omitempty"`
@@ -128,7 +152,7 @@ func DefaultWorkboardConfig() WorkboardConfig {
 		LimitCooldownMinutes: 60,
 		AnswerTimeoutMinutes: 10,
 		Autonomous: WorkboardAutonomousConfig{
-			Mode:                "skip_timeout",
+			Mode:                WorkboardAutonomousModeSkipTimeout,
 			ShortTimeoutMinutes: 2,
 			Sticky:              true,
 		},

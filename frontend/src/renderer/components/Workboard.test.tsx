@@ -3,10 +3,10 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 
-const { getMock, postMock, putMock, useWorkboardCardsMock, useWorkspaceQueryMock } = vi.hoisted(() => ({
+const { getMock, patchMock, postMock, useWorkboardCardsMock, useWorkspaceQueryMock } = vi.hoisted(() => ({
 	getMock: vi.fn(),
+	patchMock: vi.fn(),
 	postMock: vi.fn(),
-	putMock: vi.fn(),
 	useWorkboardCardsMock: vi.fn(),
 	useWorkspaceQueryMock: vi.fn(),
 }));
@@ -17,7 +17,7 @@ vi.mock("../hooks/useWorkboardQuery", () => ({
 }));
 
 vi.mock("../lib/api-client", () => ({
-	apiClient: { GET: (...args: unknown[]) => getMock(...args), POST: (...args: unknown[]) => postMock(...args), PUT: (...args: unknown[]) => putMock(...args) },
+	apiClient: { GET: (...args: unknown[]) => getMock(...args), PATCH: (...args: unknown[]) => patchMock(...args), POST: (...args: unknown[]) => postMock(...args) },
 	apiErrorMessage: () => "Request failed",
 }));
 
@@ -58,7 +58,7 @@ beforeEach(() => {
 	useWorkboardCardsMock.mockReset().mockReturnValue({ data: [card], isError: false });
 	useWorkspaceQueryMock.mockReset().mockReturnValue({ data: [] });
 	postMock.mockReset().mockResolvedValue({ data: { ...card, status: "ready" }, error: undefined });
-	putMock.mockReset().mockResolvedValue({ data: { status: "ok" }, error: undefined });
+	patchMock.mockReset().mockResolvedValue({ data: { status: "ok" }, error: undefined });
 	getMock.mockReset().mockResolvedValue({ data: { status: "ok", project: { id: "proj-1", config: { workboard: { autonomous: { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined });
 });
 
@@ -88,10 +88,6 @@ describe("Workboard", () => {
 	});
 
 	it("opens autonomous settings and saves only the autonomous workboard config", async () => {
-		getMock
-			.mockReset()
-			.mockResolvedValueOnce({ data: { status: "ok", project: { id: "proj-1", config: { workboard: { autonomous: { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined })
-			.mockResolvedValueOnce({ data: { status: "ok", project: { id: "proj-1", config: { heartbeat: { enabled: true, interval: "30m" }, workboard: { autonomous: { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined });
 		renderBoard();
 		fireEvent.click(screen.getByRole("button", { name: "Autonomous" }));
 
@@ -100,9 +96,9 @@ describe("Workboard", () => {
 		fireEvent.change(screen.getByLabelText("Short timeout (minutes)"), { target: { value: "5" } });
 		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
-		await waitFor(() => expect(putMock).toHaveBeenCalledWith("/api/v1/projects/{id}/config", {
+		await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/api/v1/projects/{id}/workboard/autonomous", {
 			params: { path: { id: "proj-1" } },
-			body: { config: { heartbeat: { enabled: true, interval: "30m" }, workboard: { autonomous: { enabled: true, mode: "skip_timeout", shortTimeoutMinutes: 5, sticky: true } } } },
+			body: { enabled: true, mode: "skip_timeout", shortTimeoutMinutes: 5, sticky: true },
 		}));
 	});
 

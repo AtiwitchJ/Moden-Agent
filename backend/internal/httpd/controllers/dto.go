@@ -187,6 +187,28 @@ type ListWorkCardsResponse struct {
 	Cards []WorkCardResponse `json:"cards"`
 }
 
+// UpdateWorkboardAutonomousRequest is a sparse update for a project's
+// workboard autonomous settings. Omitted fields retain their stored values.
+type UpdateWorkboardAutonomousRequest struct {
+	Enabled             *bool   `json:"enabled,omitempty"`
+	Mode                *string `json:"mode,omitempty" enum:"skip_timeout,short_timeout"`
+	ShortTimeoutMinutes *int    `json:"shortTimeoutMinutes,omitempty" minimum:"1" maximum:"1440"`
+	Sticky              *bool   `json:"sticky,omitempty"`
+}
+
+func (r UpdateWorkboardAutonomousRequest) toInput() projectsvc.UpdateWorkboardAutonomousInput {
+	return projectsvc.UpdateWorkboardAutonomousInput{
+		Enabled: r.Enabled, Mode: r.Mode, ShortTimeoutMinutes: r.ShortTimeoutMinutes, Sticky: r.Sticky,
+	}
+}
+
+// WorkboardAutonomousResponse is the persisted autonomous configuration after
+// a project-scoped update.
+type WorkboardAutonomousResponse struct {
+	ProjectID  string                           `json:"projectId"`
+	Autonomous domain.WorkboardAutonomousConfig `json:"autonomous"`
+}
+
 func newWorkCardResponse(card domain.WorkCard) WorkCardResponse {
 	return WorkCardResponse{
 		ID: card.ID, ProjectID: card.ProjectID, BoardID: card.BoardID, Title: card.Title, Notes: card.Notes,

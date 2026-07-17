@@ -20,6 +20,9 @@ type CardStatus = WorkboardCard["status"];
 type MoveWorkCardRequest = components["schemas"]["MoveWorkCardRequest"];
 type Project = components["schemas"]["Project"];
 type AutonomousConfig = components["schemas"]["WorkboardAutonomousConfig"];
+type UpdateWorkboardAutonomousRequest = components["schemas"]["UpdateWorkboardAutonomousRequest"];
+type AutonomousMode = NonNullable<UpdateWorkboardAutonomousRequest["mode"]>;
+type AutonomousForm = Required<Omit<AutonomousConfig, "mode">> & { mode: AutonomousMode };
 
 const projectQueryKey = (id: string) => ["project", id] as const;
 const AUTONOMOUS_MODE_OPTIONS = [
@@ -146,22 +149,20 @@ function AutonomousSettings({ projectId, open, onOpenChange }: { projectId: stri
 		queryFn: fetchProject,
 	});
 	const loaded = projectQuery.data?.config?.workboard?.autonomous;
-	const defaults: Required<AutonomousConfig> = { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true };
+	const defaults: AutonomousForm = { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true };
 	const [form, setForm] = useState(defaults);
 	useEffect(() => {
-		if (projectQuery.data) setForm({ ...defaults, ...loaded });
+		if (projectQuery.data) {
+			const mode: AutonomousMode = loaded?.mode === "short_timeout" ? "short_timeout" : "skip_timeout";
+			setForm({ ...defaults, ...loaded, mode });
+		}
 	}, [loaded, projectQuery.data]);
 	const mutation = useMutation({
 		mutationFn: async () => {
-			const latestProject = await fetchProject();
-			const nextConfig = {
-				...latestProject.config,
-				workboard: {
-					...latestProject.config?.workboard,
-					autonomous: { ...form, shortTimeoutMinutes: Math.max(1, Math.round(form.shortTimeoutMinutes)) },
-				},
-			};
-			const { error } = await apiClient.PUT("/api/v1/projects/{id}/config", { params: { path: { id: projectId } }, body: { config: nextConfig } });
+			const { error } = await apiClient.PATCH("/api/v1/projects/{id}/workboard/autonomous", {
+				params: { path: { id: projectId } },
+				body: { ...form, shortTimeoutMinutes: Math.max(1, Math.round(form.shortTimeoutMinutes)) },
+			});
 			if (error) throw new Error(apiErrorMessage(error, "Could not save autonomous settings."));
 		},
 		onSuccess: () => {
@@ -184,7 +185,7 @@ function AutonomousSettings({ projectId, open, onOpenChange }: { projectId: stri
 						<input aria-label="Enable autonomous mode" checked={form.enabled} className="mt-0.5 accent-[var(--accent)]" type="checkbox" onChange={(event) => setForm((current) => ({ ...current, enabled: event.target.checked }))} />
 						<span><span className="block text-[13px] font-medium">Enable autonomous mode</span><span className="mt-1 block text-[12px] text-muted-foreground">Automatically handle allowed questions after the configured timeout.</span></span>
 					</label>
-					<div className="flex flex-col gap-1.5"><Label htmlFor="autonomous-mode" className="text-[12px] text-muted-foreground">Mode</Label><select id="autonomous-mode" value={form.mode} className="h-8 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-foreground" onChange={(event) => setForm((current) => ({ ...current, mode: event.target.value }))}>{AUTONOMOUS_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
+					<div className="flex flex-col gap-1.5"><Label htmlFor="autonomous-mode" className="text-[12px] text-muted-foreground">Mode</Label><select id="autonomous-mode" value={form.mode} className="h-8 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-foreground" onChange={(event) => setForm((current) => ({ ...current, mode: event.target.value as AutonomousMode }))}>{AUTONOMOUS_MODE_OPTIONS.map((option) => <option key={option.value} value={option.value}>{option.label}</option>)}</select></div>
 					<div className="flex flex-col gap-1.5"><Label htmlFor="autonomous-short-minutes" className="text-[12px] text-muted-foreground">Short timeout (minutes)</Label><input id="autonomous-short-minutes" min={1} step={1} type="number" value={form.shortTimeoutMinutes} className="h-8 rounded-md border border-input bg-transparent px-2.5 text-[13px] text-foreground" onChange={(event) => setForm((current) => ({ ...current, shortTimeoutMinutes: Number(event.target.value) || 1 }))} /></div>
 					<label className="flex items-center gap-3 text-[13px]"><input aria-label="Keep autonomous mode enabled" checked={form.sticky} className="accent-[var(--accent)]" type="checkbox" onChange={(event) => setForm((current) => ({ ...current, sticky: event.target.checked }))} /><span>Keep enabled for future prompts</span></label>
 				</> : null}

@@ -436,6 +436,41 @@ func TestManager_SetConfig(t *testing.T) {
 	wantCode(t, err, "PROJECT_NOT_FOUND")
 }
 
+func TestManager_UpdateWorkboardAutonomousPreservesProjectConfig(t *testing.T) {
+	ctx := context.Background()
+	m := newManager(t)
+	repo := gitRepo(t)
+	if _, err := m.Add(ctx, project.AddInput{Path: repo, ProjectID: ptr("ao")}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	if _, err := m.SetConfig(ctx, "ao", project.SetConfigInput{Config: domain.ProjectConfig{
+		Heartbeat: domain.HeartbeatConfig{Enabled: true, Interval: "30m"},
+		Workboard: domain.WorkboardConfig{
+			WIPLimit: 7,
+			Autonomous: domain.WorkboardAutonomousConfig{
+				Enabled: true, Mode: domain.WorkboardAutonomousModeSkipTimeout, Sticky: true,
+			},
+		},
+	}}); err != nil {
+		t.Fatalf("SetConfig: %v", err)
+	}
+	sticky := false
+	updated, err := m.UpdateWorkboardAutonomous(ctx, "ao", project.UpdateWorkboardAutonomousInput{Sticky: &sticky})
+	if err != nil {
+		t.Fatalf("UpdateWorkboardAutonomous: %v", err)
+	}
+	if updated.Config == nil {
+		t.Fatal("updated config is nil")
+	}
+	got := updated.Config
+	if !got.Heartbeat.Enabled || got.Heartbeat.Interval != "30m" || got.Workboard.WIPLimit != 7 {
+		t.Fatalf("unrelated config was overwritten: %+v", got)
+	}
+	if !got.Workboard.Autonomous.Enabled || got.Workboard.Autonomous.Mode != domain.WorkboardAutonomousModeSkipTimeout || got.Workboard.Autonomous.Sticky {
+		t.Fatalf("autonomous config = %+v", got.Workboard.Autonomous)
+	}
+}
+
 func TestManager_ListIncludesOnlySummarySafeProjectConfig(t *testing.T) {
 	ctx := context.Background()
 	m := newManager(t)

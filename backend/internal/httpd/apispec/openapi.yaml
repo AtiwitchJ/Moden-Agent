@@ -1235,6 +1235,63 @@ paths:
       summary: Update a project's policy config overrides
       tags:
       - policy
+  /api/v1/projects/{id}/workboard/autonomous:
+    patch:
+      operationId: updateWorkboardAutonomous
+      parameters:
+      - description: Project identifier (registry key).
+        in: path
+        name: id
+        required: true
+        schema:
+          description: Project identifier (registry key).
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UpdateWorkboardAutonomousRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkboardAutonomousResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Update a project's autonomous workboard settings
+      tags:
+      - workboard
   /api/v1/projects/{projectId}/workboard/cards:
     get:
       operationId: listWorkCards
@@ -4215,6 +4272,30 @@ components:
           - "null"
           - string
       type: object
+    UpdateWorkboardAutonomousRequest:
+      properties:
+        enabled:
+          type:
+          - "null"
+          - boolean
+        mode:
+          enum:
+          - skip_timeout
+          - short_timeout
+          type:
+          - "null"
+          - string
+        shortTimeoutMinutes:
+          maximum: 1440
+          minimum: 1
+          type:
+          - "null"
+          - integer
+        sticky:
+          type:
+          - "null"
+          - boolean
+      type: object
     WorkCardResponse:
       properties:
         agent:
@@ -4313,6 +4394,16 @@ components:
           type: integer
         sticky:
           type: boolean
+      type: object
+    WorkboardAutonomousResponse:
+      properties:
+        autonomous:
+          $ref: '#/components/schemas/WorkboardAutonomousConfig'
+        projectId:
+          type: string
+      required:
+      - projectId
+      - autonomous
       type: object
     WorkboardConfig:
       properties:

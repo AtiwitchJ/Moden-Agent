@@ -10,6 +10,7 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/httpd/apierr"
 	"github.com/modernagent/modern-agent/backend/internal/httpd/apispec"
 	"github.com/modernagent/modern-agent/backend/internal/httpd/envelope"
+	projectsvc "github.com/modernagent/modern-agent/backend/internal/service/project"
 	workboardsvc "github.com/modernagent/modern-agent/backend/internal/service/workboard"
 )
 
@@ -24,16 +25,44 @@ type WorkboardService interface {
 
 // WorkboardController owns the project-scoped work-card routes.
 type WorkboardController struct {
-	Svc WorkboardService
+	Svc      WorkboardService
+	Projects projectsvc.Manager
 }
 
 // Register mounts the workboard routes on the supplied router.
 func (c *WorkboardController) Register(r chi.Router) {
 	r.Get("/projects/{projectId}/workboard/cards", c.list)
 	r.Post("/projects/{projectId}/workboard/cards", c.create)
+	r.Patch("/projects/{id}/workboard/autonomous", c.updateAutonomous)
 	r.Get("/workboard/cards/{cardId}", c.get)
 	r.Patch("/workboard/cards/{cardId}", c.update)
 	r.Post("/workboard/cards/{cardId}/move", c.move)
+}
+
+func (c *WorkboardController) updateAutonomous(w http.ResponseWriter, r *http.Request) {
+	if c.Projects == nil {
+		apispec.NotImplemented(w, r, http.MethodPatch, "/api/v1/projects/{id}/workboard/autonomous")
+		return
+	}
+	var req UpdateWorkboardAutonomousRequest
+	if err := decodeJSONStrict(r, &req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	id := projectID(r)
+	updated, err := c.Projects.UpdateWorkboardAutonomous(r.Context(), id, req.toInput())
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	if updated.Config == nil {
+		envelope.WriteAPIError(w, r, http.StatusInternalServerError, "internal", "WORKBOARD_AUTONOMOUS_UPDATE_FAILED", "Autonomous config update did not persist", nil)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, WorkboardAutonomousResponse{
+		ProjectID:  string(id),
+		Autonomous: updated.Config.Workboard.Autonomous,
+	})
 }
 
 func (c *WorkboardController) list(w http.ResponseWriter, r *http.Request) {

@@ -18,13 +18,38 @@ type AddInput struct {
 	AsWorkspace bool                  `json:"asWorkspace,omitempty"`
 	// AsDocsRepo registers a docs-repo project: git worktree like single_repo, but
 	// the deliverable watcher (not PR/CI) drives the session's completed status.
-	AsDocsRepo  bool                  `json:"asDocsRepo,omitempty"`
+	AsDocsRepo bool `json:"asDocsRepo,omitempty"`
 }
 
 // SetConfigInput is the body shape for PUT /api/v1/projects/{id}/config. Config
 // replaces the project's stored config wholesale; a zero-value config clears it.
 type SetConfigInput struct {
 	Config domain.ProjectConfig `json:"config"`
+}
+
+// UpdateWorkboardAutonomousInput is a sparse update for a project's
+// autonomous workboard settings. Omitted fields retain their stored values.
+type UpdateWorkboardAutonomousInput struct {
+	Enabled             *bool
+	Mode                *string
+	ShortTimeoutMinutes *int
+	Sticky              *bool
+}
+
+func (in UpdateWorkboardAutonomousInput) applyTo(config domain.WorkboardAutonomousConfig) domain.WorkboardAutonomousConfig {
+	if in.Enabled != nil {
+		config.Enabled = *in.Enabled
+	}
+	if in.Mode != nil {
+		config.Mode = *in.Mode
+	}
+	if in.ShortTimeoutMinutes != nil {
+		config.ShortTimeoutMinutes = *in.ShortTimeoutMinutes
+	}
+	if in.Sticky != nil {
+		config.Sticky = *in.Sticky
+	}
+	return config
 }
 
 // RemoveResult reports what DELETE /api/v1/projects/{id} actually did.

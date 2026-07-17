@@ -50,6 +50,10 @@ func TestProjectConfigValidate(t *testing.T) {
 		{"heartbeat interval not a duration", ProjectConfig{Heartbeat: HeartbeatConfig{Enabled: true, Interval: "soon"}}, true},
 		{"heartbeat interval below minimum", ProjectConfig{Heartbeat: HeartbeatConfig{Enabled: true, Interval: "30s"}}, true},
 		{"heartbeat interval at minimum", ProjectConfig{Heartbeat: HeartbeatConfig{Enabled: true, Interval: "1m"}}, false},
+		{"workboard autonomous short timeout valid", ProjectConfig{Workboard: WorkboardConfig{Autonomous: WorkboardAutonomousConfig{Enabled: true, Mode: WorkboardAutonomousModeShortTimeout, ShortTimeoutMinutes: 5, Sticky: true}}}, false},
+		{"workboard autonomous skip timeout allows sparse config", ProjectConfig{Workboard: WorkboardConfig{Autonomous: WorkboardAutonomousConfig{Enabled: true, Mode: WorkboardAutonomousModeSkipTimeout}}}, false},
+		{"workboard autonomous short timeout too large", ProjectConfig{Workboard: WorkboardConfig{Autonomous: WorkboardAutonomousConfig{Enabled: true, Mode: WorkboardAutonomousModeShortTimeout, ShortTimeoutMinutes: MaxWorkboardAutonomousShortTimeoutMinutes + 1}}}, true},
+		{"workboard autonomous invalid mode", ProjectConfig{Workboard: WorkboardConfig{Autonomous: WorkboardAutonomousConfig{Enabled: true, Mode: "immediately", ShortTimeoutMinutes: 1}}}, true},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

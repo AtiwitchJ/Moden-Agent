@@ -137,6 +137,10 @@ func (f *fakeProjectManager) SetConfig(_ context.Context, id domain.ProjectID, i
 	return projectsvc.Project{ID: id, Config: &cfg}, nil
 }
 
+func (f *fakeProjectManager) UpdateWorkboardAutonomous(_ context.Context, id domain.ProjectID, _ projectsvc.UpdateWorkboardAutonomousInput) (projectsvc.Project, error) {
+	return projectsvc.Project{ID: id}, nil
+}
+
 func (f *fakeProjectManager) Remove(context.Context, domain.ProjectID) (projectsvc.RemoveResult, error) {
 	return projectsvc.RemoveResult{}, nil
 }

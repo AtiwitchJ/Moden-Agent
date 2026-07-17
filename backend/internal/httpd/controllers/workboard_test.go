@@ -13,6 +13,7 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/httpd"
 	"github.com/modernagent/modern-agent/backend/internal/httpd/apierr"
+	projectsvc "github.com/modernagent/modern-agent/backend/internal/service/project"
 	workboardsvc "github.com/modernagent/modern-agent/backend/internal/service/workboard"
 )
 
@@ -65,6 +66,71 @@ func newWorkboardTestServer(t *testing.T, svc *fakeWorkboardService) *httptest.S
 	return srv
 }
 
+type fakeWorkboardProjectManager struct {
+	projectsvc.Manager
+	project       projectsvc.Project
+	lastSetConfig projectsvc.SetConfigInput
+	lastUpdate    projectsvc.UpdateWorkboardAutonomousInput
+	getCalls      int
+	setCalls      int
+}
+
+func (f *fakeWorkboardProjectManager) Get(context.Context, domain.ProjectID) (projectsvc.GetResult, error) {
+	f.getCalls++
+	return projectsvc.GetResult{Status: "ok", Project: &f.project}, nil
+}
+
+func (f *fakeWorkboardProjectManager) SetConfig(_ context.Context, _ domain.ProjectID, in projectsvc.SetConfigInput) (projectsvc.Project, error) {
+	f.setCalls++
+	if err := in.Config.Validate(); err != nil {
+		return projectsvc.Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
+	}
+	f.lastSetConfig = in
+	f.project.Config = &in.Config
+	return f.project, nil
+}
+
+func (f *fakeWorkboardProjectManager) UpdateWorkboardAutonomous(_ context.Context, _ domain.ProjectID, in projectsvc.UpdateWorkboardAutonomousInput) (projectsvc.Project, error) {
+	f.lastUpdate = in
+	if in.ShortTimeoutMinutes != nil && (*in.ShortTimeoutMinutes < domain.MinWorkboardAutonomousShortTimeoutMinutes || *in.ShortTimeoutMinutes > domain.MaxWorkboardAutonomousShortTimeoutMinutes) {
+		return projectsvc.Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", "workboard.autonomous.shortTimeoutMinutes: must be between 1 and 1440", nil)
+	}
+	config := domain.ProjectConfig{}
+	if f.project.Config != nil {
+		config = *f.project.Config
+	}
+	autonomous := config.Workboard.Autonomous
+	if autonomous == (domain.WorkboardAutonomousConfig{}) {
+		autonomous = domain.DefaultWorkboardConfig().Autonomous
+	}
+	if in.Enabled != nil {
+		autonomous.Enabled = *in.Enabled
+	}
+	if in.Mode != nil {
+		autonomous.Mode = *in.Mode
+	}
+	if in.ShortTimeoutMinutes != nil {
+		autonomous.ShortTimeoutMinutes = *in.ShortTimeoutMinutes
+	}
+	if in.Sticky != nil {
+		autonomous.Sticky = *in.Sticky
+	}
+	config.Workboard.Autonomous = autonomous
+	if err := config.Validate(); err != nil {
+		return projectsvc.Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
+	}
+	f.project.Config = &config
+	return f.project, nil
+}
+
+func newWorkboardConfigTestServer(t *testing.T, projects projectsvc.Manager) *httptest.Server {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := httptest.NewServer(httpd.NewRouterWithControl(config.Config{}, log, nil, httpd.APIDeps{Projects: projects}, httpd.ControlDeps{}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 func TestCreateWorkCard_Validation(t *testing.T) {
 	srv := newWorkboardTestServer(t, &fakeWorkboardService{})
 
@@ -91,6 +157,39 @@ func TestUpdateWorkCard_NullScheduledAtClearsSchedule(t *testing.T) {
 	if !svc.updateIn.ScheduledAt.Set || svc.updateIn.ScheduledAt.Value != nil {
 		t.Fatalf("scheduledAt update = %+v, want explicit nil", svc.updateIn.ScheduledAt)
 	}
+}
+
+func TestUpdateWorkboardAutonomous_PatchesOnlyAutonomousSettings(t *testing.T) {
+	projects := &fakeWorkboardProjectManager{project: projectsvc.Project{
+		ID: "proj", Config: &domain.ProjectConfig{
+			Heartbeat: domain.HeartbeatConfig{Enabled: true, Interval: "30m"},
+			Workboard: domain.WorkboardConfig{WIPLimit: 7},
+		},
+	}}
+	srv := newWorkboardConfigTestServer(t, projects)
+
+	body, status, _ := doRequest(t, srv, http.MethodPatch, "/api/v1/projects/proj/workboard/autonomous", `{"enabled":true,"mode":"short_timeout","shortTimeoutMinutes":5,"sticky":false}`)
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", status, body)
+	}
+	got := *projects.project.Config
+	if !got.Workboard.Autonomous.Enabled || got.Workboard.Autonomous.Mode != domain.WorkboardAutonomousModeShortTimeout || got.Workboard.Autonomous.ShortTimeoutMinutes != 5 || got.Workboard.Autonomous.Sticky {
+		t.Fatalf("autonomous config = %+v", got.Workboard.Autonomous)
+	}
+	if !got.Heartbeat.Enabled || got.Heartbeat.Interval != "30m" || got.Workboard.WIPLimit != 7 {
+		t.Fatalf("unrelated config was overwritten: %+v", got)
+	}
+	if projects.getCalls != 0 || projects.setCalls != 0 {
+		t.Fatalf("controller used whole-config update: Get=%d SetConfig=%d", projects.getCalls, projects.setCalls)
+	}
+}
+
+func TestUpdateWorkboardAutonomous_RejectsOverflowingShortTimeout(t *testing.T) {
+	projects := &fakeWorkboardProjectManager{project: projectsvc.Project{ID: "proj"}}
+	srv := newWorkboardConfigTestServer(t, projects)
+
+	body, status, _ := doRequest(t, srv, http.MethodPatch, "/api/v1/projects/proj/workboard/autonomous", `{"shortTimeoutMinutes":999999999}`)
+	assertErrorCode(t, body, status, http.StatusBadRequest, "INVALID_PROJECT_CONFIG")
 }
 
 func TestWorkboardAPI_CardCRUDAndMove(t *testing.T) {

@@ -453,6 +453,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{id}/workboard/autonomous": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /** Update a project's autonomous workboard settings */
+        patch: operations["updateWorkboardAutonomous"];
+        trace?: never;
+    };
     "/api/v1/projects/{projectId}/workboard/cards": {
         parameters: {
             query?: never;
@@ -1500,6 +1517,13 @@ export interface components {
             targetPath?: null | string;
             title?: null | string;
         };
+        UpdateWorkboardAutonomousRequest: {
+            enabled?: null | boolean;
+            /** @enum {null|string} */
+            mode?: "skip_timeout" | "short_timeout" | null;
+            shortTimeoutMinutes?: null | number;
+            sticky?: null | boolean;
+        };
         WorkCardResponse: {
             agent: string;
             boardId: string;
@@ -1535,6 +1559,10 @@ export interface components {
             mode?: string;
             shortTimeoutMinutes?: number;
             sticky?: boolean;
+        };
+        WorkboardAutonomousResponse: {
+            autonomous: components["schemas"]["WorkboardAutonomousConfig"];
+            projectId: string;
         };
         WorkboardConfig: {
             answerDenylist?: string[];
@@ -3132,6 +3160,78 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PolicyConfigResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    updateWorkboardAutonomous: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project identifier (registry key). */
+                id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["UpdateWorkboardAutonomousRequest"];
+            };
+        };
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkboardAutonomousResponse"];
                 };
             };
             /** @description Bad Request */
