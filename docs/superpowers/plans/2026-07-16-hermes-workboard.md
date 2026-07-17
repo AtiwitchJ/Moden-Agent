@@ -641,9 +641,8 @@ Expected: PASS
 - `service/workboard/switch_agent.go`
 - Parse known rate-limit substrings per harness (start with codex/claude); Hermes may POST internal hint later
 - Pick next from `fallbackAgents` skipping cooldown map in memory or sqlite (`agent_limit_cooldowns` optional — v1 in-memory per daemon life is OK if documented; prefer sqlite row for durability: simple `workboard_agent_cooldowns(project_id, agent, until_ms)`)
-- New session same worktree: use existing restore/spawn paths; update card.agent + session_id; event `agent_switched`
-
-- [ ] Commit: `feat(workboard): auto-switch coding agent on rate limit`
+- New session reuses the previous worker branch + target path (new worktree id; closest available to “same worktree” without a new port)
+- [x] Commit: `feat(workboard): auto-switch coding agent on rate limit`
 
 ---
 

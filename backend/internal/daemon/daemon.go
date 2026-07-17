@@ -143,7 +143,7 @@ func Run() error {
 		return fmt.Errorf("wire session service: %w", err)
 	}
 	lcStack.trackerDone = startTrackerIntake(ctx, store, sessionSvc, log)
-	workboardDone := startWorkboardDispatcher(ctx, store, sessionSvc, log)
+	workboardDone := startWorkboardDispatcher(ctx, store, sessionSvc, runtimeAdapter, log)
 	previewDone := preview.NewPoller(store, sessionSvc, "http://"+cfg.Addr(), preview.PollerConfig{Logger: log}).Start(ctx)
 
 	// stallmon watches for worker sessions whose activity_state has claimed
