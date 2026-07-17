@@ -624,8 +624,8 @@ Expected: PASS
 - Detect needs_input via existing session activity_state / notifications
 - Set `waiting_for_input`; after `AnswerTimeoutMinutes` (or autonomous rules), invoke Hermes session `send` with grounded prompt; append `work_card_events` kind `hermes_answer`; clear waiting
 
-- [ ] Tests for timeout math + denylist short-circuit (never auto-answer denylisted tool intents — classify via simple keyword/allow list in v1)
-- [ ] Commit: `feat(workboard): hermes answer-on-behalf after timeout`
+- [x] Tests for timeout math + denylist short-circuit (never auto-answer denylisted tool intents — classify via simple keyword/allow list in v1)
+- [x] Commit: `feat(workboard): hermes answer-on-behalf after timeout`
 
 ### Task 12: Autonomous IPC/UI
 
