@@ -106,6 +106,7 @@ func (s *Service) Retarget(ctx context.Context, id string, in RetargetInput) (do
 	if err != nil {
 		return domain.WorkCard{}, err
 	}
+	before := card
 	if in.Title == nil && in.Notes == nil {
 		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_RETARGET_FIELDS_REQUIRED", "Title or notes is required", nil)
 	}
@@ -125,25 +126,32 @@ func (s *Service) Retarget(ctx context.Context, id string, in RetargetInput) (do
 	}
 
 	now := s.clock().UTC()
-	card.PausedRetarget = true
 	card.GoalVersion++
 	card.UpdatedAt = now
 	store, err := s.runningStore()
 	if err != nil {
 		return domain.WorkCard{}, err
 	}
+	card.PausedRetarget = true
 	if err := store.UpdateWorkCard(ctx, card); err != nil {
 		return domain.WorkCard{}, apierr.Internal("WORK_CARD_UPDATE_FAILED", "Failed to pause card for retarget")
+	}
+	revertRetarget := func() {
+		reverted := before
+		reverted.UpdatedAt = s.clock().UTC()
+		_ = store.UpdateWorkCard(ctx, reverted)
 	}
 
 	sessions, err := store.ListSessions(ctx, domain.ProjectID(card.ProjectID))
 	if err != nil {
+		revertRetarget()
 		return domain.WorkCard{}, apierr.Internal("WORK_CARD_RETARGET_FAILED", "Failed to load project sessions")
 	}
 	workers, hermes := answerSessions(sessions)
 	worker, workerOK := workers[domain.SessionID(card.SessionID)]
 	handoff := retargetHandoffPrompt(card, card.GoalVersion)
 	var handoffSession domain.SessionID
+	var spawnedSession domain.SessionID
 	switch {
 	case workerOK && !worker.IsTerminated:
 		if hermes.ID != "" {
@@ -151,10 +159,7 @@ func (s *Service) Retarget(ctx context.Context, id string, in RetargetInput) (do
 		} else {
 			handoffSession = worker.ID
 		}
-	case s.killer != nil && card.SessionID != "":
-		if _, err := s.killer.Kill(ctx, domain.SessionID(card.SessionID)); err != nil {
-			return domain.WorkCard{}, apierr.Internal("WORK_CARD_RETARGET_FAILED", "Failed to stop previous worker session")
-		}
+	case card.SessionID != "":
 		spawned, err := s.spawner.Spawn(ctx, ports.SpawnConfig{
 			ProjectID:   domain.ProjectID(card.ProjectID),
 			Kind:        domain.KindWorker,
@@ -164,14 +169,28 @@ func (s *Service) Retarget(ctx context.Context, id string, in RetargetInput) (do
 			DisplayName: card.Title,
 		})
 		if err != nil {
+			revertRetarget()
 			return domain.WorkCard{}, apierr.Internal("WORK_CARD_RETARGET_FAILED", "Failed to respawn worker for retarget")
 		}
-		card.SessionID = string(spawned.ID)
+		spawnedSession = spawned.ID
+		if s.killer != nil {
+			if _, err := s.killer.Kill(ctx, domain.SessionID(before.SessionID)); err != nil {
+				_, _ = s.killer.Kill(ctx, spawnedSession)
+				revertRetarget()
+				return domain.WorkCard{}, apierr.Internal("WORK_CARD_RETARGET_FAILED", "Failed to stop previous worker session")
+			}
+		}
+		card.SessionID = string(spawnedSession)
 	default:
+		revertRetarget()
 		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_SESSION_REQUIRED", "Running card has no live linked session", nil)
 	}
 	if handoffSession != "" {
 		if err := s.sender.Send(ctx, handoffSession, handoff, ""); err != nil {
+			if spawnedSession != "" && s.killer != nil {
+				_, _ = s.killer.Kill(ctx, spawnedSession)
+			}
+			revertRetarget()
 			return domain.WorkCard{}, apierr.Internal("WORK_CARD_RETARGET_FAILED", "Failed to hand off retargeted goal")
 		}
 	}
@@ -251,9 +270,17 @@ func (s *Service) Split(ctx context.Context, id string, in SplitInput) (SplitRes
 	if err := store.CreateWorkCard(ctx, newCard); err != nil {
 		return SplitResult{}, apierr.Internal("WORK_CARD_CREATE_FAILED", "Failed to create successor card")
 	}
+	blockSuccessor := func() {
+		blocked := newCard
+		blocked.Status = domain.CardStatusBlocked
+		blocked.ReadyAt = nil
+		blocked.UpdatedAt = s.clock().UTC()
+		_ = store.UpdateWorkCard(ctx, blocked)
+	}
 
 	if card.SessionID != "" {
 		if _, err := s.killer.Kill(ctx, domain.SessionID(card.SessionID)); err != nil {
+			blockSuccessor()
 			return SplitResult{}, apierr.Internal("WORK_CARD_SPLIT_FAILED", "Failed to stop previous worker session")
 		}
 	}
@@ -264,6 +291,7 @@ func (s *Service) Split(ctx context.Context, id string, in SplitInput) (SplitRes
 	card.SupersededByCardID = newCard.ID
 	card.UpdatedAt = now
 	if err := store.UpdateWorkCard(ctx, card); err != nil {
+		blockSuccessor()
 		return SplitResult{}, apierr.Internal("WORK_CARD_UPDATE_FAILED", "Failed to archive split card")
 	}
 	payload, _ := json.Marshal(map[string]string{

@@ -2,12 +2,18 @@ package workboard
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/ports"
+)
+
+var (
+	errSpawnFailed = errors.New("spawn failed")
+	errKillFailed  = errors.New("kill failed")
 )
 
 func TestNudgeRunningCard_SendsAndRecordsEvent(t *testing.T) {
@@ -68,6 +74,71 @@ func TestRetargetRunningCard_HandsOffThroughHermes(t *testing.T) {
 	}
 	if len(store.events) != 1 || store.events[0].Kind != workCardEventRetargeted {
 		t.Fatalf("events = %+v", store.events)
+	}
+}
+
+func TestRetargetRunningCard_SpawnFailureClearsPause(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)
+	card := domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", BoardID: defaultBoardID, Title: "Old", Notes: "Old notes",
+		Status: domain.CardStatusRunning, Agent: "codex", SessionID: "worker-1", TargetPath: "/repo/app", GoalVersion: 1,
+	}
+	store := &actionsStoreFake{cards: map[string]domain.WorkCard{"card-1": card}}
+	svc := NewWithDeps(Deps{
+		Store: store, Sender: &actionsSenderFake{}, Spawner: &actionsSpawnerFake{err: errSpawnFailed},
+		Killer: &actionsKillerFake{}, Clock: func() time.Time { return now },
+	})
+	title := "New title"
+	_, err := svc.Retarget(context.Background(), "card-1", RetargetInput{Title: &title})
+	if err == nil {
+		t.Fatal("expected retarget spawn failure")
+	}
+	persisted, ok := store.cards["card-1"]
+	if !ok {
+		t.Fatal("card missing from store")
+	}
+	if persisted.PausedRetarget {
+		t.Fatalf("pausedRetarget should be cleared after spawn failure, got %#v", persisted)
+	}
+	if persisted.GoalVersion != 1 || persisted.Title != "Old" {
+		t.Fatalf("card should revert to pre-retarget state, got %#v", persisted)
+	}
+	if persisted.SessionID != "worker-1" {
+		t.Fatalf("sessionId = %q", persisted.SessionID)
+	}
+}
+
+func TestSplitRunningCard_KillFailureBlocksSuccessor(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)
+	card := domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", BoardID: defaultBoardID, Title: "Old", Notes: "Old notes",
+		Status: domain.CardStatusRunning, Agent: "codex", SessionID: "worker-1", TargetPath: "/repo/app",
+	}
+	store := &actionsStoreFake{cards: map[string]domain.WorkCard{"card-1": card}}
+	svc := NewWithDeps(Deps{
+		Store: store, Killer: &actionsKillerFake{err: errKillFailed}, Clock: func() time.Time { return now },
+		NewID: func() string { return "card-2" },
+	})
+
+	_, err := svc.Split(context.Background(), "card-1", SplitInput{
+		Title: "New branch", Notes: "Follow-up work", StartImmediately: true,
+	})
+	if err == nil {
+		t.Fatal("expected split kill failure")
+	}
+	oldCard := store.cards["card-1"]
+	if oldCard.Status != domain.CardStatusRunning || oldCard.SessionID != "worker-1" {
+		t.Fatalf("old card should remain running with linked session, got %#v", oldCard)
+	}
+	successor, ok := store.cards["card-2"]
+	if !ok {
+		t.Fatal("successor card should exist for compensation")
+	}
+	if successor.Status != domain.CardStatusBlocked {
+		t.Fatalf("successor should be blocked after kill failure, got status %q", successor.Status)
+	}
+	if successor.ReadyAt != nil {
+		t.Fatalf("successor readyAt should be cleared, got %v", successor.ReadyAt)
 	}
 }
 
@@ -166,18 +237,26 @@ func (f *actionsSenderFake) Send(_ context.Context, id domain.SessionID, message
 
 type actionsSpawnerFake struct {
 	last ports.SpawnConfig
+	err  error
 }
 
 func (f *actionsSpawnerFake) Spawn(_ context.Context, cfg ports.SpawnConfig) (domain.Session, error) {
 	f.last = cfg
+	if f.err != nil {
+		return domain.Session{}, f.err
+	}
 	return domain.Session{SessionRecord: domain.SessionRecord{ID: "worker-new"}}, nil
 }
 
 type actionsKillerFake struct {
 	killed domain.SessionID
+	err    error
 }
 
 func (f *actionsKillerFake) Kill(_ context.Context, id domain.SessionID) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
 	f.killed = id
 	return true, nil
 }

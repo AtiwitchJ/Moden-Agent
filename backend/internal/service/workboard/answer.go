@@ -107,7 +107,7 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 	questions := needsInputNotifications(notifications, domain.ProjectID(projectID))
 	var answered []string
 	for _, card := range cards {
-		if card.Status != domain.CardStatusRunning || card.SessionID == "" {
+		if card.Status != domain.CardStatusRunning || card.SessionID == "" || card.PausedRetarget {
 			continue
 		}
 		worker, exists := workers[domain.SessionID(card.SessionID)]

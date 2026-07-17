@@ -163,6 +163,7 @@ export function WorkCardFocusPanel({
 				onSubmit={(message) => nudge.mutate({ message })}
 			/>
 			<RetargetSheet
+				key={card.id}
 				card={card}
 				open={retargetOpen}
 				onOpenChange={setRetargetOpen}
@@ -170,6 +171,7 @@ export function WorkCardFocusPanel({
 				onSubmit={(body) => retarget.mutate(body)}
 			/>
 			<SplitSheet
+				key={card.id}
 				card={card}
 				open={splitOpen}
 				onOpenChange={setSplitOpen}
