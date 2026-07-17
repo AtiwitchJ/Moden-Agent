@@ -75,6 +75,32 @@ func TestDispatchOnce(t *testing.T) {
 			wantSpawns:  nil,
 		},
 		{
+			name:     "due scheduled card is promoted and claimed when WIP has room",
+			wipLimit: 1,
+			cards: []domain.WorkCard{
+				func() domain.WorkCard {
+					c := readyCard("scheduled", domain.CardPriorityNormal, now)
+					c.Status = domain.CardStatusScheduled
+					c.ReadyAt = nil
+					c.ScheduledAt = ptrTime(now.Add(-time.Minute))
+					return c
+				}(),
+			},
+			wantClaimed: []string{"scheduled"},
+			wantStatus:  map[string]domain.CardStatus{"scheduled": domain.CardStatusRunning},
+			wantSpawns:  []string{"scheduled"},
+		},
+		{
+			name:     "future scheduled card stays scheduled",
+			wipLimit: 1,
+			cards: []domain.WorkCard{
+				{ID: "scheduled", ProjectID: "p1", BoardID: defaultBoardID, Status: domain.CardStatusScheduled, ScheduledAt: ptrTime(now.Add(time.Hour))},
+			},
+			wantClaimed: nil,
+			wantStatus:  map[string]domain.CardStatus{"scheduled": domain.CardStatusScheduled},
+			wantSpawns:  nil,
+		},
+		{
 			name:     "spawn failure leaves card ready and unlinked",
 			wipLimit: 1,
 			cards: []domain.WorkCard{

@@ -1,6 +1,7 @@
 import { Terminal } from "lucide-react";
 import type { DragEvent, KeyboardEvent } from "react";
 import { cn } from "../lib/utils";
+import { formatScheduledAtDisplay } from "../lib/workboard-schedule";
 import type { WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 
 const PRIORITY: Record<WorkboardCard["priority"], { label: string; className: string }> = {
@@ -57,6 +58,9 @@ export function WorkCard({
 				{card.title}
 			</h2>
 			{card.notes ? <p className="line-clamp-2 px-3 pb-2.5 text-[11.5px] leading-[1.45] text-muted-foreground">{card.notes}</p> : null}
+			{card.status === "scheduled" && card.scheduledAt ? (
+				<p className="px-3 pb-2 font-mono text-[10px] text-amber-300/90">Runs {formatScheduledAtDisplay(card.scheduledAt)}</p>
+			) : null}
 			<div className="flex min-w-0 flex-wrap gap-1 border-t border-border px-3 py-2">
 				{card.labels.map((label) => (
 					<span key={label} className="max-w-full truncate rounded-[3px] bg-raised px-1.5 py-0.5 font-mono text-[9.5px] text-muted-foreground">

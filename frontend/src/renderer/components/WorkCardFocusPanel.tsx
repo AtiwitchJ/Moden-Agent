@@ -1,9 +1,10 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal, Split, Target, Zap } from "lucide-react";
-import { type FormEvent, useId, useState } from "react";
+import { type FormEvent, useEffect, useId, useState } from "react";
 import type { components } from "../../api/schema";
 import { workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
+import { formatDatetimeLocalValue, formatScheduledAtDisplay, parseDatetimeLocalValue } from "../lib/workboard-schedule";
 import type { Theme } from "../stores/ui-store";
 import type { WorkspaceSession } from "../types/workspace";
 import { TerminalPane } from "./TerminalPane";
@@ -20,6 +21,7 @@ type NudgeWorkCardRequest = components["schemas"]["NudgeWorkCardRequest"];
 type RetargetWorkCardRequest = components["schemas"]["RetargetWorkCardRequest"];
 type SplitWorkCardRequest = components["schemas"]["SplitWorkCardRequest"];
 type SplitWorkCardResponse = components["schemas"]["SplitWorkCardResponse"];
+type UpdateWorkCardRequest = components["schemas"]["UpdateWorkCardRequest"];
 type SplitFate = NonNullable<SplitWorkCardRequest["oldCardFate"]>;
 
 export function WorkCardFocusPanel({
@@ -44,8 +46,16 @@ export function WorkCardFocusPanel({
 	const [nudgeOpen, setNudgeOpen] = useState(false);
 	const [retargetOpen, setRetargetOpen] = useState(false);
 	const [splitOpen, setSplitOpen] = useState(false);
+	const [scheduleError, setScheduleError] = useState<string>();
+	const [scheduledAtLocal, setScheduledAtLocal] = useState("");
 	const showTerminal = card.status === "running" && Boolean(card.sessionId && session);
 	const isRunning = card.status === "running";
+	const isScheduled = card.status === "scheduled";
+
+	useEffect(() => {
+		setScheduledAtLocal(card.scheduledAt ? formatDatetimeLocalValue(new Date(card.scheduledAt)) : "");
+		setScheduleError(undefined);
+	}, [card.id, card.scheduledAt]);
 
 	const invalidate = async () => {
 		await queryClient.invalidateQueries({ queryKey: workboardQueryKey(projectId) });
@@ -100,6 +110,32 @@ export function WorkCardFocusPanel({
 		onError: (error) => setActionError(error instanceof Error ? error.message : "Could not split work card."),
 	});
 
+	const updateSchedule = useMutation({
+		mutationFn: async (body: UpdateWorkCardRequest) => {
+			const { error } = await apiClient.PATCH("/api/v1/workboard/cards/{cardId}", {
+				params: { path: { cardId: card.id } },
+				body,
+			});
+			if (error) throw new Error(apiErrorMessage(error, "Could not update schedule."));
+		},
+		onSuccess: async () => {
+			setScheduleError(undefined);
+			await invalidate();
+		},
+		onError: (error) => setScheduleError(error instanceof Error ? error.message : "Could not update schedule."),
+	});
+
+	const saveSchedule = (event: FormEvent<HTMLFormElement>) => {
+		event.preventDefault();
+		if (updateSchedule.isPending) return;
+		const scheduledAt = parseDatetimeLocalValue(scheduledAtLocal);
+		if (!scheduledAt) {
+			setScheduleError("Choose a valid schedule time.");
+			return;
+		}
+		updateSchedule.mutate({ scheduledAt });
+	};
+
 	return (
 		<aside aria-label={`Focus panel for ${card.title}`} className="flex h-full w-[360px] shrink-0 flex-col border-l border-border bg-surface">
 			<div className="flex shrink-0 items-start gap-3 border-b border-border px-4 py-3">
@@ -137,6 +173,19 @@ export function WorkCardFocusPanel({
 					<span className="text-muted-foreground">Status</span>
 					<span className="font-mono uppercase tracking-[0.05em] text-foreground">{card.status}</span>
 				</div>
+				{isScheduled ? (
+					<form className="space-y-2" onSubmit={saveSchedule}>
+						<Label className="text-[11px] text-muted-foreground" htmlFor={`schedule-${card.id}`}>Scheduled for</Label>
+						<Input id={`schedule-${card.id}`} onChange={(event) => setScheduledAtLocal(event.target.value)} type="datetime-local" value={scheduledAtLocal} />
+						{card.scheduledAt ? <p className="text-[10px] text-passive">Currently {formatScheduledAtDisplay(card.scheduledAt)}</p> : null}
+						{scheduleError ? <p className="text-[11px] text-destructive" role="alert">{scheduleError}</p> : null}
+						<Button disabled={updateSchedule.isPending || !scheduledAtLocal.trim()} size="sm" type="submit" variant="outline">
+							{updateSchedule.isPending ? "Saving..." : "Save schedule"}
+						</Button>
+					</form>
+				) : card.scheduledAt ? (
+					<div className="text-[11px] text-muted-foreground">Scheduled for {formatScheduledAtDisplay(card.scheduledAt)}</div>
+				) : null}
 				{card.sessionId ? (
 					<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
 						<span className="truncate">{session ? `Session ${card.sessionId}` : "Linked session unavailable"}</span>

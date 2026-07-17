@@ -7,6 +7,7 @@ import { agentsQueryOptions } from "../hooks/useAgentsQuery";
 import { workboardQueryKey, type WorkCard } from "../hooks/useWorkboardQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { aoBridge } from "../lib/bridge";
+import { defaultScheduleValue, parseDatetimeLocalValue } from "../lib/workboard-schedule";
 import { RequiredAgentField } from "./CreateProjectAgentSheet";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -32,6 +33,9 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 	const labelsId = useId();
 	const priorityId = useId();
 	const agentId = useId();
+	const scheduleToggleId = useId();
+	const scheduleLabelId = useId();
+	const scheduledAtId = useId();
 	const agentsQuery = useQuery({ ...agentsQueryOptions, enabled: open });
 	const [title, setTitle] = useState("");
 	const [notes, setNotes] = useState("");
@@ -40,6 +44,8 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 	const [labelInput, setLabelInput] = useState("");
 	const [priority, setPriority] = useState<CreateWorkCardRequest["priority"]>("normal");
 	const [agent, setAgent] = useState("");
+	const [scheduleEnabled, setScheduleEnabled] = useState(false);
+	const [scheduledAtLocal, setScheduledAtLocal] = useState(defaultScheduleValue);
 	const [error, setError] = useState<string>();
 
 	const createCard = useMutation({
@@ -69,6 +75,8 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 			setLabelInput("");
 			setPriority("normal");
 			setAgent("");
+			setScheduleEnabled(false);
+			setScheduledAtLocal(defaultScheduleValue());
 			setError(undefined);
 		}
 	}, [open]);
@@ -112,9 +120,25 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 			setError("Select an agent before creating this card.");
 			return;
 		}
+		let scheduledAt: string | undefined;
+		if (scheduleEnabled) {
+			scheduledAt = parseDatetimeLocalValue(scheduledAtLocal);
+			if (!scheduledAt) {
+				setError("Choose a valid schedule time.");
+				return;
+			}
+		}
 		setLabels(nextLabels);
 		setLabelInput("");
-		createCard.mutate({ title: cleanTitle, notes: cleanNotes, targetPath: cleanPath, labels: nextLabels, priority, agent });
+		createCard.mutate({
+			title: cleanTitle,
+			notes: cleanNotes,
+			targetPath: cleanPath,
+			labels: nextLabels,
+			priority,
+			agent,
+			...(scheduleEnabled ? { status: "scheduled" as const, scheduledAt } : {}),
+		});
 	};
 
 	return (
@@ -169,6 +193,18 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 								</div>
 							</div>
 							<RequiredAgentField authorized={agentsQuery.data?.authorized} disabled={agentsQuery.isFetching && !agentsQuery.data} id={agentId} installed={agentsQuery.data?.installed} invalid={Boolean(error) && !agent} label="Agent" onChange={setAgent} placeholder="Select coding agent" supported={agentsQuery.data?.supported} value={agent} />
+						</div>
+						<div className="space-y-2 rounded-md border border-border px-3 py-3">
+							<label className="flex items-start gap-3 text-[13px]" htmlFor={scheduleToggleId}>
+								<input aria-labelledby={scheduleLabelId} checked={scheduleEnabled} className="mt-0.5 accent-[var(--accent)]" id={scheduleToggleId} onChange={(event) => setScheduleEnabled(event.target.checked)} type="checkbox" />
+								<span id={scheduleLabelId}><span className="block font-medium text-foreground">Schedule for later</span><span className="mt-1 block text-[12px] text-muted-foreground">Place the card in Scheduled until Hermes promotes it automatically.</span></span>
+							</label>
+							{scheduleEnabled ? (
+								<div className="space-y-1.5 pl-7">
+									<Label htmlFor={scheduledAtId}>Run at</Label>
+									<Input id={scheduledAtId} onChange={(event) => setScheduledAtLocal(event.target.value)} type="datetime-local" value={scheduledAtLocal} />
+								</div>
+							) : null}
 						</div>
 						{error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive" role="alert">{error}</div> : null}
 						<div className="flex items-center justify-end gap-2 pt-1">

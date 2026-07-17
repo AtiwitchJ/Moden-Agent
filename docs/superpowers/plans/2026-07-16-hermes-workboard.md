@@ -662,7 +662,7 @@ Expected: PASS
 
 - Dispatcher promotes `scheduled`→`ready` when due (already partially in Task 8); ensure create/edit UI for `scheduled_at`
 
-- [ ] Commit: `feat(workboard): scheduled card auto-promotion`
+- [x] Commit: `feat(workboard): scheduled card auto-promotion`
 
 ### Task 16: Tracker intake → triage cards
 
