@@ -24,7 +24,7 @@ func TestPrepareHermesAnswerAttemptAtomicallyConsumesOneShot(t *testing.T) {
 		t.Fatalf("create card: %v", err)
 	}
 	event := domain.WorkCardEvent{ID: "attempt-1", CardID: card.ID, ProjectID: card.ProjectID, Kind: "hermes_answer_requested", Payload: `{}`, CreatedAt: now}
-	prepared, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, event, true)
+	prepared, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, project.Config.Workboard, event, true)
 	if err != nil || !prepared {
 		t.Fatalf("PrepareHermesAnswerAttempt: prepared=%t err=%v", prepared, err)
 	}
@@ -57,7 +57,7 @@ func TestPrepareHermesAnswerAttemptRollsBackOneShotWithoutEvent(t *testing.T) {
 	if err := s.AppendWorkCardEvent(ctx, event); err != nil {
 		t.Fatalf("seed event: %v", err)
 	}
-	if _, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, event, true); err == nil {
+	if _, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, project.Config.Workboard, event, true); err == nil {
 		t.Fatal("PrepareHermesAnswerAttempt error = nil, want duplicate event failure")
 	}
 	gotProject, ok, err := s.GetProject(ctx, "mer")
@@ -94,7 +94,7 @@ func TestPrepareHermesAnswerAttemptPreservesCurrentProjectConfig(t *testing.T) {
 		t.Fatalf("concurrent SetConfig: %v", err)
 	}
 	event := domain.WorkCardEvent{ID: "attempt-1", CardID: card.ID, ProjectID: card.ProjectID, Kind: "hermes_answer_requested", Payload: `{}`, CreatedAt: now}
-	prepared, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, event, true)
+	prepared, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, project.Config.Workboard, event, true)
 	if err != nil || !prepared {
 		t.Fatalf("PrepareHermesAnswerAttempt: prepared=%t err=%v", prepared, err)
 	}
@@ -130,7 +130,7 @@ func TestPrepareHermesAnswerAttemptRejectsStaleOneShotAuthorization(t *testing.T
 		t.Fatalf("disable autonomous: %v", err)
 	}
 	event := domain.WorkCardEvent{ID: "attempt-1", CardID: card.ID, ProjectID: card.ProjectID, Kind: "hermes_answer_requested", Payload: `{}`, CreatedAt: now}
-	prepared, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, event, true)
+	prepared, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, project.Config.Workboard, event, true)
 	if err != nil || prepared {
 		t.Fatalf("PrepareHermesAnswerAttempt: prepared=%t err=%v, want stale authorization rejection", prepared, err)
 	}
@@ -141,5 +141,37 @@ func TestPrepareHermesAnswerAttemptRejectsStaleOneShotAuthorization(t *testing.T
 	got, ok, err := s.GetProject(ctx, project.ID)
 	if err != nil || !ok || got.Config.DefaultBranch != "release" || got.Config.Workboard.Autonomous.Enabled {
 		t.Fatalf("project after stale authorization = %+v ok=%t err=%v", got.Config, ok, err)
+	}
+}
+
+func TestPrepareHermesAnswerAttemptRejectsStaleNormalTimeoutAuthorization(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
+	project := domain.ProjectRecord{
+		ID: "mer", Path: "/tmp/mer", RegisteredAt: now,
+		Config: domain.ProjectConfig{Workboard: domain.WorkboardConfig{AnswerTimeoutMinutes: 10}},
+	}
+	if err := s.UpsertProject(ctx, project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	card := domain.WorkCard{ID: "card-1", ProjectID: "mer", BoardID: "default", Title: "Ship API", Priority: domain.CardPriorityNormal, Labels: []string{}, Status: domain.CardStatusRunning, TargetPath: "/tmp/mer", Agent: "codex", GoalVersion: 1, CreatedAt: now, UpdatedAt: now}
+	if err := s.CreateWorkCard(ctx, card); err != nil {
+		t.Fatalf("create card: %v", err)
+	}
+
+	updated := project
+	updated.Config.Workboard.AnswerDenylist = []string{"test suite"}
+	if err := s.UpsertProject(ctx, updated); err != nil {
+		t.Fatalf("add denylist entry: %v", err)
+	}
+	event := domain.WorkCardEvent{ID: "attempt-1", CardID: card.ID, ProjectID: card.ProjectID, Kind: "hermes_answer_requested", Payload: `{}`, CreatedAt: now}
+	prepared, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, project.Config.Workboard, event, false)
+	if err != nil || prepared {
+		t.Fatalf("PrepareHermesAnswerAttempt: prepared=%t err=%v, want stale authorization rejection", prepared, err)
+	}
+	events, err := s.ListWorkCardEvents(ctx, card.ID)
+	if err != nil || len(events) != 0 {
+		t.Fatalf("events after stale authorization = %+v err=%v, want none", events, err)
 	}
 }

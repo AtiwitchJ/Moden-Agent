@@ -23,9 +23,9 @@ type AnswerStore interface {
 	ListRecentNotifications(ctx context.Context, limit int) ([]domain.NotificationRecord, error)
 	// PrepareHermesAnswerAttempt writes an attempt and, when consumeOneShot is
 	// true, consumes the currently persisted non-sticky autonomous setting in
-	// the same transaction. prepared=false means that authorization changed
-	// after this reconciler read the project, so no external send may occur.
-	PrepareHermesAnswerAttempt(ctx context.Context, projectID string, event domain.WorkCardEvent, consumeOneShot bool) (prepared bool, err error)
+	// the same transaction. It rejects a changed workboard config, so an
+	// external send never acts on stale authorization.
+	PrepareHermesAnswerAttempt(ctx context.Context, projectID string, expectedConfig domain.WorkboardConfig, event domain.WorkCardEvent, consumeOneShot bool) (prepared bool, err error)
 	AppendWorkCardEvent(ctx context.Context, event domain.WorkCardEvent) error
 	ListWorkCardEvents(ctx context.Context, cardID string) ([]domain.WorkCardEvent, error)
 	ListProjectSessionMessages(ctx context.Context, project domain.ProjectID, limit int) ([]domain.SessionMessageRecord, error)
@@ -162,7 +162,10 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 			// before Send, or Send may have delivered while its best-effort session
 			// message audit was unavailable. Retry the same attempt-owned prompt;
 			// its stable attempt ID lets Hermes avoid a duplicate worker answer.
-			if err := a.sender.Send(ctx, domain.SessionID(attempt.payload.HermesSessionID), attempt.payload.Prompt, ""); err != nil {
+			if hermes.ID == "" {
+				continue
+			}
+			if err := a.sender.Send(ctx, hermes.ID, attempt.payload.Prompt, ""); err != nil {
 				return answered, fmt.Errorf("retry Hermes answer request for card %s: %w", card.ID, err)
 			}
 			if err := a.appendHermesAnswer(ctx, card, attempt.payload, now); err != nil {
@@ -204,7 +207,7 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 		if err != nil {
 			return answered, fmt.Errorf("marshal Hermes answer event for card %s: %w", card.ID, err)
 		}
-		prepared, err := a.store.PrepareHermesAnswerAttempt(ctx, project.ID, domain.WorkCardEvent{
+		prepared, err := a.store.PrepareHermesAnswerAttempt(ctx, project.ID, project.Config.Workboard, domain.WorkCardEvent{
 			ID: attemptID, CardID: card.ID, ProjectID: card.ProjectID, Kind: hermesAnswerRequestedEventKind, Payload: string(payloadJSON), CreatedAt: now,
 		}, consumedOneShot)
 		if err != nil {

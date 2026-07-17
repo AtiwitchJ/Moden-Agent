@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -211,6 +212,24 @@ func TestAnswererReconcileProject_DenylistedIntentNeverAutoAnswers(t *testing.T)
 	}
 }
 
+func TestAnswererReconcileProject_DoesNotSendAfterDenylistChanges(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
+	store := answerStoreWithQuestion(now, domain.WorkboardConfig{AnswerTimeoutMinutes: 10})
+	store.prepareHook = func() {
+		store.project.Config.Workboard.AnswerDenylist = []string{"test suite"}
+	}
+	sender := newAnswerSender(store, func() time.Time { return now })
+	answerer := NewAnswerer(AnswerDeps{Store: store, Sender: sender, Clock: func() time.Time { return now }, NewID: eventIDs()})
+
+	answered, err := answerer.ReconcileProject(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("ReconcileProject: %v", err)
+	}
+	if len(answered) != 0 || len(sender.sent) != 0 || len(store.events) != 0 || !store.cards[0].WaitingForInput {
+		t.Fatalf("stale authorization sent=%#v answered=%v events=%#v waiting=%t", sender.sent, answered, store.events, store.cards[0].WaitingForInput)
+	}
+}
+
 func TestAnswererReconcileProject_RetriesPreparedAnswerWithoutDeliveryEvidence(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
 	store := answerStoreWithQuestion(now, domain.WorkboardConfig{AnswerTimeoutMinutes: 10})
@@ -234,6 +253,33 @@ func TestAnswererReconcileProject_RetriesPreparedAnswerWithoutDeliveryEvidence(t
 	}
 	if sender.sent[0].message != sender.sent[1].message || !strings.Contains(sender.sent[1].message, "Hermes answer request ID: event-1") {
 		t.Fatalf("retry must use the same idempotent prompt: %#v", sender.sent)
+	}
+}
+
+func TestAnswererReconcileProject_RetriesPreparedAnswerWithCurrentHermes(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
+	store := answerStoreWithQuestion(now, domain.WorkboardConfig{AnswerTimeoutMinutes: 10})
+	store.sessions[1].IsTerminated = true
+	store.sessions = append(store.sessions, domain.SessionRecord{ID: "hermes-2", ProjectID: "p1", Kind: domain.KindOrchestrator, Harness: domain.HarnessHermes, UpdatedAt: now})
+	payload := hermesAnswerPayload{
+		AttemptID: "attempt-1", WorkerSessionID: "worker-1", HermesSessionID: "hermes-1",
+		Question: store.notifications[0].Body, WaitingAt: store.sessions[0].Activity.LastActivityAt.Format(time.RFC3339Nano),
+	}
+	payload.Prompt, _ = hermesAnswerPrompt(store.cards[0], "worker-1", payload.AttemptID, payload.Question)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	store.events = append(store.events, domain.WorkCardEvent{ID: payload.AttemptID, CardID: "card-1", ProjectID: "p1", Kind: hermesAnswerRequestedEventKind, Payload: string(payloadJSON), CreatedAt: now})
+	sender := newAnswerSender(store, func() time.Time { return now })
+	answerer := NewAnswerer(AnswerDeps{Store: store, Sender: sender, Clock: func() time.Time { return now }, NewID: eventIDs()})
+
+	answered, err := answerer.ReconcileProject(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("ReconcileProject: %v", err)
+	}
+	if len(answered) != 1 || len(sender.sent) != 1 || sender.sent[0].target != "hermes-2" {
+		t.Fatalf("recovery answered=%v sends=%#v, want one send to current Hermes", answered, sender.sent)
 	}
 }
 
@@ -457,6 +503,7 @@ type answerStore struct {
 	events        []domain.WorkCardEvent
 	messages      []domain.SessionMessageRecord
 	prepareErr    error
+	prepareHook   func()
 }
 
 func (s *answerStore) GetProject(_ context.Context, id string) (domain.ProjectRecord, bool, error) {
@@ -507,9 +554,16 @@ func (s *answerStore) AppendWorkCardEvent(_ context.Context, event domain.WorkCa
 	return nil
 }
 
-func (s *answerStore) PrepareHermesAnswerAttempt(_ context.Context, _ string, event domain.WorkCardEvent, consumeOneShot bool) (bool, error) {
+func (s *answerStore) PrepareHermesAnswerAttempt(_ context.Context, _ string, expectedConfig domain.WorkboardConfig, event domain.WorkCardEvent, consumeOneShot bool) (bool, error) {
 	if s.prepareErr != nil {
 		return false, s.prepareErr
+	}
+	if s.prepareHook != nil {
+		s.prepareHook()
+		s.prepareHook = nil
+	}
+	if !reflect.DeepEqual(s.project.Config.Workboard, expectedConfig) {
+		return false, nil
 	}
 	if consumeOneShot {
 		if !s.project.Config.Workboard.Autonomous.Enabled || s.project.Config.Workboard.Autonomous.Sticky {

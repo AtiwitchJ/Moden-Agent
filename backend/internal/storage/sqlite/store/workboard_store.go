@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"reflect"
 	"time"
 
 	"github.com/modernagent/modern-agent/backend/internal/domain"
@@ -117,18 +118,22 @@ func (s *Store) AppendWorkCardEvent(ctx context.Context, event domain.WorkCardEv
 // PrepareHermesAnswerAttempt records a Hermes send attempt and, when requested,
 // consumes the non-sticky autonomous override in the same transaction. A
 // one-shot override is therefore never durably spent without an attempt that
-// owns the decision in its payload.
-func (s *Store) PrepareHermesAnswerAttempt(ctx context.Context, projectID string, event domain.WorkCardEvent, consumeOneShot bool) (bool, error) {
+// owns the decision in its payload. expectedConfig makes the authorization
+// decision conditional on the current persisted workboard config.
+func (s *Store) PrepareHermesAnswerAttempt(ctx context.Context, projectID string, expectedConfig domain.WorkboardConfig, event domain.WorkCardEvent, consumeOneShot bool) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	prepared := false
 	err := s.inTx(ctx, "prepare Hermes answer attempt", func(q *gen.Queries) error {
+		project, err := q.GetProject(ctx, domain.ProjectID(projectID))
+		if err != nil {
+			return err
+		}
+		config := unmarshalProjectConfig(project.Config)
+		if !reflect.DeepEqual(config.Workboard, expectedConfig) {
+			return nil
+		}
 		if consumeOneShot {
-			project, err := q.GetProject(ctx, domain.ProjectID(projectID))
-			if err != nil {
-				return err
-			}
-			config := unmarshalProjectConfig(project.Config)
 			if !config.Workboard.Autonomous.Enabled || config.Workboard.Autonomous.Sticky {
 				return nil
 			}
