@@ -471,6 +471,38 @@ func TestManager_UpdateWorkboardAutonomousPreservesProjectConfig(t *testing.T) {
 	}
 }
 
+func TestManager_UpdateWorkboardAutonomousRejectsInvalidMergedConfig(t *testing.T) {
+	ctx := context.Background()
+	store, err := sqlite.Open(t.TempDir())
+	if err != nil {
+		t.Fatalf("open store: %v", err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	m := project.New(store)
+	if _, err := m.Add(ctx, project.AddInput{Path: gitRepo(t), ProjectID: ptr("ao")}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+	row, ok, err := store.GetProject(ctx, "ao")
+	if err != nil || !ok {
+		t.Fatalf("GetProject: ok=%t err=%v", ok, err)
+	}
+	row.Config.Workboard.Autonomous = domain.WorkboardAutonomousConfig{Mode: domain.WorkboardAutonomousModeShortTimeout, ShortTimeoutMinutes: -1, Sticky: true}
+	if err := store.UpsertProject(ctx, row); err != nil {
+		t.Fatalf("seed invalid config: %v", err)
+	}
+
+	enabled := true
+	_, err = m.UpdateWorkboardAutonomous(ctx, "ao", project.UpdateWorkboardAutonomousInput{Enabled: &enabled})
+	wantCode(t, err, "INVALID_PROJECT_CONFIG")
+	row, ok, err = store.GetProject(ctx, "ao")
+	if err != nil || !ok {
+		t.Fatalf("GetProject after patch: ok=%t err=%v", ok, err)
+	}
+	if row.Config.Workboard.Autonomous.Enabled {
+		t.Fatalf("project config after rejected patch = %+v, want autonomous still disabled", row.Config.Workboard.Autonomous)
+	}
+}
+
 func TestManager_ListIncludesOnlySummarySafeProjectConfig(t *testing.T) {
 	ctx := context.Background()
 	m := newManager(t)

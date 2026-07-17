@@ -68,6 +68,64 @@ func TestPatchWorkboardAutonomousDoesNotRestoreConsumedOneShot(t *testing.T) {
 	}
 }
 
+func TestUpsertProjectDoesNotRestoreConsumedOneShot(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
+	project := domain.ProjectRecord{
+		ID: "mer", Path: "/tmp/mer", RegisteredAt: now,
+		Config: domain.ProjectConfig{Workboard: domain.WorkboardConfig{Autonomous: domain.WorkboardAutonomousConfig{Enabled: true, Mode: "skip_timeout", Sticky: false}}},
+	}
+	if err := s.UpsertProject(ctx, project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	card := domain.WorkCard{ID: "card-1", ProjectID: "mer", BoardID: "default", Title: "Ship API", Priority: domain.CardPriorityNormal, Labels: []string{}, Status: domain.CardStatusRunning, TargetPath: "/tmp/mer", Agent: "codex", GoalVersion: 1, CreatedAt: now, UpdatedAt: now}
+	if err := s.CreateWorkCard(ctx, card); err != nil {
+		t.Fatalf("create card: %v", err)
+	}
+	event := domain.WorkCardEvent{ID: "attempt-1", CardID: card.ID, ProjectID: card.ProjectID, Kind: "hermes_answer_requested", Payload: `{}`, CreatedAt: now}
+	prepared, err := s.PrepareHermesAnswerAttempt(ctx, project.ID, project.Config.Workboard, event, true)
+	if err != nil || !prepared {
+		t.Fatalf("PrepareHermesAnswerAttempt: prepared=%t err=%v", prepared, err)
+	}
+
+	stale := project
+	stale.Config.DefaultBranch = "release"
+	if err := s.UpsertProject(ctx, stale); err != nil {
+		t.Fatalf("stale upsert: %v", err)
+	}
+	got, ok, err := s.GetProject(ctx, project.ID)
+	if err != nil || !ok {
+		t.Fatalf("get project: ok=%t err=%v", ok, err)
+	}
+	if got.Config.DefaultBranch != "release" || got.Config.Workboard.Autonomous.Enabled {
+		t.Fatalf("project config after stale upsert = %+v, want other config updated with one-shot still consumed", got.Config)
+	}
+}
+
+func TestPatchWorkboardAutonomousRejectsInvalidMergedConfig(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	project := domain.ProjectRecord{
+		ID: "mer", Path: "/tmp/mer", RegisteredAt: time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC),
+		Config: domain.ProjectConfig{Workboard: domain.WorkboardConfig{Autonomous: domain.WorkboardAutonomousConfig{Mode: "short_timeout", ShortTimeoutMinutes: -1, Sticky: true}}},
+	}
+	if err := s.UpsertProject(ctx, project); err != nil {
+		t.Fatalf("seed project: %v", err)
+	}
+	enabled := true
+	if _, _, err := s.PatchWorkboardAutonomous(ctx, project.ID, domain.WorkboardAutonomousPatch{Enabled: &enabled}); err == nil {
+		t.Fatal("PatchWorkboardAutonomous error = nil, want invalid merged config rejection")
+	}
+	got, ok, err := s.GetProject(ctx, project.ID)
+	if err != nil || !ok {
+		t.Fatalf("get project: ok=%t err=%v", ok, err)
+	}
+	if got.Config.Workboard.Autonomous.Enabled {
+		t.Fatalf("project config after rejected patch = %+v, want autonomous still disabled", got.Config.Workboard.Autonomous)
+	}
+}
+
 func TestPrepareHermesAnswerAttemptRollsBackOneShotWithoutEvent(t *testing.T) {
 	s := newTestStore(t)
 	ctx := context.Background()

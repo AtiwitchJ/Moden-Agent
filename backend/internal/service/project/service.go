@@ -337,6 +337,18 @@ func (m *Service) UpdateWorkboardAutonomous(ctx context.Context, id domain.Proje
 	if err := patch.Validate(); err != nil {
 		return Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
 	}
+	current, ok, err := m.store.GetProject(ctx, string(id))
+	if err != nil {
+		return Project{}, apierr.Internal("PROJECT_LOAD_FAILED", "Failed to load project")
+	}
+	if !ok || !current.ArchivedAt.IsZero() {
+		return Project{}, apierr.NotFound("PROJECT_NOT_FOUND", "Unknown project")
+	}
+	config := current.Config
+	config.Workboard.Autonomous = patch.ApplyTo(config.Workboard.Autonomous.WithDefaults()).WithDefaults()
+	if err := config.Validate(); err != nil {
+		return Project{}, apierr.Invalid("INVALID_PROJECT_CONFIG", err.Error(), nil)
+	}
 	row, ok, err := m.store.PatchWorkboardAutonomous(ctx, string(id), patch)
 	if err != nil {
 		return Project{}, apierr.Internal("PROJECT_CONFIG_UPDATE_FAILED", "Failed to update project config")

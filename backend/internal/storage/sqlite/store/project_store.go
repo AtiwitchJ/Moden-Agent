@@ -14,13 +14,9 @@ import (
 
 // UpsertProject inserts or replaces a registered project row.
 func (s *Store) UpsertProject(ctx context.Context, r domain.ProjectRecord) error {
-	config, err := marshalProjectConfig(r.Config)
-	if err != nil {
-		return err
-	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	return upsertProject(ctx, s.qw, r, config)
+	return upsertProject(ctx, s.qw, r)
 }
 
 // PatchWorkboardAutonomous applies a sparse autonomous-config mutation while
@@ -49,6 +45,9 @@ func (s *Store) PatchWorkboardAutonomous(ctx context.Context, id string, patch d
 		}
 		config := unmarshalProjectConfig(project.Config)
 		config.Workboard.Autonomous = patch.ApplyTo(config.Workboard.Autonomous.WithDefaults()).WithDefaults()
+		if err := config.Validate(); err != nil {
+			return err
+		}
 		encoded, err := marshalProjectConfig(config)
 		if err != nil {
 			return err
@@ -66,14 +65,10 @@ func (s *Store) PatchWorkboardAutonomous(ctx context.Context, id string, patch d
 // UpsertWorkspaceProject inserts or replaces a workspace project and its child
 // repository registry in one transaction. The child set is authoritative.
 func (s *Store) UpsertWorkspaceProject(ctx context.Context, r domain.ProjectRecord, repos []domain.WorkspaceRepoRecord) error {
-	config, err := marshalProjectConfig(r.Config)
-	if err != nil {
-		return err
-	}
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
 	return s.inTx(ctx, "upsert workspace project", func(q *gen.Queries) error {
-		if err := upsertProject(ctx, q, r, config); err != nil {
+		if err := upsertProject(ctx, q, r); err != nil {
 			return err
 		}
 		if err := q.DeleteWorkspaceReposByProject(ctx, domain.ProjectID(r.ID)); err != nil {
@@ -113,7 +108,17 @@ func (s *Store) ListWorkspaceRepos(ctx context.Context, projectID string) ([]dom
 	return out, nil
 }
 
-func upsertProject(ctx context.Context, q *gen.Queries, r domain.ProjectRecord, config sql.NullString) error {
+func upsertProject(ctx context.Context, q *gen.Queries, r domain.ProjectRecord) error {
+	existing, err := q.GetProject(ctx, domain.ProjectID(r.ID))
+	if err == nil {
+		r.Config = preserveConsumedOneShotAutonomy(unmarshalProjectConfig(existing.Config), r.Config)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	config, err := marshalProjectConfig(r.Config)
+	if err != nil {
+		return err
+	}
 	kind := r.Kind.WithDefault()
 	return q.UpsertProject(ctx, gen.UpsertProjectParams{
 		ID:            domain.ProjectID(r.ID),
@@ -127,6 +132,19 @@ func upsertProject(ctx context.Context, q *gen.Queries, r domain.ProjectRecord, 
 		CompanyID:     nullString(r.CompanyID),
 		HqRole:        nullString(string(r.HQRole)),
 	})
+}
+
+// preserveConsumedOneShotAutonomy prevents a stale whole-project write from
+// re-enabling a non-sticky override Hermes has already consumed. Deliberate
+// re-enablement uses the sparse autonomous patch, which is serialized with
+// consumption and therefore has current-state intent.
+func preserveConsumedOneShotAutonomy(current, incoming domain.ProjectConfig) domain.ProjectConfig {
+	persisted := current.Workboard.Autonomous
+	requested := incoming.Workboard.Autonomous
+	if persisted.Mode != "" && !persisted.Enabled && !persisted.Sticky && requested.Enabled && !requested.Sticky {
+		incoming.Workboard.Autonomous.Enabled = false
+	}
+	return incoming
 }
 
 // GetProject returns a project by id, active or archived.
