@@ -211,7 +211,7 @@ func TestAnswererReconcileProject_DenylistedIntentNeverAutoAnswers(t *testing.T)
 	}
 }
 
-func TestAnswererReconcileProject_PreparedAnswerDoesNotRetryAmbiguousSend(t *testing.T) {
+func TestAnswererReconcileProject_RetriesPreparedAnswerWithoutDeliveryEvidence(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
 	store := answerStoreWithQuestion(now, domain.WorkboardConfig{AnswerTimeoutMinutes: 10})
 	sender := &answerSender{err: context.DeadlineExceeded}
@@ -223,18 +223,21 @@ func TestAnswererReconcileProject_PreparedAnswerDoesNotRetryAmbiguousSend(t *tes
 	sender.err = nil
 	if answered, err := answerer.ReconcileProject(context.Background(), "p1"); err != nil {
 		t.Fatalf("ReconcileProject retry: %v", err)
-	} else if len(answered) != 0 {
-		t.Fatalf("retry answered = %v, want none", answered)
+	} else if len(answered) != 1 || answered[0] != "card-1" {
+		t.Fatalf("retry answered = %v, want [card-1]", answered)
 	}
-	if len(sender.sent) != 1 || len(store.events) != 1 || store.events[0].Kind != hermesAnswerRequestedEventKind {
-		t.Fatalf("ambiguous send sent=%#v events=%#v, want one prepared attempt and no replay", sender.sent, store.events)
+	if len(sender.sent) != 2 || len(store.events) != 2 || store.events[0].Kind != hermesAnswerRequestedEventKind || store.events[1].Kind != hermesAnswerEventKind {
+		t.Fatalf("retried send sent=%#v events=%#v, want retry and completion", sender.sent, store.events)
 	}
-	if !store.cards[0].WaitingForInput {
-		t.Fatal("ambiguous delivery should remain visible as waiting for user input")
+	if store.cards[0].WaitingForInput {
+		t.Fatal("successful retry should clear waiting for input")
+	}
+	if sender.sent[0].message != sender.sent[1].message || !strings.Contains(sender.sent[1].message, "Hermes answer request ID: event-1") {
+		t.Fatalf("retry must use the same idempotent prompt: %#v", sender.sent)
 	}
 }
 
-func TestAnswererReconcileProject_RequiresDurablePostSendEvidence(t *testing.T) {
+func TestAnswererReconcileProject_CompletesWhenPostSendAuditIsUnavailable(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
 	store := answerStoreWithQuestion(now, domain.WorkboardConfig{AnswerTimeoutMinutes: 10})
 	sender := &answerSender{} // Simulates a delivered runtime send whose message-store write failed.
@@ -244,13 +247,13 @@ func TestAnswererReconcileProject_RequiresDurablePostSendEvidence(t *testing.T) 
 	if err != nil {
 		t.Fatalf("ReconcileProject: %v", err)
 	}
-	if len(answered) != 0 || len(sender.sent) != 1 || len(store.events) != 1 || store.events[0].Kind != hermesAnswerRequestedEventKind || !store.cards[0].WaitingForInput {
-		t.Fatalf("unproven send = answered:%v sent:%v events:%v waiting:%t", answered, sender.sent, store.events, store.cards[0].WaitingForInput)
+	if len(answered) != 1 || answered[0] != "card-1" || len(sender.sent) != 1 || len(store.events) != 2 || store.events[0].Kind != hermesAnswerRequestedEventKind || store.events[1].Kind != hermesAnswerEventKind || store.cards[0].WaitingForInput {
+		t.Fatalf("post-send audit miss = answered:%v sent:%v events:%v waiting:%t", answered, sender.sent, store.events, store.cards[0].WaitingForInput)
 	}
 	if answered, err = answerer.ReconcileProject(context.Background(), "p1"); err != nil {
 		t.Fatalf("ReconcileProject repeat: %v", err)
-	} else if len(answered) != 0 || len(sender.sent) != 1 || len(store.events) != 1 {
-		t.Fatalf("unproven send replay = answered:%v sent:%v events:%v", answered, sender.sent, store.events)
+	} else if len(answered) != 0 || len(sender.sent) != 1 || len(store.events) != 2 {
+		t.Fatalf("completed send replay = answered:%v sent:%v events:%v", answered, sender.sent, store.events)
 	}
 }
 
@@ -262,7 +265,7 @@ func TestAnswererReconcileProject_ConfirmsPreparedAnswerFromDurableMessage(t *te
 		AttemptID: "attempt-1", WorkerSessionID: "worker-1", HermesSessionID: "hermes-1",
 		Question: "May I run the test suite before continuing?", WaitingAt: waitingAt.Format(time.RFC3339Nano),
 	}
-	payload.Prompt, _ = hermesAnswerPrompt(store.cards[0], "worker-1", payload.Question)
+	payload.Prompt, _ = hermesAnswerPrompt(store.cards[0], "worker-1", payload.AttemptID, payload.Question)
 	payloadJSON, err := json.Marshal(payload)
 	if err != nil {
 		t.Fatalf("marshal payload: %v", err)
@@ -339,10 +342,10 @@ func TestAnswererReconcileProject_OldCompletedAttemptDoesNotConsumeCurrentAutono
 func TestAnswererReconcileProject_OlderAttemptSelfHealDoesNotConsumeFreshOneShot(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
 	store := answerStoreWithQuestion(now, domain.WorkboardConfig{AnswerTimeoutMinutes: 10})
-	sender := &answerSender{} // The initial send has no durable message evidence yet.
+	sender := &answerSender{err: context.DeadlineExceeded} // Leave a prepared attempt with no delivery evidence.
 	answerer := NewAnswerer(AnswerDeps{Store: store, Sender: sender, Clock: func() time.Time { return now }, NewID: eventIDs()})
 
-	if answered, err := answerer.ReconcileProject(context.Background(), "p1"); err != nil || len(answered) != 0 || len(store.events) != 1 {
+	if answered, err := answerer.ReconcileProject(context.Background(), "p1"); err == nil || len(answered) != 0 || len(store.events) != 1 {
 		t.Fatalf("initial ambiguous attempt = answered:%v err:%v events:%#v", answered, err, store.events)
 	}
 	var payload hermesAnswerPayload
@@ -404,7 +407,7 @@ func TestHermesAnswerPromptSanitizesAndBoundsContext(t *testing.T) {
 	question := "May I run the focused tests?\x1b[2J"
 	prompt, ok := hermesAnswerPrompt(domain.WorkCard{
 		ID: "card-1", Title: "Ship API", Notes: strings.Repeat("界", 3_000), TargetPath: "/workspace/api",
-	}, "worker-1", question)
+	}, "worker-1", "attempt-1", question)
 	if !ok {
 		t.Fatal("hermesAnswerPrompt rejected a prompt with truncatable context")
 	}
@@ -417,7 +420,7 @@ func TestHermesAnswerPromptSanitizesAndBoundsContext(t *testing.T) {
 }
 
 func TestHermesAnswerPromptRejectsOversizedQuestion(t *testing.T) {
-	if prompt, ok := hermesAnswerPrompt(domain.WorkCard{ID: "card-1"}, "worker-1", strings.Repeat("x", maxHermesPromptBytes)); ok || prompt != "" {
+	if prompt, ok := hermesAnswerPrompt(domain.WorkCard{ID: "card-1"}, "worker-1", "attempt-1", strings.Repeat("x", maxHermesPromptBytes)); ok || prompt != "" {
 		t.Fatalf("oversized question prompt=%q ok=%t, want rejected", prompt, ok)
 	}
 }
@@ -504,15 +507,18 @@ func (s *answerStore) AppendWorkCardEvent(_ context.Context, event domain.WorkCa
 	return nil
 }
 
-func (s *answerStore) PrepareHermesAnswerAttempt(_ context.Context, project domain.ProjectRecord, event domain.WorkCardEvent, consumeOneShot bool) error {
+func (s *answerStore) PrepareHermesAnswerAttempt(_ context.Context, _ string, event domain.WorkCardEvent, consumeOneShot bool) (bool, error) {
 	if s.prepareErr != nil {
-		return s.prepareErr
+		return false, s.prepareErr
 	}
 	if consumeOneShot {
-		s.project = project
+		if !s.project.Config.Workboard.Autonomous.Enabled || s.project.Config.Workboard.Autonomous.Sticky {
+			return false, nil
+		}
+		s.project.Config.Workboard.Autonomous.Enabled = false
 	}
 	s.events = append(s.events, event)
-	return nil
+	return true, nil
 }
 
 func (s *answerStore) ListWorkCardEvents(_ context.Context, cardID string) ([]domain.WorkCardEvent, error) {

@@ -118,28 +118,43 @@ func (s *Store) AppendWorkCardEvent(ctx context.Context, event domain.WorkCardEv
 // consumes the non-sticky autonomous override in the same transaction. A
 // one-shot override is therefore never durably spent without an attempt that
 // owns the decision in its payload.
-func (s *Store) PrepareHermesAnswerAttempt(ctx context.Context, project domain.ProjectRecord, event domain.WorkCardEvent, consumeOneShot bool) error {
-	config, err := marshalProjectConfig(project.Config)
-	if err != nil {
-		return err
-	}
+func (s *Store) PrepareHermesAnswerAttempt(ctx context.Context, projectID string, event domain.WorkCardEvent, consumeOneShot bool) (bool, error) {
 	s.writeMu.Lock()
 	defer s.writeMu.Unlock()
-	return s.inTx(ctx, "prepare Hermes answer attempt", func(q *gen.Queries) error {
+	prepared := false
+	err := s.inTx(ctx, "prepare Hermes answer attempt", func(q *gen.Queries) error {
 		if consumeOneShot {
-			if err := upsertProject(ctx, q, project, config); err != nil {
+			project, err := q.GetProject(ctx, domain.ProjectID(projectID))
+			if err != nil {
+				return err
+			}
+			config := unmarshalProjectConfig(project.Config)
+			if !config.Workboard.Autonomous.Enabled || config.Workboard.Autonomous.Sticky {
+				return nil
+			}
+			config.Workboard.Autonomous.Enabled = false
+			encoded, err := marshalProjectConfig(config)
+			if err != nil {
+				return err
+			}
+			if err := q.UpdateProjectConfig(ctx, gen.UpdateProjectConfigParams{Config: encoded, ID: domain.ProjectID(projectID)}); err != nil {
 				return err
 			}
 		}
-		return q.InsertWorkCardEvent(ctx, gen.InsertWorkCardEventParams{
+		if err := q.InsertWorkCardEvent(ctx, gen.InsertWorkCardEventParams{
 			ID:        event.ID,
 			CardID:    event.CardID,
 			ProjectID: event.ProjectID,
 			Kind:      event.Kind,
 			Payload:   event.Payload,
 			CreatedAt: event.CreatedAt.UnixMilli(),
-		})
+		}); err != nil {
+			return err
+		}
+		prepared = true
+		return nil
 	})
+	return prepared, err
 }
 
 // ListWorkCardEvents returns a card's immutable audit facts in creation order.

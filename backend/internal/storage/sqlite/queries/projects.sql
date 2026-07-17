@@ -15,6 +15,9 @@ ON CONFLICT (id) DO UPDATE SET
 SELECT id, path, repo_origin_url, display_name, registered_at, archived_at, config, kind, company_id, hq_role
 FROM projects WHERE id = ?;
 
+-- name: UpdateProjectConfig :exec
+UPDATE projects SET config = ? WHERE id = ?;
+
 -- name: ListProjects :many
 SELECT id, path, repo_origin_url, display_name, registered_at, archived_at, config, kind, company_id, hq_role
 FROM projects WHERE archived_at IS NULL ORDER BY id;

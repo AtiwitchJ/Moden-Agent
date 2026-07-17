@@ -21,7 +21,11 @@ type AnswerStore interface {
 	UpdateWorkCard(ctx context.Context, card domain.WorkCard) error
 	ListSessions(ctx context.Context, projectID domain.ProjectID) ([]domain.SessionRecord, error)
 	ListRecentNotifications(ctx context.Context, limit int) ([]domain.NotificationRecord, error)
-	PrepareHermesAnswerAttempt(ctx context.Context, project domain.ProjectRecord, event domain.WorkCardEvent, consumeOneShot bool) error
+	// PrepareHermesAnswerAttempt writes an attempt and, when consumeOneShot is
+	// true, consumes the currently persisted non-sticky autonomous setting in
+	// the same transaction. prepared=false means that authorization changed
+	// after this reconciler read the project, so no external send may occur.
+	PrepareHermesAnswerAttempt(ctx context.Context, projectID string, event domain.WorkCardEvent, consumeOneShot bool) (prepared bool, err error)
 	AppendWorkCardEvent(ctx context.Context, event domain.WorkCardEvent) error
 	ListWorkCardEvents(ctx context.Context, cardID string) ([]domain.WorkCardEvent, error)
 	ListProjectSessionMessages(ctx context.Context, project domain.ProjectID, limit int) ([]domain.SessionMessageRecord, error)
@@ -141,12 +145,6 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 			}
 		}
 		if attempt.requested {
-			// The persisted attempt payload owns any prior one-shot decision.
-			// Do not re-evaluate or consume the project's current override while
-			// self-healing it: a user may have enabled a fresh one-shot since.
-			// The session service records a message only after its runtime send
-			// succeeds. That durable fact closes the crash window between the
-			// external send and the work-card completion event.
 			if hermesAnswerDelivered(messages, attempt) {
 				if err := a.appendHermesAnswer(ctx, card, attempt.payload, now); err != nil {
 					return answered, err
@@ -158,10 +156,25 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 				if wasWaiting {
 					answered = append(answered, card.ID)
 				}
+				continue
 			}
-			// Missing evidence is ambiguous: the daemon may have delivered the
-			// message just before a process/store failure. Keep the card visibly
-			// waiting, but never replay that specific external Hermes send.
+			// The request event is an outbox record. A daemon may have crashed
+			// before Send, or Send may have delivered while its best-effort session
+			// message audit was unavailable. Retry the same attempt-owned prompt;
+			// its stable attempt ID lets Hermes avoid a duplicate worker answer.
+			if err := a.sender.Send(ctx, domain.SessionID(attempt.payload.HermesSessionID), attempt.payload.Prompt, ""); err != nil {
+				return answered, fmt.Errorf("retry Hermes answer request for card %s: %w", card.ID, err)
+			}
+			if err := a.appendHermesAnswer(ctx, card, attempt.payload, now); err != nil {
+				return answered, err
+			}
+			wasWaiting := card.WaitingForInput
+			if err := a.completeAnswer(ctx, &card, now); err != nil {
+				return answered, err
+			}
+			if wasWaiting {
+				answered = append(answered, card.ID)
+			}
 			continue
 		}
 
@@ -170,17 +183,14 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 			continue
 		}
 
-		prompt, ok := hermesAnswerPrompt(card, worker.ID, question)
+		attemptID := a.newID()
+		prompt, ok := hermesAnswerPrompt(card, worker.ID, attemptID, question)
 		if !ok {
 			// A truncated question could change the authorization Hermes makes.
 			// Leave the card waiting rather than send an unsafe partial request.
 			continue
 		}
 		consumedOneShot := project.Config.Workboard.Autonomous.Enabled && !project.Config.Workboard.Autonomous.Sticky
-		if consumedOneShot {
-			project.Config.Workboard.Autonomous.Enabled = false
-		}
-		attemptID := a.newID()
 		payload := hermesAnswerPayload{
 			AttemptID:       attemptID,
 			WorkerSessionID: string(worker.ID),
@@ -194,26 +204,19 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 		if err != nil {
 			return answered, fmt.Errorf("marshal Hermes answer event for card %s: %w", card.ID, err)
 		}
-		if err := a.store.PrepareHermesAnswerAttempt(ctx, project, domain.WorkCardEvent{
+		prepared, err := a.store.PrepareHermesAnswerAttempt(ctx, project.ID, domain.WorkCardEvent{
 			ID: attemptID, CardID: card.ID, ProjectID: card.ProjectID, Kind: hermesAnswerRequestedEventKind, Payload: string(payloadJSON), CreatedAt: now,
-		}, consumedOneShot); err != nil {
+		}, consumedOneShot)
+		if err != nil {
 			return answered, fmt.Errorf("prepare Hermes answer event for card %s: %w", card.ID, err)
 		}
-		if err := a.sender.Send(ctx, hermes.ID, prompt, ""); err != nil {
-			// A send error may still represent a delivered runtime write. The
-			// session boundary has no reliable pre-delivery error signal, so do
-			// not restore this attempt's one-shot authorization.
-			return answered, fmt.Errorf("send Hermes answer request for card %s: %w", card.ID, err)
-		}
-		messages, err = a.store.ListProjectSessionMessages(ctx, domain.ProjectID(projectID), 1000)
-		if err != nil {
-			return answered, fmt.Errorf("verify Hermes send for card %s: %w", card.ID, err)
-		}
-		prepared := hermesAnswerAttempt{requested: true, payload: payload, requestedAt: now}
-		if !hermesAnswerDelivered(messages, prepared) {
-			// Send delivery is externally visible, but without its durable audit
-			// fact we cannot safely declare completion or retry it.
+		if !prepared {
+			// A one-shot autonomous authorization changed after the read at the
+			// beginning of reconciliation. Do not spend or act on stale consent.
 			continue
+		}
+		if err := a.sender.Send(ctx, hermes.ID, prompt, ""); err != nil {
+			return answered, fmt.Errorf("send Hermes answer request for card %s: %w", card.ID, err)
 		}
 		if err := a.appendHermesAnswer(ctx, card, payload, now); err != nil {
 			return answered, err
@@ -452,10 +455,10 @@ const maxHermesPromptBytes = 4096
 // hermesAnswerPrompt prepares a terminal-safe message without ever truncating
 // the question that Hermes must authorize. Context can be shortened, but an
 // oversized question is left for the user rather than changing its meaning.
-func hermesAnswerPrompt(card domain.WorkCard, workerID domain.SessionID, question string) (string, bool) {
-	const instruction = "A worker linked to a Workboard card needs input. Review the card and relevant workspace before deciding, then send the worker a grounded answer through the normal session send path. Do not authorize destructive, credential, or data-exfiltration actions; leave those for the user."
+func hermesAnswerPrompt(card domain.WorkCard, workerID domain.SessionID, attemptID, question string) (string, bool) {
+	const instruction = "A worker linked to a Workboard card needs input. Review the card and relevant workspace before deciding, then send the worker a grounded answer through the normal session send path. Do not authorize destructive, credential, or data-exfiltration actions; leave those for the user. If this request ID was already processed, do not send a second worker answer."
 	question = domain.SanitizeControlChars(question)
-	prefix := fmt.Sprintf("%s\n\nCard ID: %s\n", instruction, domain.SanitizeControlChars(card.ID))
+	prefix := fmt.Sprintf("%s\n\nHermes answer request ID: %s\nCard ID: %s\n", instruction, domain.SanitizeControlChars(attemptID), domain.SanitizeControlChars(card.ID))
 	suffix := fmt.Sprintf("Worker session: %s\nQuestion: %s", domain.SanitizeControlChars(string(workerID)), question)
 	base := prefix + suffix
 	if len(base) > maxHermesPromptBytes {
