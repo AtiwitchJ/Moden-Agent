@@ -145,7 +145,7 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 			}
 		}
 		if attempt.requested {
-			if hermesAnswerDelivered(messages, attempt) {
+			if hermesAnswerDelivered(messages, sessions, attempt) {
 				if err := a.appendHermesAnswer(ctx, card, attempt.payload, now); err != nil {
 					return answered, err
 				}
@@ -372,12 +372,18 @@ func findHermesAnswerAttempt(events []domain.WorkCardEvent, workerID domain.Sess
 	return attempt
 }
 
-func hermesAnswerDelivered(messages []domain.SessionMessageRecord, attempt hermesAnswerAttempt) bool {
+func hermesAnswerDelivered(messages []domain.SessionMessageRecord, sessions []domain.SessionRecord, attempt hermesAnswerAttempt) bool {
 	if !attempt.requested {
 		return false
 	}
+	hermesIDs := make(map[domain.SessionID]struct{})
+	for _, session := range sessions {
+		if session.Kind == domain.KindOrchestrator && session.Harness == domain.HarnessHermes {
+			hermesIDs[session.ID] = struct{}{}
+		}
+	}
 	for _, message := range messages {
-		if message.TargetSessionID == domain.SessionID(attempt.payload.HermesSessionID) &&
+		if _, isHermes := hermesIDs[message.TargetSessionID]; isHermes &&
 			message.Content == attempt.payload.Prompt && !message.CreatedAt.Before(attempt.requestedAt) {
 			return true
 		}

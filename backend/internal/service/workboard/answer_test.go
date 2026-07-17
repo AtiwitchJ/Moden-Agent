@@ -333,6 +333,38 @@ func TestAnswererReconcileProject_ConfirmsPreparedAnswerFromDurableMessage(t *te
 	}
 }
 
+func TestAnswererReconcileProject_ConfirmsPreparedAnswerFromReplacementHermesMessage(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
+	store := answerStoreWithQuestion(now, domain.WorkboardConfig{AnswerTimeoutMinutes: 10})
+	store.sessions[1].IsTerminated = true
+	store.sessions = append(store.sessions, domain.SessionRecord{ID: "hermes-2", ProjectID: "p1", Kind: domain.KindOrchestrator, Harness: domain.HarnessHermes, UpdatedAt: now})
+	waitingAt := store.sessions[0].Activity.LastActivityAt
+	payload := hermesAnswerPayload{
+		AttemptID: "attempt-1", WorkerSessionID: "worker-1", HermesSessionID: "hermes-1",
+		Question: "May I run the test suite before continuing?", WaitingAt: waitingAt.Format(time.RFC3339Nano),
+	}
+	payload.Prompt, _ = hermesAnswerPrompt(store.cards[0], "worker-1", payload.AttemptID, payload.Question)
+	payloadJSON, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("marshal payload: %v", err)
+	}
+	store.events = append(store.events, domain.WorkCardEvent{ID: payload.AttemptID, CardID: "card-1", ProjectID: "p1", Kind: hermesAnswerRequestedEventKind, Payload: string(payloadJSON), CreatedAt: now.Add(-time.Minute)})
+	store.messages = append(store.messages, domain.SessionMessageRecord{ID: "msg-1", TargetSessionID: "hermes-2", Content: payload.Prompt, CreatedAt: now})
+	sender := newAnswerSender(store, func() time.Time { return now })
+	answerer := NewAnswerer(AnswerDeps{Store: store, Sender: sender, Clock: func() time.Time { return now }, NewID: eventIDs()})
+
+	answered, err := answerer.ReconcileProject(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("ReconcileProject: %v", err)
+	}
+	if len(answered) != 1 || len(sender.sent) != 0 || store.cards[0].WaitingForInput {
+		t.Fatalf("replacement self-heal = answered:%v sent:%v waiting:%t", answered, sender.sent, store.cards[0].WaitingForInput)
+	}
+	if len(store.events) != 2 || store.events[1].Kind != hermesAnswerEventKind || !strings.Contains(store.events[1].Payload, `"attemptId":"attempt-1"`) {
+		t.Fatalf("events = %#v, want completion linked to attempt-1", store.events)
+	}
+}
+
 func TestAnswererReconcileProject_RetriesOnlyForNewWaitingEpisode(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 9, 10, 0, 0, time.UTC)
 	store := answerStoreWithQuestion(now, domain.WorkboardConfig{AnswerTimeoutMinutes: 10})
