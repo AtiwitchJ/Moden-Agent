@@ -267,6 +267,49 @@ func TestMoveAndUpdatePreserveReadyTimestamp(t *testing.T) {
 	}
 }
 
+func TestPhase1Smoke_CreateTriageMoveReadyPersists(t *testing.T) {
+	// Task 7 manual smoke, automated: project exists → create triage card →
+	// move to ready → re-list through a fresh service handle (page refresh).
+	svc, sqliteStore, root := newTestService(t)
+	ctx := context.Background()
+
+	card, err := svc.Create(ctx, workboard.CreateInput{
+		ProjectID: "p1", Title: "Repair diagnostics", Notes: "Preserve actionable errors.",
+		Priority: domain.CardPriorityHigh, Labels: []string{"frontend"},
+		Status: domain.CardStatusTriage, TargetPath: root, Agent: "codex",
+	})
+	if err != nil {
+		t.Fatalf("Create triage: %v", err)
+	}
+	if card.Status != domain.CardStatusTriage {
+		t.Fatalf("status = %q, want triage", card.Status)
+	}
+
+	moved, err := svc.Move(ctx, card.ID, domain.CardStatusReady, 0)
+	if err != nil {
+		t.Fatalf("Move ready: %v", err)
+	}
+	if moved.Status != domain.CardStatusReady || moved.ReadyAt == nil {
+		t.Fatalf("moved = %#v", moved)
+	}
+
+	fresh := workboard.NewWithDeps(workboard.Deps{Store: sqliteStore, Clock: func() time.Time { return testNow }})
+	listed, err := fresh.List(ctx, "p1", "default")
+	if err != nil {
+		t.Fatalf("List after refresh: %v", err)
+	}
+	if len(listed) != 1 || listed[0].ID != card.ID || listed[0].Status != domain.CardStatusReady {
+		t.Fatalf("persisted list = %#v", listed)
+	}
+	got, err := fresh.Get(ctx, card.ID)
+	if err != nil {
+		t.Fatalf("Get after refresh: %v", err)
+	}
+	if got.Title != "Repair diagnostics" || got.Status != domain.CardStatusReady || got.ReadyAt == nil {
+		t.Fatalf("persisted card = %#v", got)
+	}
+}
+
 var testNow = time.Date(2026, 7, 17, 8, 0, 0, 0, time.UTC)
 
 func newTestService(t *testing.T) (*workboard.Service, *store.Store, string) {
