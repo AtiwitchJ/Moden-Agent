@@ -116,6 +116,39 @@ describe("Workboard", () => {
 		}));
 	});
 
+	it("round-trips sticky false and mode changes without collapsing to defaults", async () => {
+		getMock.mockResolvedValue({
+			data: {
+				status: "ok",
+				project: {
+					id: "proj-1",
+					config: {
+						workboard: {
+							autonomous: { enabled: true, mode: "short_timeout", shortTimeoutMinutes: 3, sticky: false },
+						},
+					},
+				},
+			},
+			error: undefined,
+		});
+		renderBoard();
+		fireEvent.click(screen.getByRole("button", { name: "Autonomous" }));
+
+		expect(await screen.findByRole("checkbox", { name: "Keep autonomous mode enabled" })).not.toBeChecked();
+		expect(screen.getByLabelText("Mode")).toHaveValue("short_timeout");
+
+		fireEvent.click(screen.getByRole("checkbox", { name: "Keep autonomous mode enabled" }));
+		fireEvent.change(screen.getByLabelText("Mode"), { target: { value: "skip_timeout" } });
+		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+		await waitFor(() =>
+			expect(patchMock).toHaveBeenCalledWith("/api/v1/projects/{id}/workboard/autonomous", {
+				params: { path: { id: "proj-1" } },
+				body: { sticky: true, mode: "skip_timeout" },
+			}),
+		);
+	});
+
 	it("moves a focused card to the adjacent column with the arrow keys", async () => {
 		renderBoard();
 		const workCard = screen.getByRole("article", { name: /Repair diagnostics/i });

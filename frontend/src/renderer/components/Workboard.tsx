@@ -1,6 +1,6 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { Plus, SlidersHorizontal } from "lucide-react";
-import { type DragEvent, useEffect, useMemo, useState } from "react";
+import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { useWorkboardCards, workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
@@ -152,14 +152,26 @@ function AutonomousSettings({ projectId, open, onOpenChange }: { projectId: stri
 	const defaults: AutonomousForm = { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true };
 	const [form, setForm] = useState(defaults);
 	const [savedForm, setSavedForm] = useState<AutonomousForm>();
+	const hydratedOpenRef = useRef(false);
 	useEffect(() => {
-		if (projectQuery.data) {
-			const mode: AutonomousMode = loaded?.mode === "short_timeout" ? "short_timeout" : "skip_timeout";
-			const next = { ...defaults, ...loaded, mode };
-			setForm(next);
-			setSavedForm(next);
+		if (!open) {
+			hydratedOpenRef.current = false;
+			setSavedForm(undefined);
+			setForm(defaults);
+			return;
 		}
-	}, [loaded, projectQuery.data]);
+		if (!projectQuery.data || hydratedOpenRef.current) return;
+		hydratedOpenRef.current = true;
+		const mode: AutonomousMode = loaded?.mode === "short_timeout" ? "short_timeout" : "skip_timeout";
+		const next: AutonomousForm = {
+			enabled: loaded?.enabled === true,
+			mode,
+			shortTimeoutMinutes: loaded?.shortTimeoutMinutes ?? defaults.shortTimeoutMinutes,
+			sticky: typeof loaded?.sticky === "boolean" ? loaded.sticky : defaults.sticky,
+		};
+		setForm(next);
+		setSavedForm(next);
+	}, [open, loaded, projectQuery.data]);
 	const dirtyPatch = (): UpdateWorkboardAutonomousRequest => {
 		const patch: UpdateWorkboardAutonomousRequest = {};
 		if (!savedForm) return patch;

@@ -633,7 +633,7 @@ Expected: PASS
 - PATCH project config `workboard.autonomous`
 - UI: single Autonomous button opening settings panel (mode, short minutes, sticky)
 
-- [ ] Commit: `feat(ui): autonomous mode controls for workboard`
+- [x] Commit: `feat(ui): autonomous mode controls for workboard`
 
 ### Task 13: Limit detect + fallback switch
 

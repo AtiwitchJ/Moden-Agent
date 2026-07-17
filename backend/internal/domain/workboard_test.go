@@ -1,6 +1,8 @@
 package domain_test
 
 import (
+	"encoding/json"
+	"strings"
 	"testing"
 
 	"github.com/modernagent/modern-agent/backend/internal/domain"
@@ -23,5 +25,27 @@ func TestWorkboardConfigDefaults(t *testing.T) {
 	}
 	if d.Autonomous.Enabled {
 		t.Fatal("autonomous should default off")
+	}
+}
+
+func TestWorkboardAutonomousConfigJSONRoundTripsFalseBools(t *testing.T) {
+	in := domain.WorkboardAutonomousConfig{
+		Enabled: false,
+		Mode:    domain.WorkboardAutonomousModeSkipTimeout,
+		Sticky:  false,
+	}
+	raw, err := json.Marshal(in)
+	if err != nil {
+		t.Fatalf("marshal: %v", err)
+	}
+	if !strings.Contains(string(raw), `"enabled":false`) || !strings.Contains(string(raw), `"sticky":false`) {
+		t.Fatalf("false bools omitted: %s", raw)
+	}
+	var out domain.WorkboardAutonomousConfig
+	if err := json.Unmarshal(raw, &out); err != nil {
+		t.Fatalf("unmarshal: %v", err)
+	}
+	if out.Enabled || out.Sticky {
+		t.Fatalf("round-trip lost false: %+v", out)
 	}
 }

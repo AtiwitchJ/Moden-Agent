@@ -4399,6 +4399,9 @@ components:
           type: integer
         sticky:
           type: boolean
+      required:
+      - enabled
+      - sticky
       type: object
     WorkboardAutonomousResponse:
       properties:

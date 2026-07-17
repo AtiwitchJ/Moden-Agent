@@ -107,10 +107,12 @@ type WorkCardEvent struct {
 }
 
 type WorkboardAutonomousConfig struct {
-	Enabled             bool   `json:"enabled,omitempty"`
+	// Enabled and Sticky are always serialized so clients can round-trip
+	// false without confusing omitempty + UI defaults.
+	Enabled             bool   `json:"enabled"`
 	Mode                string `json:"mode,omitempty" enum:"skip_timeout,short_timeout"`
 	ShortTimeoutMinutes int    `json:"shortTimeoutMinutes,omitempty" minimum:"1" maximum:"1440"`
-	Sticky              bool   `json:"sticky,omitempty"`
+	Sticky              bool   `json:"sticky"`
 }
 
 const (

@@ -1555,11 +1555,11 @@ export interface components {
             waitingForInput: boolean;
         };
         WorkboardAutonomousConfig: {
-            enabled?: boolean;
+            enabled: boolean;
             /** @enum {string} */
             mode?: "skip_timeout" | "short_timeout";
             shortTimeoutMinutes?: number;
-            sticky?: boolean;
+            sticky: boolean;
         };
         WorkboardAutonomousResponse: {
             autonomous: components["schemas"]["WorkboardAutonomousConfig"];
