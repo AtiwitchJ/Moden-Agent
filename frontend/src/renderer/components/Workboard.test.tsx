@@ -88,6 +88,10 @@ describe("Workboard", () => {
 	});
 
 	it("opens autonomous settings and saves only the autonomous workboard config", async () => {
+		getMock
+			.mockReset()
+			.mockResolvedValueOnce({ data: { status: "ok", project: { id: "proj-1", config: { workboard: { autonomous: { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined })
+			.mockResolvedValueOnce({ data: { status: "ok", project: { id: "proj-1", config: { heartbeat: { enabled: true, interval: "30m" }, workboard: { autonomous: { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined });
 		renderBoard();
 		fireEvent.click(screen.getByRole("button", { name: "Autonomous" }));
 
@@ -98,7 +102,7 @@ describe("Workboard", () => {
 
 		await waitFor(() => expect(putMock).toHaveBeenCalledWith("/api/v1/projects/{id}/config", {
 			params: { path: { id: "proj-1" } },
-			body: { config: { workboard: { autonomous: { enabled: true, mode: "skip_timeout", shortTimeoutMinutes: 5, sticky: true } } } },
+			body: { config: { heartbeat: { enabled: true, interval: "30m" }, workboard: { autonomous: { enabled: true, mode: "skip_timeout", shortTimeoutMinutes: 5, sticky: true } } } },
 		}));
 	});
 

@@ -135,32 +135,29 @@ export function Workboard({ projectId, onShowSessions }: { projectId: string; on
 
 function AutonomousSettings({ projectId, open, onOpenChange }: { projectId: string; open: boolean; onOpenChange: (open: boolean) => void }) {
 	const queryClient = useQueryClient();
+	const fetchProject = async () => {
+		const { data, error } = await apiClient.GET("/api/v1/projects/{id}", { params: { path: { id: projectId } } });
+		if (error || data?.status !== "ok") throw new Error(apiErrorMessage(error, "Could not load autonomous settings."));
+		return data.project as Project;
+	};
 	const projectQuery = useQuery({
 		queryKey: projectQueryKey(projectId),
 		enabled: open,
-		queryFn: async () => {
-			const { data, error } = await apiClient.GET("/api/v1/projects/{id}", { params: { path: { id: projectId } } });
-			if (error || data?.status !== "ok") throw new Error(apiErrorMessage(error, "Could not load autonomous settings."));
-			return data.project as Project;
-		},
+		queryFn: fetchProject,
 	});
 	const loaded = projectQuery.data?.config?.workboard?.autonomous;
 	const defaults: Required<AutonomousConfig> = { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true };
 	const [form, setForm] = useState(defaults);
-	const [loadedProjectId, setLoadedProjectId] = useState<string>();
 	useEffect(() => {
-		if (projectQuery.data && loadedProjectId !== projectQuery.data.id) {
-			setLoadedProjectId(projectQuery.data.id);
-			setForm({ ...defaults, ...loaded });
-		}
-	}, [loaded, loadedProjectId, projectQuery.data]);
+		if (projectQuery.data) setForm({ ...defaults, ...loaded });
+	}, [loaded, projectQuery.data]);
 	const mutation = useMutation({
 		mutationFn: async () => {
-			if (!projectQuery.data) throw new Error("Project config is unavailable.");
+			const latestProject = await fetchProject();
 			const nextConfig = {
-				...projectQuery.data.config,
+				...latestProject.config,
 				workboard: {
-					...projectQuery.data.config?.workboard,
+					...latestProject.config?.workboard,
 					autonomous: { ...form, shortTimeoutMinutes: Math.max(1, Math.round(form.shortTimeoutMinutes)) },
 				},
 			};
@@ -174,7 +171,7 @@ function AutonomousSettings({ projectId, open, onOpenChange }: { projectId: stri
 	});
 
 	return <Sheet open={open} onOpenChange={onOpenChange}>
-		<SheetContent aria-label="Autonomous settings" className="border-slate-700 bg-background sm:max-w-md">
+		<SheetContent aria-label="Autonomous settings" className="border-border bg-background sm:max-w-md">
 			<SheetHeader className="border-b border-border px-5 py-4">
 				<SheetTitle className="text-base">Autonomous mode</SheetTitle>
 				<SheetDescription>Let Hermes answer eligible workboard prompts on your behalf.</SheetDescription>
