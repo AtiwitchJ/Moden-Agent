@@ -215,6 +215,10 @@ func (o *Observer) pollProject(ctx context.Context, project domain.ProjectRecord
 		o.logger.Error("tracker intake: list issues failed", "project", project.ID, "repo", repo.Native, "err", err)
 		return true
 	}
+	if project.Config.Workboard.IntakeEnabled() && o.cardCreator == nil {
+		o.logger.Warn("tracker intake: workboard intake enabled but card creator missing; skipping issues", "project", project.ID)
+		return false
+	}
 	useWorkboard := project.Config.Workboard.IntakeEnabled() && o.cardCreator != nil
 	var actionFailed bool
 	for _, issue := range issues {
