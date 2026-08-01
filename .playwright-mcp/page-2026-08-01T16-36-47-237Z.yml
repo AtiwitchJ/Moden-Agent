@@ -1,0 +1,8 @@
+- generic [ref=f1e3]:
+  - generic [ref=f1e5]:
+    - button "Code" [ref=f1e6] [cursor=pointer]
+    - button "Code Manage" [ref=f1e7] [cursor=pointer]
+    - button "Work" [ref=f1e8] [cursor=pointer]
+  - generic [ref=f1e24]:
+    - heading "Work" [level=1] [ref=f1e25]
+    - paragraph [ref=f1e26]: Coming soon.

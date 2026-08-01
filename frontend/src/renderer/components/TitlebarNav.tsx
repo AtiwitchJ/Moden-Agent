@@ -1,7 +1,8 @@
-import { useCanGoBack, useRouter } from "@tanstack/react-router";
+import { useCanGoBack, useRouter, useRouterState } from "@tanstack/react-router";
 import { ArrowLeft, ArrowRight, PanelLeft } from "lucide-react";
 import { useEffect, useState } from "react";
 import { useUiStore } from "../stores/ui-store";
+import { activeModeFromPathname } from "./ModeBar";
 
 const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
 const noDragStyle = isMac ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperties) : undefined;
@@ -9,10 +10,9 @@ const noDragStyle = isMac ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperti
 // macOS-only titlebar cluster (sidebar toggle + history arrows) pinned beside
 // the traffic lights, VS Code-style. Approved divergence from the web
 // reference, which has no window chrome (DESIGN.md banner, 2026-06-10).
-// Rendered once by the shell as a fixed overlay (.titlebar-nav in styles.css)
-// over the full-width topbar's left inset, so the buttons occupy the exact
-// same spot whether the sidebar is expanded or collapsed; the topbar starts
-// its content past the cluster (.is-under-titlebar-nav).
+// Rendered as a fixed-position root-level sibling (.titlebar-nav in styles.css)
+// so it's always visible and available in all three modes (Code, Code Manage, Work);
+// the sidebar toggle button only renders in Code mode where there's a sidebar to toggle.
 // The installed router has no useCanGoForward, and deriving one as
 // `__TSR_index < history.length - 1` (the upstream hook's approach) is wrong
 // here: window.history.length also counts entries the router never created —
@@ -39,20 +39,24 @@ function useCanGoForward(): boolean {
 export function TitlebarNav() {
 	const { isSidebarOpen, toggleSidebar } = useUiStore();
 	const router = useRouter();
+	const pathname = useRouterState({ select: (state) => state.location.pathname });
 	const canGoBack = useCanGoBack();
 	const canGoForward = useCanGoForward();
+	const isCodeMode = activeModeFromPathname(pathname) === "code";
 
 	if (!isMac) return null;
 
 	return (
 		<div className="titlebar-nav" style={noDragStyle}>
-			<TitlebarButton
-				label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-				onClick={toggleSidebar}
-				title={`${isSidebarOpen ? "Collapse" : "Expand"} sidebar · ⌘B`}
-			>
-				<PanelLeft className="h-[15px] w-[15px]" aria-hidden="true" />
-			</TitlebarButton>
+			{isCodeMode && (
+				<TitlebarButton
+					label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+					onClick={toggleSidebar}
+					title={`${isSidebarOpen ? "Collapse" : "Expand"} sidebar · ⌘B`}
+				>
+					<PanelLeft className="h-[15px] w-[15px]" aria-hidden="true" />
+				</TitlebarButton>
+			)}
 			<TitlebarButton disabled={!canGoBack} label="Go back" onClick={() => router.history.back()} title="Go back">
 				<ArrowLeft className="h-[15px] w-[15px]" aria-hidden="true" />
 			</TitlebarButton>

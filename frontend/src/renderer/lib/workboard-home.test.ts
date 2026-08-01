@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 import type { WorkspaceSession, WorkspaceSummary } from "../types/workspace";
 import { buildLegacyWorkCardInput, sessionCanJoinWorkboard } from "./add-session-to-workboard";
-import { workboardHomeRedirectTarget } from "./workboard-home";
 
 const workspace: WorkspaceSummary = {
 	id: "proj-1",
@@ -23,12 +22,6 @@ const worker: WorkspaceSession = {
 	updatedAt: "2026-01-01T00:00:00Z",
 	prs: [],
 };
-
-describe("workboardHomeRedirectTarget", () => {
-	it("returns null — Code mode home is the dashboard; the workboard lives in /manage", () => {
-		expect(workboardHomeRedirectTarget([])).toBeNull();
-	});
-});
 
 describe("buildLegacyWorkCardInput", () => {
 	it("maps session fields into a running card create payload", () => {

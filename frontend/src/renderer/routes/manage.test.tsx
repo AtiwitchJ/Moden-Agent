@@ -1,6 +1,7 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
+import type { DaemonStatus } from "../lib/daemon-status";
 
 const { useWorkboardCardsMock, useWorkspaceQueryMock } = vi.hoisted(() => ({
 	useWorkboardCardsMock: vi.fn(),
@@ -36,6 +37,7 @@ vi.mock("../lib/api-client", async (importOriginal) => {
 vi.mock("../components/TerminalPane", () => ({ TerminalPane: () => <div>terminal pane</div> }));
 
 import { ManagePage } from "./manage";
+import { ShellProvider } from "../lib/shell-context";
 
 describe("ManagePage", () => {
 	beforeEach(() => {
@@ -43,23 +45,26 @@ describe("ManagePage", () => {
 		useWorkspaceQueryMock.mockReturnValue({ data: [] });
 	});
 
-	it("renders Workboard with ShellProvider so useShell() does not throw", () => {
-		// Regression test: Workboard calls useShell() to read daemonStatus. ManagePage
-		// must wrap Workboard with ShellProvider; without it, useShell throws
-		// "must be used within the _shell layout route". This test renders the real
-		// Workboard component (not mocked) so the hook call is exercised and verifies
-		// ManagePage's ShellProvider satisfies it.
+	it("renders Workboard", () => {
+		// ManagePage is now simplified to just render Workboard; ShellProvider
+		// must be provided by a parent (normally root) for useShell() to resolve.
+		const mockDaemonStatus: DaemonStatus = { state: "ready", port: 8080, message: "" };
 		render(
 			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-				<ManagePage />
+				<ShellProvider
+					value={{
+						daemonStatus: mockDaemonStatus,
+						createProject: async () => {
+							throw new Error("createProject not available in test");
+						},
+					}}
+				>
+					<ManagePage />
+				</ShellProvider>
 			</QueryClientProvider>,
 		);
 
 		// Verify Workboard rendered (it shows "Workboard" in the heading).
 		expect(screen.getByText("Workboard")).toBeInTheDocument();
-
-		// Verify no error boundary: if useShell() threw, React would show the error
-		// or a fallback; absence of the error text confirms ShellProvider worked.
-		expect(screen.queryByText(/must be used within/i)).not.toBeInTheDocument();
 	});
 });
