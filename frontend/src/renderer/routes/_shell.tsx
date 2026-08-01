@@ -240,7 +240,7 @@ function ShellLayout() {
           header instead of cutting through the titlebar strip. The bar lives
           in the layout, not the screens, so the crumb and actions never shift
           when the outlet content swaps. */}
-			<div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
+			<div className="flex h-full min-h-0 flex-col bg-background text-foreground">
 				<ShellTopbar />
 				{/* Controlled by the ui-store so TitlebarNav / Topbar toggles (which
             call the store directly) stay in sync. --sidebar-width chains to

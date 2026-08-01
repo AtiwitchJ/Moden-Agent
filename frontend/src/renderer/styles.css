@@ -634,7 +634,7 @@ body.is-resizing-x [data-slot="sidebar-container"] {
 	left: 79px;
 	z-index: 20;
 	display: flex;
-	height: 56px;
+	height: 40px;
 	align-items: center;
 	gap: 2px;
 }

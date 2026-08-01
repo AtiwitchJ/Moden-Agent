@@ -1,6 +1,7 @@
 import { createRootRouteWithContext, Outlet, useRouterState } from "@tanstack/react-router";
 import { useEffect } from "react";
 import { TooltipProvider } from "../components/ui/tooltip";
+import { ModeBar } from "../components/ModeBar";
 import type { QueryClient } from "@tanstack/react-query";
 import { captureRendererEvent, routeSurface } from "../lib/telemetry";
 
@@ -21,7 +22,12 @@ function RootComponent() {
 
 	return (
 		<TooltipProvider>
-			<Outlet />
+			<div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
+				<ModeBar />
+				<div className="min-h-0 flex-1">
+					<Outlet />
+				</div>
+			</div>
 		</TooltipProvider>
 	);
 }
