@@ -137,6 +137,7 @@ function ShellLayout() {
 					to: "/projects/$projectId/sessions/$sessionId",
 					params: { projectId: workspace.id, sessionId },
 				});
+				return { projectId: workspace.id, sessionId };
 			} catch (spawnError) {
 				void navigate({ to: "/projects/$projectId", params: { projectId: workspace.id } });
 				const message = spawnError instanceof Error ? spawnError.message : "Could not start orchestrator";
@@ -232,7 +233,7 @@ function ShellLayout() {
 	}, [navigate, workspaces]);
 
 	return (
-		<ShellProvider value={{ daemonStatus, createProject }}>
+		<ShellProvider value={{ daemonStatus, createProject, removeProject }}>
 			{/* Re-provide daemonStatus and override createProject for Code mode.
           The topbar spans the full window width above the sidebar row,
           and the sidebar hangs below it — so the sidebar border stops at the

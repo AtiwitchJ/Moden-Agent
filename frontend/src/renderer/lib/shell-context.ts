@@ -13,7 +13,8 @@ export type ShellContextValue = {
 		trackerIntake?: any;
 		companyId?: string;
 		asWorkspace?: boolean;
-	}) => Promise<void>;
+	}) => Promise<{ projectId: string; sessionId: string }>;
+	removeProject: (projectId: string) => Promise<void>;
 };
 
 const ShellContext = createContext<ShellContextValue | null>(null);

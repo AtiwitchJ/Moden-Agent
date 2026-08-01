@@ -59,13 +59,16 @@ const session: WorkspaceSession = {
 	prs: [],
 };
 
-type CreateProjectHandler = (input: { path: string; workerAgent: string; orchestratorAgent: string }) => Promise<void>;
+type CreateProjectHandler = (input: { path: string; workerAgent: string; orchestratorAgent: string }) => Promise<{
+	projectId: string;
+	sessionId: string;
+}>;
 type RemoveProjectHandler = (projectId: string) => Promise<void>;
 
 function renderSidebar({
 	companies,
 	defaultOpen = true,
-	onCreateProject = vi.fn().mockResolvedValue(undefined) as CreateProjectHandler,
+	onCreateProject = vi.fn().mockResolvedValue({ projectId: "p1", sessionId: "s1" }) as CreateProjectHandler,
 	onRemoveProject = vi.fn().mockResolvedValue(undefined) as RemoveProjectHandler,
 	seedAgents = true,
 	workspaces = [workspace],
@@ -375,7 +378,7 @@ describe("CreateProjectFlow", () => {
 
 	it("detects a workspace folder, pre-checks the checkbox, and submits asWorkspace: true", async () => {
 		const user = userEvent.setup();
-		const onCreateProject = vi.fn().mockResolvedValue(undefined) as CreateProjectHandler;
+		const onCreateProject = vi.fn().mockResolvedValue({ projectId: "p1", sessionId: "s1" }) as CreateProjectHandler;
 		window.ao!.app.chooseDirectory = vi.fn().mockResolvedValue("/repo/new-workspace");
 		window.ao!.app.detectWorkspace = vi
 			.fn()
@@ -400,7 +403,7 @@ describe("CreateProjectFlow", () => {
 
 	it("requires explicit worker and orchestrator agents when creating a project", async () => {
 		const user = userEvent.setup();
-		const onCreateProject = vi.fn().mockResolvedValue(undefined) as CreateProjectHandler;
+		const onCreateProject = vi.fn().mockResolvedValue({ projectId: "p1", sessionId: "s1" }) as CreateProjectHandler;
 		window.ao!.app.chooseDirectory = vi.fn().mockResolvedValue("/repo/new-project");
 		window.ao!.app.detectWorkspace = vi
 			.fn()
@@ -429,7 +432,7 @@ describe("CreateProjectFlow", () => {
 
 	it("shows needs-auth agents as unavailable while keeping authorized agents selectable", async () => {
 		const user = userEvent.setup();
-		const onCreateProject = vi.fn().mockResolvedValue(undefined) as CreateProjectHandler;
+		const onCreateProject = vi.fn().mockResolvedValue({ projectId: "p1", sessionId: "s1" }) as CreateProjectHandler;
 		window.ao!.app.chooseDirectory = vi.fn().mockResolvedValue("/repo/new-project");
 		window.ao!.app.detectWorkspace = vi
 			.fn()
@@ -479,7 +482,7 @@ describe("CreateProjectFlow", () => {
 
 	it("updates project agent options when the catalog loads after the dialog opens", async () => {
 		const user = userEvent.setup();
-		const onCreateProject = vi.fn().mockResolvedValue(undefined) as CreateProjectHandler;
+		const onCreateProject = vi.fn().mockResolvedValue({ projectId: "p1", sessionId: "s1" }) as CreateProjectHandler;
 		window.ao!.app.chooseDirectory = vi.fn().mockResolvedValue("/repo/new-project");
 		window.ao!.app.detectWorkspace = vi
 			.fn()
@@ -539,7 +542,7 @@ describe("CreateProjectFlow", () => {
 
 	it("leaves the workspace checkbox unchecked for a plain single-repo folder", async () => {
 		const user = userEvent.setup();
-		const onCreateProject = vi.fn().mockResolvedValue(undefined) as CreateProjectHandler;
+		const onCreateProject = vi.fn().mockResolvedValue({ projectId: "p1", sessionId: "s1" }) as CreateProjectHandler;
 		window.ao!.app.chooseDirectory = vi.fn().mockResolvedValue("/repo/new-project");
 		window.ao!.app.detectWorkspace = vi
 			.fn()

@@ -32,6 +32,9 @@ export function RootComponent() {
 			createProject: async () => {
 				throw new Error("createProject is not available in this context");
 			},
+			removeProject: async () => {
+				throw new Error("removeProject is not available in this context");
+			},
 		}),
 		[daemonStatus],
 	);
