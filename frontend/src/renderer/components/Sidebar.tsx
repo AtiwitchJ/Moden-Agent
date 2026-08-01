@@ -16,7 +16,6 @@ import {
 import { useRef, useState, type ReactNode } from "react";
 import {
 	isOrchestratorSession,
-	attentionZone,
 	groupWorkspacesByCompany,
 	newestActiveOrchestrator,
 	sessionIsActive,
@@ -67,6 +66,7 @@ import {
 	type WorkspaceDetectionResult,
 } from "./CreateProjectAgentSheet";
 import { AddSessionToWorkboardButton } from "./AddSessionToWorkboardButton";
+import { SessionDot } from "./SessionDot";
 
 // The macOS hiddenInset traffic lights and the fixed TitlebarNav overlay live
 // in the full-width topbar's left inset (_shell renders the bar above the
@@ -116,26 +116,6 @@ function useSelection() {
 		goTerminals: (sessionIds?: string[]) =>
 			void navigate({ to: "/terminals", search: { sessions: (sessionIds ?? []).join(",") } }),
 	};
-}
-
-// 6px session dot: mirrors the board's status language so the sidebar can be
-// scanned without opening the project board.
-function SessionDot({ session }: { session: WorkspaceSession }) {
-	const zone = attentionZone(session);
-	return (
-		<span
-			aria-hidden="true"
-			className={cn(
-				"mt-px h-1.5 w-1.5 shrink-0 rounded-full",
-				zone === "working" && "animate-status-pulse bg-working",
-				zone === "action" &&
-					(session.status === "ci_failed" || session.status === "stalled" ? "bg-error" : "bg-warning"),
-				zone === "pending" && "bg-passive",
-				zone === "merge" && "bg-success",
-				zone === "done" && "bg-passive",
-			)}
-		/>
-	);
 }
 
 // Built on shadcn's sidebar primitives (components/ui/sidebar): the provider in
