@@ -1,5 +1,0 @@
-- generic [ref=e462]:
-  - generic [ref=e463]:
-    - strong [ref=e464]: Something went wrong!
-    - button "Hide Error" [ref=e465] [cursor=pointer]
-  - code [ref=e469]: useShell must be used within the _shell layout route

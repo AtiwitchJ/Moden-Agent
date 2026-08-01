@@ -11,8 +11,10 @@ const noDragStyle = isMac ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperti
 // the traffic lights, VS Code-style. Approved divergence from the web
 // reference, which has no window chrome (DESIGN.md banner, 2026-06-10).
 // Rendered as a fixed-position root-level sibling (.titlebar-nav in styles.css)
-// so it's always visible and available in all three modes (Code, Code Manage, Work);
-// the sidebar toggle button only renders in Code mode where there's a sidebar to toggle.
+// so it's always visible and available in all three modes (Code, Code Manage, Work).
+// The sidebar toggle button is always mounted but hidden in non-Code modes to
+// preserve the cluster's fixed width; otherwise the cluster shifts ~30px left
+// when leaving Code mode, breaking the overlay positioning invariant.
 // The installed router has no useCanGoForward, and deriving one as
 // `__TSR_index < history.length - 1` (the upstream hook's approach) is wrong
 // here: window.history.length also counts entries the router never created —
@@ -48,15 +50,15 @@ export function TitlebarNav() {
 
 	return (
 		<div className="titlebar-nav" style={noDragStyle}>
-			{isCodeMode && (
-				<TitlebarButton
-					label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
-					onClick={toggleSidebar}
-					title={`${isSidebarOpen ? "Collapse" : "Expand"} sidebar · ⌘B`}
-				>
-					<PanelLeft className="h-[15px] w-[15px]" aria-hidden="true" />
-				</TitlebarButton>
-			)}
+			<TitlebarButton
+				label={isSidebarOpen ? "Collapse sidebar" : "Expand sidebar"}
+				onClick={toggleSidebar}
+				title={`${isSidebarOpen ? "Collapse" : "Expand"} sidebar · ⌘B`}
+				disabled={!isCodeMode}
+				className={!isCodeMode ? "invisible pointer-events-none" : undefined}
+			>
+				<PanelLeft className="h-[15px] w-[15px]" aria-hidden="true" />
+			</TitlebarButton>
 			<TitlebarButton disabled={!canGoBack} label="Go back" onClick={() => router.history.back()} title="Go back">
 				<ArrowLeft className="h-[15px] w-[15px]" aria-hidden="true" />
 			</TitlebarButton>
@@ -78,17 +80,19 @@ function TitlebarButton({
 	disabled,
 	onClick,
 	children,
+	className,
 }: {
 	label: string;
 	title: string;
 	disabled?: boolean;
-	onClick: () => void;
+	onClick?: () => void;
 	children: React.ReactNode;
+	className?: string;
 }) {
 	return (
 		<button
 			aria-label={label}
-			className="titlebar-nav__btn grid place-items-center rounded-md text-passive transition-colors hover:bg-interactive-hover hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-45"
+			className={`titlebar-nav__btn grid place-items-center rounded-md text-passive transition-colors hover:bg-interactive-hover hover:text-muted-foreground disabled:pointer-events-none disabled:opacity-45 ${className || ""}`}
 			disabled={disabled}
 			onClick={onClick}
 			style={noDragStyle}
