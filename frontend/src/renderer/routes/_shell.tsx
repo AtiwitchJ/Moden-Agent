@@ -3,7 +3,7 @@ import { useQueryClient } from "@tanstack/react-query";
 import { type CSSProperties, useCallback, useEffect, useRef } from "react";
 import { ShellTopbar } from "../components/ShellTopbar";
 import { OrchestratorReplacementDialog } from "../components/OrchestratorReplacementDialog";
-import { Sidebar } from "../components/Sidebar";
+import { CodeSidebar } from "../components/CodeSidebar";
 import { SidebarProvider } from "../components/ui/sidebar";
 import { agentsQueryKey, agentsQueryOptions, refreshAgents } from "../hooks/useAgentsQuery";
 import { companiesQueryKey, companiesQueryOptions } from "../hooks/useCompaniesQuery";
@@ -36,10 +36,6 @@ export const Route = createFileRoute("/_shell")({
 
 function systemTheme(): Theme {
 	return window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark";
-}
-
-function errorMessage(error: unknown) {
-	return error instanceof Error ? error.message : "Could not load projects";
 }
 
 // Persistent app shell: the Sidebar + shared state survive route changes; only
@@ -251,14 +247,7 @@ function ShellLayout() {
 					open={isSidebarOpen}
 					style={{ "--sidebar-width": "var(--ao-sidebar-w, 240px)", "--sidebar-width-icon": "48px" } as CSSProperties}
 				>
-					<Sidebar
-						daemonStatus={daemonStatus}
-						underTopbar
-						onCreateProject={createProject}
-						onRemoveProject={removeProject}
-						workspaceError={workspaceQuery.isError ? errorMessage(workspaceQuery.error) : undefined}
-						workspaces={workspaces}
-					/>
+					<CodeSidebar workspaces={workspaces} />
 					<main className="flex min-w-0 flex-1 flex-col">
 						<div className="min-h-0 flex-1">
 							<Outlet />
