@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { WorkspaceSession, WorkspaceSummary } from "../types/workspace";
 import { buildLegacyWorkCardInput, sessionCanJoinWorkboard } from "./add-session-to-workboard";
-import { workboardHomeRedirectTarget, writeLastProjectId } from "./workboard-home";
+import { workboardHomeRedirectTarget } from "./workboard-home";
 
 const workspace: WorkspaceSummary = {
 	id: "proj-1",
@@ -25,20 +25,8 @@ const worker: WorkspaceSession = {
 };
 
 describe("workboardHomeRedirectTarget", () => {
-	it("always redirects to the global workboard home regardless of last opened project", () => {
-		writeLastProjectId("proj-1");
-		expect(workboardHomeRedirectTarget([workspace])).toEqual({
-			to: "/workboard",
-		});
-		window.localStorage.removeItem("ao.lastProjectId");
-	});
-
-	it("redirects to global workboard even when stored project is missing", () => {
-		writeLastProjectId("missing");
-		expect(workboardHomeRedirectTarget([workspace])).toEqual({
-			to: "/workboard",
-		});
-		window.localStorage.removeItem("ao.lastProjectId");
+	it("returns null — Code mode home is the dashboard; the workboard lives in /manage", () => {
+		expect(workboardHomeRedirectTarget([])).toBeNull();
 	});
 });
 

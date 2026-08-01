@@ -16,11 +16,12 @@ export function writeLastProjectId(projectId: string): void {
 	if (id) getLocalStorage()?.setItem(lastProjectStorageKey, id);
 }
 
-/** Always return the global workboard home route target. */
+/** Code mode home no longer redirects: the global Workboard moved to the
+ * Code Manage mode (/manage), so `/` renders the CEO Dashboard directly. */
 export function workboardHomeRedirectTarget(
 	_workspaces?: readonly WorkspaceSummary[],
 	_lastProjectId: string | null = readLastProjectId(),
-) {
-	return { to: "/workboard" as const };
+): null {
+	return null;
 }
 
