@@ -3,11 +3,18 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-const { getMock, putMock, postMock } = vi.hoisted(() => ({
+const { getMock, putMock, postMock, removeProjectMock, navigateMock } = vi.hoisted(() => ({
 	getMock: vi.fn(),
 	putMock: vi.fn(),
 	postMock: vi.fn(),
+	removeProjectMock: vi.fn(),
+	navigateMock: vi.fn(),
 }));
+
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+	return { ...actual, useNavigate: () => navigateMock };
+});
 
 vi.mock("../lib/api-client", () => ({
 	apiClient: {
@@ -23,6 +30,8 @@ vi.mock("../lib/api-client", () => ({
 		return "Request failed";
 	},
 }));
+
+vi.mock("../lib/shell-context", () => ({ useShell: () => ({ removeProject: removeProjectMock }) }));
 
 import { ProjectSettingsForm } from "./ProjectSettingsForm";
 import { workspaceQueryKey } from "../hooks/useWorkspaceQuery";
@@ -94,11 +103,35 @@ beforeEach(() => {
 	getMock.mockReset();
 	putMock.mockReset();
 	postMock.mockReset();
+	removeProjectMock.mockReset();
+	navigateMock.mockReset();
 	putMock.mockResolvedValue({ data: { project: {} }, error: undefined });
 	postMock.mockResolvedValue({ data: { orchestrator: { id: "proj-1-orch-2" } }, error: undefined, response: { status: 200 } });
 });
 
 describe("ProjectSettingsForm", () => {
+	it("removes the project and navigates home after confirmation", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "",
+			defaultBranch: "main",
+			config: { worker: { agent: "codex" }, orchestrator: { agent: "claude-code" } },
+		});
+		removeProjectMock.mockResolvedValue(undefined);
+		vi.spyOn(window, "confirm").mockReturnValue(true);
+
+		renderSettings();
+
+		await userEvent.click(await screen.findByRole("button", { name: "Remove project" }));
+
+		await waitFor(() => expect(removeProjectMock).toHaveBeenCalledWith("proj-1"));
+		await waitFor(() => expect(navigateMock).toHaveBeenCalledWith({ to: "/" }));
+		expect(putMock).not.toHaveBeenCalled();
+	});
+
 	it("loads the current project settings and saves the exposed fields without dropping hidden config", async () => {
 		mockProject({
 			id: "proj-1",

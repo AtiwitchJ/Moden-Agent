@@ -1,10 +1,12 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useNavigate } from "@tanstack/react-router";
 import { useState } from "react";
 import type { components } from "../../api/schema";
 import { agentsQueryKey, agentsQueryOptions, refreshAgents } from "../hooks/useAgentsQuery";
 import { companiesQueryKey, companiesQueryOptions } from "../hooks/useCompaniesQuery";
 import { useWorkspaceQuery, workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
+import { useShell } from "../lib/shell-context";
 import { assignProjectCompany, createCompany } from "../lib/companies";
 import { spawnOrchestrator } from "../lib/spawn-orchestrator";
 import { isWorkboardEnabled, WORKBOARD_ORCHESTRATOR_AGENT } from "../lib/workboard-config";
@@ -73,6 +75,8 @@ export function ProjectSettingsForm({ projectId }: { projectId: string }) {
 
 function SettingsBody({ project, projectId, onSaved }: { project: Project; projectId: string; onSaved: () => void }) {
 	const queryClient = useQueryClient();
+	const navigate = useNavigate();
+	const { removeProject } = useShell();
 	const workspaceQuery = useWorkspaceQuery();
 	const config = project.config ?? {};
 	const workboardEnabled = isWorkboardEnabled(config);
@@ -94,6 +98,8 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 	const [savedAt, setSavedAt] = useState<number | null>(null);
 	const [replacementError, setReplacementError] = useState<string | null>(null);
 	const [validationError, setValidationError] = useState<string | null>(null);
+	const [isRemoving, setIsRemoving] = useState(false);
+	const [removeError, setRemoveError] = useState<string | null>(null);
 	const initialOrchestratorAgent = config.orchestrator?.agent ?? "";
 	const missingRequiredAgent = form.workerAgent === "" || (!workboardEnabled && form.orchestratorAgent === "");
 	const agentsQuery = useQuery(agentsQueryOptions);
@@ -168,6 +174,23 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 			onSaved();
 		},
 	});
+
+	const handleRemoveProject = async () => {
+		const confirmed = window.confirm(
+			`Remove project ${project.path}? This stops its live sessions and removes it from the app, but keeps the repository folder and stored history on disk.`,
+		);
+		if (!confirmed) return;
+		setRemoveError(null);
+		setIsRemoving(true);
+		try {
+			await removeProject(projectId);
+			void navigate({ to: "/" });
+		} catch (err) {
+			setRemoveError(err instanceof Error ? err.message : "Could not remove project");
+		} finally {
+			setIsRemoving(false);
+		}
+	};
 
 	return (
 		<form
@@ -341,6 +364,28 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 					<span className="text-[12px] text-warning">Orchestrator restart failed: {replacementError}</span>
 				)}
 			</div>
+
+			<Card className="border-destructive/30">
+				<CardHeader>
+					<CardTitle className="text-destructive">Danger Zone</CardTitle>
+				</CardHeader>
+				<CardContent className="space-y-3">
+					<p className="text-[13px] text-passive">
+						Stops this project&apos;s live sessions and removes it from the app. The repository folder and stored history
+						stay on disk.
+					</p>
+					<Button
+						className="border-destructive text-destructive hover:bg-destructive/10"
+						disabled={isRemoving}
+						onClick={() => void handleRemoveProject()}
+						type="button"
+						variant="outline"
+					>
+						{isRemoving ? "Removing…" : "Remove project"}
+					</Button>
+					{removeError && <p className="text-[12px] text-destructive">{removeError}</p>}
+				</CardContent>
+			</Card>
 		</form>
 	);
 }
