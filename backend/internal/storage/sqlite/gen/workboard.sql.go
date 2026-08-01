@@ -43,6 +43,22 @@ func (q *Queries) ClaimReadyWorkCard(ctx context.Context, arg ClaimReadyWorkCard
 	return result.RowsAffected()
 }
 
+const completeRedoCycle = `-- name: CompleteRedoCycle :exec
+UPDATE work_card_redo_cycles
+SET completed_at = ?
+WHERE id = ?
+`
+
+type CompleteRedoCycleParams struct {
+	CompletedAt sql.NullInt64
+	ID          string
+}
+
+func (q *Queries) CompleteRedoCycle(ctx context.Context, arg CompleteRedoCycleParams) error {
+	_, err := q.db.ExecContext(ctx, completeRedoCycle, arg.CompletedAt, arg.ID)
+	return err
+}
+
 const countRunningCards = `-- name: CountRunningCards :one
 SELECT COUNT(*) FROM work_cards
 WHERE project_id = ? AND status = 'running'
@@ -64,8 +80,30 @@ func (q *Queries) DeleteWorkCard(ctx context.Context, id string) error {
 	return err
 }
 
+const getLatestRedoCycle = `-- name: GetLatestRedoCycle :one
+SELECT id, card_id, cycle_number, source, summary, created_at, completed_at FROM work_card_redo_cycles
+WHERE card_id = ?
+ORDER BY cycle_number DESC
+LIMIT 1
+`
+
+func (q *Queries) GetLatestRedoCycle(ctx context.Context, cardID string) (WorkCardRedoCycle, error) {
+	row := q.db.QueryRowContext(ctx, getLatestRedoCycle, cardID)
+	var i WorkCardRedoCycle
+	err := row.Scan(
+		&i.ID,
+		&i.CardID,
+		&i.CycleNumber,
+		&i.Source,
+		&i.Summary,
+		&i.CreatedAt,
+		&i.CompletedAt,
+	)
+	return i, err
+}
+
 const getWorkCard = `-- name: GetWorkCard :one
-SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at FROM work_cards WHERE id = ?
+SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at, coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary FROM work_cards WHERE id = ?
 `
 
 func (q *Queries) GetWorkCard(ctx context.Context, id string) (WorkCard, error) {
@@ -93,17 +131,127 @@ func (q *Queries) GetWorkCard(ctx context.Context, id string) (WorkCard, error) 
 		&i.SupersededByCardID,
 		&i.CreatedAt,
 		&i.UpdatedAt,
+		&i.CodingAgent,
+		&i.ReviewerMode,
+		&i.ReviewerAgent,
+		&i.TestingAgent,
+		&i.RedoCount,
+		&i.LatestRedoSummary,
 	)
 	return i, err
+}
+
+const insertRedoAttempt = `-- name: InsertRedoAttempt :exec
+INSERT INTO work_card_attempts (
+  id, finding_id, attempt_number, agent, started_at, finished_at, result, output, validation_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertRedoAttemptParams struct {
+	ID             string
+	FindingID      string
+	AttemptNumber  int64
+	Agent          string
+	StartedAt      int64
+	FinishedAt     sql.NullInt64
+	Result         string
+	Output         string
+	ValidationJson string
+}
+
+func (q *Queries) InsertRedoAttempt(ctx context.Context, arg InsertRedoAttemptParams) error {
+	_, err := q.db.ExecContext(ctx, insertRedoAttempt,
+		arg.ID,
+		arg.FindingID,
+		arg.AttemptNumber,
+		arg.Agent,
+		arg.StartedAt,
+		arg.FinishedAt,
+		arg.Result,
+		arg.Output,
+		arg.ValidationJson,
+	)
+	return err
+}
+
+const insertRedoCycle = `-- name: InsertRedoCycle :exec
+INSERT INTO work_card_redo_cycles (
+  id, card_id, cycle_number, source, summary, created_at, completed_at
+) VALUES (?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertRedoCycleParams struct {
+	ID          string
+	CardID      string
+	CycleNumber int64
+	Source      string
+	Summary     string
+	CreatedAt   int64
+	CompletedAt sql.NullInt64
+}
+
+func (q *Queries) InsertRedoCycle(ctx context.Context, arg InsertRedoCycleParams) error {
+	_, err := q.db.ExecContext(ctx, insertRedoCycle,
+		arg.ID,
+		arg.CardID,
+		arg.CycleNumber,
+		arg.Source,
+		arg.Summary,
+		arg.CreatedAt,
+		arg.CompletedAt,
+	)
+	return err
+}
+
+const insertRedoFinding = `-- name: InsertRedoFinding :exec
+INSERT INTO work_card_findings (
+  id, cycle_id, sequence, severity, title, details, command, error_output, file_refs_json, status, attempt_count, created_at, updated_at
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+`
+
+type InsertRedoFindingParams struct {
+	ID           string
+	CycleID      string
+	Sequence     int64
+	Severity     string
+	Title        string
+	Details      string
+	Command      string
+	ErrorOutput  string
+	FileRefsJson string
+	Status       string
+	AttemptCount int64
+	CreatedAt    int64
+	UpdatedAt    int64
+}
+
+func (q *Queries) InsertRedoFinding(ctx context.Context, arg InsertRedoFindingParams) error {
+	_, err := q.db.ExecContext(ctx, insertRedoFinding,
+		arg.ID,
+		arg.CycleID,
+		arg.Sequence,
+		arg.Severity,
+		arg.Title,
+		arg.Details,
+		arg.Command,
+		arg.ErrorOutput,
+		arg.FileRefsJson,
+		arg.Status,
+		arg.AttemptCount,
+		arg.CreatedAt,
+		arg.UpdatedAt,
+	)
+	return err
 }
 
 const insertWorkCard = `-- name: InsertWorkCard :exec
 INSERT INTO work_cards (
   id, project_id, board_id, title, notes, priority, labels_json, status,
-  scheduled_at, ready_at, position, target_path, repo_name, agent, session_id,
-  waiting_for_input, paused_retarget, goal_version, superseded_by_card_id,
+  scheduled_at, ready_at, position, target_path, repo_name, agent,
+  coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary,
+  session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id,
   created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertWorkCardParams struct {
@@ -121,6 +269,12 @@ type InsertWorkCardParams struct {
 	TargetPath         string
 	RepoName           string
 	Agent              string
+	CodingAgent        string
+	ReviewerMode       string
+	ReviewerAgent      string
+	TestingAgent       string
+	RedoCount          int64
+	LatestRedoSummary  string
 	SessionID          string
 	WaitingForInput    int64
 	PausedRetarget     int64
@@ -146,6 +300,12 @@ func (q *Queries) InsertWorkCard(ctx context.Context, arg InsertWorkCardParams) 
 		arg.TargetPath,
 		arg.RepoName,
 		arg.Agent,
+		arg.CodingAgent,
+		arg.ReviewerMode,
+		arg.ReviewerAgent,
+		arg.TestingAgent,
+		arg.RedoCount,
+		arg.LatestRedoSummary,
 		arg.SessionID,
 		arg.WaitingForInput,
 		arg.PausedRetarget,
@@ -181,6 +341,181 @@ func (q *Queries) InsertWorkCardEvent(ctx context.Context, arg InsertWorkCardEve
 		arg.CreatedAt,
 	)
 	return err
+}
+
+const listAllWorkCards = `-- name: ListAllWorkCards :many
+SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at, coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary FROM work_cards
+ORDER BY status, position, created_at
+`
+
+func (q *Queries) ListAllWorkCards(ctx context.Context) ([]WorkCard, error) {
+	rows, err := q.db.QueryContext(ctx, listAllWorkCards)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkCard{}
+	for rows.Next() {
+		var i WorkCard
+		if err := rows.Scan(
+			&i.ID,
+			&i.ProjectID,
+			&i.BoardID,
+			&i.Title,
+			&i.Notes,
+			&i.Priority,
+			&i.LabelsJson,
+			&i.Status,
+			&i.ScheduledAt,
+			&i.ReadyAt,
+			&i.Position,
+			&i.TargetPath,
+			&i.RepoName,
+			&i.Agent,
+			&i.SessionID,
+			&i.WaitingForInput,
+			&i.PausedRetarget,
+			&i.GoalVersion,
+			&i.SupersededByCardID,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+			&i.CodingAgent,
+			&i.ReviewerMode,
+			&i.ReviewerAgent,
+			&i.TestingAgent,
+			&i.RedoCount,
+			&i.LatestRedoSummary,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRedoAttemptsByFinding = `-- name: ListRedoAttemptsByFinding :many
+SELECT id, finding_id, attempt_number, agent, started_at, finished_at, result, output, validation_json FROM work_card_attempts
+WHERE finding_id = ?
+ORDER BY attempt_number ASC
+`
+
+func (q *Queries) ListRedoAttemptsByFinding(ctx context.Context, findingID string) ([]WorkCardAttempt, error) {
+	rows, err := q.db.QueryContext(ctx, listRedoAttemptsByFinding, findingID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkCardAttempt{}
+	for rows.Next() {
+		var i WorkCardAttempt
+		if err := rows.Scan(
+			&i.ID,
+			&i.FindingID,
+			&i.AttemptNumber,
+			&i.Agent,
+			&i.StartedAt,
+			&i.FinishedAt,
+			&i.Result,
+			&i.Output,
+			&i.ValidationJson,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRedoCyclesByCard = `-- name: ListRedoCyclesByCard :many
+SELECT id, card_id, cycle_number, source, summary, created_at, completed_at FROM work_card_redo_cycles
+WHERE card_id = ?
+ORDER BY cycle_number ASC
+`
+
+func (q *Queries) ListRedoCyclesByCard(ctx context.Context, cardID string) ([]WorkCardRedoCycle, error) {
+	rows, err := q.db.QueryContext(ctx, listRedoCyclesByCard, cardID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkCardRedoCycle{}
+	for rows.Next() {
+		var i WorkCardRedoCycle
+		if err := rows.Scan(
+			&i.ID,
+			&i.CardID,
+			&i.CycleNumber,
+			&i.Source,
+			&i.Summary,
+			&i.CreatedAt,
+			&i.CompletedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
+const listRedoFindingsByCycle = `-- name: ListRedoFindingsByCycle :many
+SELECT id, cycle_id, sequence, severity, title, details, command, error_output, file_refs_json, status, attempt_count, created_at, updated_at FROM work_card_findings
+WHERE cycle_id = ?
+ORDER BY sequence ASC
+`
+
+func (q *Queries) ListRedoFindingsByCycle(ctx context.Context, cycleID string) ([]WorkCardFinding, error) {
+	rows, err := q.db.QueryContext(ctx, listRedoFindingsByCycle, cycleID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	items := []WorkCardFinding{}
+	for rows.Next() {
+		var i WorkCardFinding
+		if err := rows.Scan(
+			&i.ID,
+			&i.CycleID,
+			&i.Sequence,
+			&i.Severity,
+			&i.Title,
+			&i.Details,
+			&i.Command,
+			&i.ErrorOutput,
+			&i.FileRefsJson,
+			&i.Status,
+			&i.AttemptCount,
+			&i.CreatedAt,
+			&i.UpdatedAt,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
 }
 
 const listWorkCardEventsByCard = `-- name: ListWorkCardEventsByCard :many
@@ -220,7 +555,7 @@ func (q *Queries) ListWorkCardEventsByCard(ctx context.Context, cardID string) (
 }
 
 const listWorkCardsByProject = `-- name: ListWorkCardsByProject :many
-SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at FROM work_cards
+SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at, coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary FROM work_cards
 WHERE project_id = ? AND board_id = ?
 ORDER BY status, position, created_at
 `
@@ -261,6 +596,12 @@ func (q *Queries) ListWorkCardsByProject(ctx context.Context, arg ListWorkCardsB
 			&i.SupersededByCardID,
 			&i.CreatedAt,
 			&i.UpdatedAt,
+			&i.CodingAgent,
+			&i.ReviewerMode,
+			&i.ReviewerAgent,
+			&i.TestingAgent,
+			&i.RedoCount,
+			&i.LatestRedoSummary,
 		); err != nil {
 			return nil, err
 		}
@@ -275,11 +616,36 @@ func (q *Queries) ListWorkCardsByProject(ctx context.Context, arg ListWorkCardsB
 	return items, nil
 }
 
+const updateRedoFindingStatus = `-- name: UpdateRedoFindingStatus :exec
+UPDATE work_card_findings
+SET status = ?, attempt_count = attempt_count + ?, updated_at = ?
+WHERE id = ?
+`
+
+type UpdateRedoFindingStatusParams struct {
+	Status       string
+	AttemptCount int64
+	UpdatedAt    int64
+	ID           string
+}
+
+func (q *Queries) UpdateRedoFindingStatus(ctx context.Context, arg UpdateRedoFindingStatusParams) error {
+	_, err := q.db.ExecContext(ctx, updateRedoFindingStatus,
+		arg.Status,
+		arg.AttemptCount,
+		arg.UpdatedAt,
+		arg.ID,
+	)
+	return err
+}
+
 const updateWorkCard = `-- name: UpdateWorkCard :exec
 UPDATE work_cards SET
   title = ?, notes = ?, priority = ?, labels_json = ?, status = ?,
   scheduled_at = ?, ready_at = ?, position = ?, target_path = ?, repo_name = ?,
-  agent = ?, session_id = ?, waiting_for_input = ?, paused_retarget = ?,
+  agent = ?, coding_agent = ?, reviewer_mode = ?, reviewer_agent = ?, testing_agent = ?,
+  redo_count = ?, latest_redo_summary = ?,
+  session_id = ?, waiting_for_input = ?, paused_retarget = ?,
   goal_version = ?, superseded_by_card_id = ?, updated_at = ?
 WHERE id = ?
 `
@@ -296,6 +662,12 @@ type UpdateWorkCardParams struct {
 	TargetPath         string
 	RepoName           string
 	Agent              string
+	CodingAgent        string
+	ReviewerMode       string
+	ReviewerAgent      string
+	TestingAgent       string
+	RedoCount          int64
+	LatestRedoSummary  string
 	SessionID          string
 	WaitingForInput    int64
 	PausedRetarget     int64
@@ -318,6 +690,12 @@ func (q *Queries) UpdateWorkCard(ctx context.Context, arg UpdateWorkCardParams) 
 		arg.TargetPath,
 		arg.RepoName,
 		arg.Agent,
+		arg.CodingAgent,
+		arg.ReviewerMode,
+		arg.ReviewerAgent,
+		arg.TestingAgent,
+		arg.RedoCount,
+		arg.LatestRedoSummary,
 		arg.SessionID,
 		arg.WaitingForInput,
 		arg.PausedRetarget,

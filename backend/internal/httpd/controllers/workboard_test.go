@@ -45,6 +45,14 @@ func (f *fakeWorkboardService) List(context.Context, string, string) ([]domain.W
 	return f.cards, nil
 }
 
+func (f *fakeWorkboardService) ListAll(context.Context) ([]domain.WorkCard, error) {
+	return f.cards, nil
+}
+
+func (f *fakeWorkboardService) ListRedo(context.Context, string) ([]domain.RedoCycle, error) {
+	return nil, nil
+}
+
 func (f *fakeWorkboardService) Get(_ context.Context, id string) (domain.WorkCard, error) {
 	for _, card := range f.cards {
 		if card.ID == id {

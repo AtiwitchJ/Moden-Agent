@@ -15,28 +15,32 @@ import { Label } from "./ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "./ui/select";
 
 type CreateWorkCardRequest = components["schemas"]["CreateWorkCardRequest"];
-
-const labelsRequiredError = "Add at least one label before creating this card.";
+type ProjectSummary = components["schemas"]["ProjectSummary"];
 
 type CreateWorkCardDialogProps = {
 	open: boolean;
 	projectId?: string;
-	onCreated: (card: WorkCard) => void;
+	onCreated?: (card: WorkCard) => void;
 	onOpenChange: (open: boolean) => void;
 };
 
-export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange }: CreateWorkCardDialogProps) {
+export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated, onOpenChange }: CreateWorkCardDialogProps) {
 	const queryClient = useQueryClient();
 	const titleId = useId();
 	const notesId = useId();
+	const projectIdId = useId();
 	const folderId = useId();
 	const labelsId = useId();
 	const priorityId = useId();
 	const agentId = useId();
+	const reviewerModeId = useId();
+	const reviewerAgentId = useId();
+	const testingAgentId = useId();
 	const scheduleToggleId = useId();
 	const scheduleLabelId = useId();
 	const scheduledAtId = useId();
-	const agentsQuery = useQuery({ ...agentsQueryOptions, enabled: open });
+
+	const [selectedProjectId, setSelectedProjectId] = useState(projectIdProp ?? "");
 	const [title, setTitle] = useState("");
 	const [notes, setNotes] = useState("");
 	const [targetPath, setTargetPath] = useState("");
@@ -44,23 +48,49 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 	const [labelInput, setLabelInput] = useState("");
 	const [priority, setPriority] = useState<CreateWorkCardRequest["priority"]>("normal");
 	const [agent, setAgent] = useState("");
+	const [reviewerMode, setReviewerMode] = useState<"same" | "separate">("same");
+	const [reviewerAgent, setReviewerAgent] = useState("");
+	const [testingAgent, setTestingAgent] = useState("");
 	const [scheduleEnabled, setScheduleEnabled] = useState(false);
 	const [scheduledAtLocal, setScheduledAtLocal] = useState(defaultScheduleValue);
 	const [error, setError] = useState<string>();
 
+	const projectsQuery = useQuery({
+		queryKey: ["projects"],
+		enabled: open,
+		queryFn: async () => {
+			const { data, error: apiError } = await apiClient.GET("/api/v1/projects");
+			if (apiError) throw new Error(apiErrorMessage(apiError, "Could not load projects."));
+			return data?.projects ?? [];
+		},
+	});
+
+	const agentsQuery = useQuery({ ...agentsQueryOptions, enabled: open });
+
+	const effectiveProjectId = selectedProjectId || projectIdProp || "";
+
 	const createCard = useMutation({
 		mutationFn: async (body: CreateWorkCardRequest) => {
-			const { data, error: apiError } = await apiClient.POST("/api/v1/projects/{projectId}/workboard/cards", {
-				params: { path: { projectId: projectId as string } },
-				body,
+			if (projectIdProp) {
+				const { data, error: apiError } = await apiClient.POST("/api/v1/projects/{projectId}/workboard/cards", {
+					params: { path: { projectId: projectIdProp } },
+					body,
+				});
+				if (apiError) throw new Error(apiErrorMessage(apiError, "Could not create work card."));
+				if (!data) throw new Error("Work card creation returned no card.");
+				return data as WorkCard;
+			}
+			const { data, error: apiError } = await apiClient.POST("/api/v1/workboard/cards", {
+				body: { ...body, projectId: effectiveProjectId },
 			});
 			if (apiError) throw new Error(apiErrorMessage(apiError, "Could not create work card."));
 			if (!data) throw new Error("Work card creation returned no card.");
 			return data as WorkCard;
 		},
 		onSuccess: async (card) => {
-			await queryClient.invalidateQueries({ queryKey: workboardQueryKey(projectId) });
-			onCreated(card);
+			await queryClient.invalidateQueries({ queryKey: workboardQueryKey(projectIdProp) });
+			await queryClient.invalidateQueries({ queryKey: workboardQueryKey() });
+			onCreated?.(card);
 			onOpenChange(false);
 		},
 		onError: (nextError) => setError(nextError instanceof Error ? nextError.message : "Could not create work card."),
@@ -68,6 +98,7 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 
 	useEffect(() => {
 		if (!open) {
+			setSelectedProjectId(projectIdProp ?? "");
 			setTitle("");
 			setNotes("");
 			setTargetPath("");
@@ -75,11 +106,22 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 			setLabelInput("");
 			setPriority("normal");
 			setAgent("");
+			setReviewerMode("same");
+			setReviewerAgent("");
+			setTestingAgent("");
 			setScheduleEnabled(false);
 			setScheduledAtLocal(defaultScheduleValue());
 			setError(undefined);
 		}
-	}, [open]);
+	}, [open, projectIdProp]);
+
+	const handleProjectChange = (projId: string) => {
+		setSelectedProjectId(projId);
+		const proj = projectsQuery.data?.find((p: ProjectSummary) => p.id === projId);
+		if (proj?.path) {
+			setTargetPath(proj.path);
+		}
+	};
 
 	const addLabel = () => {
 		const next = labelInput.trim().replace(/,$/, "");
@@ -100,26 +142,28 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 			setError(nextError instanceof Error ? nextError.message : "Could not choose a folder.");
 		}
 	};
+
 	const submit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
-		if (!projectId || createCard.isPending) return;
+		if (createCard.isPending) return;
+		if (!effectiveProjectId) {
+			setError("Select a project before creating this card.");
+			return;
+		}
 		const cleanTitle = title.trim();
 		const cleanNotes = notes.trim();
 		const cleanPath = targetPath.trim();
-		if (!cleanTitle || !cleanNotes || !cleanPath) {
-			setError("Title, notes, and folder are required.");
-			return;
-		}
-		const pendingLabel = labelInput.trim().replace(/,$/, "");
-		const nextLabels = pendingLabel && !labels.includes(pendingLabel) ? [...labels, pendingLabel] : labels;
-		if (nextLabels.length === 0) {
-			setError(labelsRequiredError);
+		if (!cleanTitle) {
+			setError("Title is required.");
 			return;
 		}
 		if (!agent) {
 			setError("Select an agent before creating this card.");
 			return;
 		}
+		const pendingLabel = labelInput.trim().replace(/,$/, "");
+		const nextLabels = pendingLabel && !labels.includes(pendingLabel) ? [...labels, pendingLabel] : labels;
+
 		let scheduledAt: string | undefined;
 		if (scheduleEnabled) {
 			scheduledAt = parseDatetimeLocalValue(scheduledAtLocal);
@@ -131,12 +175,17 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 		setLabels(nextLabels);
 		setLabelInput("");
 		createCard.mutate({
+			projectId: effectiveProjectId,
 			title: cleanTitle,
 			notes: cleanNotes,
-			targetPath: cleanPath,
+			targetPath: cleanPath || undefined,
 			labels: nextLabels,
 			priority,
 			agent,
+			codingAgent: agent,
+			reviewerMode,
+			reviewerAgent: reviewerMode === "separate" ? reviewerAgent : undefined,
+			testingAgent: testingAgent || undefined,
 			...(scheduleEnabled ? { status: "scheduled" as const, scheduledAt } : {}),
 		});
 	};
@@ -145,11 +194,11 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 		<Dialog.Root open={open} onOpenChange={(next) => !createCard.isPending && onOpenChange(next)}>
 			<Dialog.Portal>
 				<Dialog.Overlay className="fixed inset-0 z-50 bg-black/55 motion-reduce:animate-none data-[state=open]:animate-overlay-in" />
-				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(620px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl motion-reduce:animate-none data-[state=open]:animate-modal-in">
+				<Dialog.Content className="fixed left-1/2 top-1/2 z-50 w-[min(640px,calc(100vw-32px))] -translate-x-1/2 -translate-y-1/2 rounded-lg border border-border bg-popover p-0 text-popover-foreground shadow-xl motion-reduce:animate-none data-[state=open]:animate-modal-in max-h-[90vh] overflow-y-auto">
 					<div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
 						<div className="min-w-0">
 							<Dialog.Title className="text-[15px] font-semibold text-foreground">Create work card</Dialog.Title>
-							<Dialog.Description className="mt-1 text-[12px] text-muted-foreground">Set the goal, folder, and coding agent for this work.</Dialog.Description>
+							<Dialog.Description className="mt-1 text-[12px] text-muted-foreground">Select a project, set the goal, and configure agents for this work.</Dialog.Description>
 						</div>
 						<Dialog.Close asChild>
 							<button aria-label="Close create work card dialog" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-surface hover:text-foreground motion-reduce:transition-none" type="button">
@@ -158,21 +207,25 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 						</Dialog.Close>
 					</div>
 					<form className="space-y-4 px-5 py-4" onSubmit={submit}>
-						<div className="space-y-1.5">
-							<Label htmlFor={titleId}>Title</Label>
-							<Input autoFocus id={titleId} onChange={(event) => setTitle(event.target.value)} placeholder="Repair build diagnostics" value={title} />
-						</div>
-						<div className="space-y-1.5">
-							<Label htmlFor={notesId}>Notes</Label>
-							<textarea id={notesId} className="min-h-[104px] w-full resize-y rounded-md border border-border bg-transparent px-3 py-2 text-[13px] leading-relaxed text-foreground outline-none transition placeholder:text-passive focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-weak motion-reduce:transition-none" onChange={(event) => setNotes(event.target.value)} placeholder="Describe the outcome and constraints for the coding agent." value={notes} />
-						</div>
-						<div className="grid gap-3 sm:grid-cols-[1fr_150px]">
+						<div className="grid gap-3 sm:grid-cols-2">
 							<div className="space-y-1.5">
-								<Label htmlFor={folderId}>Folder</Label>
-								<div className="flex gap-2">
-									<Input id={folderId} onChange={(event) => setTargetPath(event.target.value)} placeholder="Choose a registered project folder" value={targetPath} />
-									<Button aria-label="Choose folder" onClick={() => void chooseFolder()} size="icon" type="button" variant="outline"><FolderOpen className="size-3.5" aria-hidden="true" /></Button>
-								</div>
+								<Label htmlFor={projectIdId}>Project *</Label>
+								{projectIdProp ? (
+									<Input disabled id={projectIdId} value={projectIdProp} />
+								) : (
+									<Select value={selectedProjectId} onValueChange={handleProjectChange}>
+										<SelectTrigger id={projectIdId} className="h-8 w-full text-[13px]">
+											<SelectValue placeholder="Select project" />
+										</SelectTrigger>
+										<SelectContent>
+											{(projectsQuery.data ?? []).map((p: ProjectSummary) => (
+												<SelectItem key={p.id} value={p.id}>
+													{p.name || p.id} ({p.path})
+												</SelectItem>
+											))}
+										</SelectContent>
+									</Select>
+								)}
 							</div>
 							<div className="space-y-1.5">
 								<Label htmlFor={priorityId}>Priority</Label>
@@ -182,22 +235,54 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 								</Select>
 							</div>
 						</div>
-						<div className="grid gap-3 sm:grid-cols-2">
-							<div className="space-y-1.5">
-								<Label htmlFor={labelsId}>Labels</Label>
-								<div className="min-h-8 rounded-md border border-border bg-transparent px-2 py-1 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-weak">
-									<div className="flex flex-wrap items-center gap-1">
-										{labels.map((label) => <button aria-label={`Remove ${label} label`} className="rounded-[3px] bg-raised px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:text-foreground" key={label} onClick={() => setLabels((current) => current.filter((item) => item !== label))} type="button">{label} ×</button>)}
-										<input aria-invalid={error === labelsRequiredError || undefined} aria-label="Labels" className="min-w-[8rem] flex-1 bg-transparent px-1 py-0.5 text-[12px] text-foreground outline-none placeholder:text-passive" id={labelsId} onChange={(event) => setLabelInput(event.target.value)} onKeyDown={handleLabelKeyDown} placeholder={labels.length ? "Add label" : "Type then Enter"} value={labelInput} />
-									</div>
+						<div className="space-y-1.5">
+							<Label htmlFor={titleId}>Title *</Label>
+							<Input autoFocus id={titleId} onChange={(event) => setTitle(event.target.value)} placeholder="Repair build diagnostics" value={title} />
+						</div>
+						<div className="space-y-1.5">
+							<Label htmlFor={notesId}>Notes</Label>
+							<textarea id={notesId} className="min-h-[84px] w-full resize-y rounded-md border border-border bg-transparent px-3 py-2 text-[13px] leading-relaxed text-foreground outline-none transition placeholder:text-passive focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-weak motion-reduce:transition-none" onChange={(event) => setNotes(event.target.value)} placeholder="Describe the outcome and constraints for the coding agent." value={notes} />
+						</div>
+						<div className="space-y-1.5">
+							<Label htmlFor={folderId}>Folder</Label>
+							<div className="flex gap-2">
+								<Input id={folderId} onChange={(event) => setTargetPath(event.target.value)} placeholder="Path inside project repo" value={targetPath} />
+								<Button aria-label="Choose folder" onClick={() => void chooseFolder()} size="icon" type="button" variant="outline"><FolderOpen className="size-3.5" aria-hidden="true" /></Button>
+							</div>
+						</div>
+						<div className="space-y-1.5">
+							<Label htmlFor={labelsId}>Labels</Label>
+							<div className="min-h-8 rounded-md border border-border bg-transparent px-2 py-1 focus-within:border-accent focus-within:ring-2 focus-within:ring-accent-weak">
+								<div className="flex flex-wrap items-center gap-1">
+									{labels.map((label) => <button aria-label={`Remove ${label} label`} className="rounded-[3px] bg-raised px-1.5 py-0.5 font-mono text-[10px] text-muted-foreground hover:text-foreground" key={label} onClick={() => setLabels((current) => current.filter((item) => item !== label))} type="button">{label} ×</button>)}
+									<input aria-label="Labels" className="min-w-[8rem] flex-1 bg-transparent px-1 py-0.5 text-[12px] text-foreground outline-none placeholder:text-passive" id={labelsId} onChange={(event) => setLabelInput(event.target.value)} onKeyDown={handleLabelKeyDown} placeholder={labels.length ? "Add label" : "Type then Enter"} value={labelInput} />
 								</div>
 							</div>
-							<RequiredAgentField authorized={agentsQuery.data?.authorized} disabled={agentsQuery.isFetching && !agentsQuery.data} id={agentId} installed={agentsQuery.data?.installed} invalid={Boolean(error) && !agent} label="Agent" onChange={setAgent} placeholder="Select coding agent" supported={agentsQuery.data?.supported} value={agent} />
+						</div>
+						<div className="rounded-md border border-border p-3 space-y-3">
+							<h4 className="text-[12px] font-semibold text-foreground">Agent Configuration</h4>
+							<div className="grid gap-3 sm:grid-cols-2">
+								<RequiredAgentField authorized={agentsQuery.data?.authorized} disabled={agentsQuery.isFetching && !agentsQuery.data} id={agentId} installed={agentsQuery.data?.installed} invalid={Boolean(error) && !agent} label="Coding Agent *" onChange={setAgent} placeholder="Select coding agent" supported={agentsQuery.data?.supported} value={agent} />
+								<div className="space-y-1.5">
+									<Label htmlFor={reviewerModeId}>Reviewer Mode</Label>
+									<Select value={reviewerMode} onValueChange={(val) => setReviewerMode(val as "same" | "separate")}>
+										<SelectTrigger id={reviewerModeId} className="h-8 w-full text-[13px]"><SelectValue /></SelectTrigger>
+										<SelectContent>
+											<SelectItem value="same">Same Coding Agent</SelectItem>
+											<SelectItem value="separate">Separate Reviewer Agent</SelectItem>
+										</SelectContent>
+									</Select>
+								</div>
+							</div>
+							{reviewerMode === "separate" ? (
+								<RequiredAgentField authorized={agentsQuery.data?.authorized} disabled={agentsQuery.isFetching && !agentsQuery.data} id={reviewerAgentId} installed={agentsQuery.data?.installed} label="Reviewer Agent" onChange={setReviewerAgent} placeholder="Select reviewer agent" supported={agentsQuery.data?.supported} value={reviewerAgent} />
+							) : null}
+							<RequiredAgentField authorized={agentsQuery.data?.authorized} disabled={agentsQuery.isFetching && !agentsQuery.data} id={testingAgentId} installed={agentsQuery.data?.installed} label="Testing Agent (Optional)" onChange={setTestingAgent} placeholder="Select testing agent" supported={agentsQuery.data?.supported} value={testingAgent} />
 						</div>
 						<div className="space-y-2 rounded-md border border-border px-3 py-3">
 							<label className="flex items-start gap-3 text-[13px]" htmlFor={scheduleToggleId}>
 								<input aria-labelledby={scheduleLabelId} checked={scheduleEnabled} className="mt-0.5 accent-[var(--accent)]" id={scheduleToggleId} onChange={(event) => setScheduleEnabled(event.target.checked)} type="checkbox" />
-								<span id={scheduleLabelId}><span className="block font-medium text-foreground">Schedule for later</span><span className="mt-1 block text-[12px] text-muted-foreground">Place the card in Scheduled until Hermes promotes it automatically.</span></span>
+								<span id={scheduleLabelId}><span className="block font-medium text-foreground">Schedule for later</span><span className="mt-1 block text-[12px] text-muted-foreground">Place the card in Scheduled until promoted automatically.</span></span>
 							</label>
 							{scheduleEnabled ? (
 								<div className="space-y-1.5 pl-7">
@@ -209,7 +294,7 @@ export function CreateWorkCardDialog({ open, projectId, onCreated, onOpenChange 
 						{error ? <div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] text-destructive" role="alert">{error}</div> : null}
 						<div className="flex items-center justify-end gap-2 pt-1">
 							<Dialog.Close asChild><Button disabled={createCard.isPending} type="button" variant="ghost">Cancel</Button></Dialog.Close>
-							<Button disabled={!projectId || createCard.isPending} type="submit">{createCard.isPending ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="size-3.5" aria-hidden="true" />}{createCard.isPending ? "Creating..." : "Create card"}</Button>
+							<Button disabled={createCard.isPending} type="submit">{createCard.isPending ? <Loader2 className="size-3.5 animate-spin motion-reduce:animate-none" aria-hidden="true" /> : <Plus className="size-3.5" aria-hidden="true" />}{createCard.isPending ? "Creating..." : "Create card"}</Button>
 						</div>
 					</form>
 				</Dialog.Content>

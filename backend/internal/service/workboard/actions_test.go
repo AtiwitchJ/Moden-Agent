@@ -208,6 +208,46 @@ func (f *actionsStoreFake) ListWorkCards(context.Context, string, string) ([]dom
 	return nil, nil
 }
 
+func (f *actionsStoreFake) ListAllWorkCards(context.Context) ([]domain.WorkCard, error) {
+	return nil, nil
+}
+
+func (f *actionsStoreFake) InsertRedoCycle(context.Context, domain.RedoCycle) error {
+	return nil
+}
+
+func (f *actionsStoreFake) GetLatestRedoCycle(context.Context, string) (domain.RedoCycle, bool, error) {
+	return domain.RedoCycle{}, false, nil
+}
+
+func (f *actionsStoreFake) ListRedoCycles(context.Context, string) ([]domain.RedoCycle, error) {
+	return nil, nil
+}
+
+func (f *actionsStoreFake) CompleteRedoCycle(context.Context, string, time.Time) error {
+	return nil
+}
+
+func (f *actionsStoreFake) InsertRedoFinding(context.Context, domain.RedoFinding) error {
+	return nil
+}
+
+func (f *actionsStoreFake) ListRedoFindings(context.Context, string) ([]domain.RedoFinding, error) {
+	return nil, nil
+}
+
+func (f *actionsStoreFake) UpdateRedoFindingStatus(context.Context, string, domain.FindingStatus, int, time.Time) error {
+	return nil
+}
+
+func (f *actionsStoreFake) InsertRedoAttempt(context.Context, domain.RedoAttempt) error {
+	return nil
+}
+
+func (f *actionsStoreFake) ListRedoAttempts(context.Context, string) ([]domain.RedoAttempt, error) {
+	return nil, nil
+}
+
 func (f *actionsStoreFake) GetProject(context.Context, string) (domain.ProjectRecord, bool, error) {
 	return domain.ProjectRecord{}, false, nil
 }

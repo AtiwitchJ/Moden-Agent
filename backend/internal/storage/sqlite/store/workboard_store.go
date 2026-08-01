@@ -64,6 +64,23 @@ func (s *Store) ListWorkCards(ctx context.Context, projectID, boardID string) ([
 	return cards, nil
 }
 
+// ListAllWorkCards returns cards across all projects in stable order.
+func (s *Store) ListAllWorkCards(ctx context.Context) ([]domain.WorkCard, error) {
+	rows, err := s.qr.ListAllWorkCards(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("list all work cards: %w", err)
+	}
+	cards := make([]domain.WorkCard, 0, len(rows))
+	for _, row := range rows {
+		card, err := workCardFromRow(row)
+		if err != nil {
+			return nil, fmt.Errorf("decode work card %s: %w", row.ID, err)
+		}
+		cards = append(cards, card)
+	}
+	return cards, nil
+}
+
 // UpdateWorkCard writes the mutable state of an existing card. Its identity,
 // project, board, and creation time remain untouched by the SQL query.
 func (s *Store) UpdateWorkCard(ctx context.Context, card domain.WorkCard) error {
@@ -184,8 +201,11 @@ func (s *Store) ListWorkCardEvents(ctx context.Context, cardID string) ([]domain
 
 func workCardFromRow(row gen.WorkCard) (domain.WorkCard, error) {
 	var labels []string
-	if err := json.Unmarshal([]byte(row.LabelsJson), &labels); err != nil {
-		return domain.WorkCard{}, fmt.Errorf("unmarshal labels: %w", err)
+	if row.LabelsJson != "" {
+		_ = json.Unmarshal([]byte(row.LabelsJson), &labels)
+	}
+	if labels == nil {
+		labels = []string{}
 	}
 	return domain.WorkCard{
 		ID:                 row.ID,
@@ -202,6 +222,12 @@ func workCardFromRow(row gen.WorkCard) (domain.WorkCard, error) {
 		TargetPath:         row.TargetPath,
 		RepoName:           row.RepoName,
 		Agent:              row.Agent,
+		CodingAgent:        row.CodingAgent,
+		ReviewerMode:       row.ReviewerMode,
+		ReviewerAgent:      row.ReviewerAgent,
+		TestingAgent:       row.TestingAgent,
+		RedoCount:          int(row.RedoCount),
+		LatestRedoSummary:  row.LatestRedoSummary,
 		SessionID:          row.SessionID,
 		WaitingForInput:    row.WaitingForInput != 0,
 		PausedRetarget:     row.PausedRetarget != 0,
@@ -232,6 +258,12 @@ func workCardInsertParams(card domain.WorkCard) (gen.InsertWorkCardParams, error
 		TargetPath:         card.TargetPath,
 		RepoName:           card.RepoName,
 		Agent:              card.Agent,
+		CodingAgent:        card.CodingAgent,
+		ReviewerMode:       card.ReviewerMode,
+		ReviewerAgent:      card.ReviewerAgent,
+		TestingAgent:       card.TestingAgent,
+		RedoCount:          int64(card.RedoCount),
+		LatestRedoSummary:  card.LatestRedoSummary,
 		SessionID:          card.SessionID,
 		WaitingForInput:    boolToInt64(card.WaitingForInput),
 		PausedRetarget:     boolToInt64(card.PausedRetarget),
@@ -260,6 +292,12 @@ func workCardUpdateParams(card domain.WorkCard) (gen.UpdateWorkCardParams, error
 		TargetPath:         card.TargetPath,
 		RepoName:           card.RepoName,
 		Agent:              card.Agent,
+		CodingAgent:        card.CodingAgent,
+		ReviewerMode:       card.ReviewerMode,
+		ReviewerAgent:      card.ReviewerAgent,
+		TestingAgent:       card.TestingAgent,
+		RedoCount:          int64(card.RedoCount),
+		LatestRedoSummary:  card.LatestRedoSummary,
 		SessionID:          card.SessionID,
 		WaitingForInput:    boolToInt64(card.WaitingForInput),
 		PausedRetarget:     boolToInt64(card.PausedRetarget),
@@ -267,6 +305,189 @@ func workCardUpdateParams(card domain.WorkCard) (gen.UpdateWorkCardParams, error
 		SupersededByCardID: card.SupersededByCardID,
 		UpdatedAt:          card.UpdatedAt.UnixMilli(),
 	}, nil
+}
+
+// InsertRedoCycle persists a new Redo cycle for a work card.
+func (s *Store) InsertRedoCycle(ctx context.Context, cycle domain.RedoCycle) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var completedAt sql.NullInt64
+	if cycle.CompletedAt != nil {
+		completedAt = sql.NullInt64{Int64: cycle.CompletedAt.UnixMilli(), Valid: true}
+	}
+	return s.qw.InsertRedoCycle(ctx, gen.InsertRedoCycleParams{
+		ID:          cycle.ID,
+		CardID:      cycle.CardID,
+		CycleNumber: int64(cycle.CycleNumber),
+		Source:      cycle.Source,
+		Summary:     cycle.Summary,
+		CreatedAt:   cycle.CreatedAt.UnixMilli(),
+		CompletedAt: completedAt,
+	})
+}
+
+// GetLatestRedoCycle returns the latest Redo cycle for a card.
+func (s *Store) GetLatestRedoCycle(ctx context.Context, cardID string) (domain.RedoCycle, bool, error) {
+	row, err := s.qr.GetLatestRedoCycle(ctx, cardID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return domain.RedoCycle{}, false, nil
+	}
+	if err != nil {
+		return domain.RedoCycle{}, false, err
+	}
+	cycle := domain.RedoCycle{
+		ID:          row.ID,
+		CardID:      row.CardID,
+		CycleNumber: int(row.CycleNumber),
+		Source:      row.Source,
+		Summary:     row.Summary,
+		CreatedAt:   time.UnixMilli(row.CreatedAt).UTC(),
+		CompletedAt: timeFromMillis(row.CompletedAt),
+	}
+	return cycle, true, nil
+}
+
+// ListRedoCycles returns all Redo cycles for a card ordered by cycle_number.
+func (s *Store) ListRedoCycles(ctx context.Context, cardID string) ([]domain.RedoCycle, error) {
+	rows, err := s.qr.ListRedoCyclesByCard(ctx, cardID)
+	if err != nil {
+		return nil, err
+	}
+	cycles := make([]domain.RedoCycle, 0, len(rows))
+	for _, row := range rows {
+		cycles = append(cycles, domain.RedoCycle{
+			ID:          row.ID,
+			CardID:      row.CardID,
+			CycleNumber: int(row.CycleNumber),
+			Source:      row.Source,
+			Summary:     row.Summary,
+			CreatedAt:   time.UnixMilli(row.CreatedAt).UTC(),
+			CompletedAt: timeFromMillis(row.CompletedAt),
+		})
+	}
+	return cycles, nil
+}
+
+// CompleteRedoCycle marks a Redo cycle as completed.
+func (s *Store) CompleteRedoCycle(ctx context.Context, cycleID string, completedAt time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.qw.CompleteRedoCycle(ctx, gen.CompleteRedoCycleParams{
+		ID:          cycleID,
+		CompletedAt: sql.NullInt64{Int64: completedAt.UnixMilli(), Valid: true},
+	})
+}
+
+// InsertRedoFinding records a finding in a Redo cycle.
+func (s *Store) InsertRedoFinding(ctx context.Context, finding domain.RedoFinding) error {
+	fileRefsJSON, err := json.Marshal(finding.FileRefs)
+	if err != nil {
+		return fmt.Errorf("marshal file refs: %w", err)
+	}
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.qw.InsertRedoFinding(ctx, gen.InsertRedoFindingParams{
+		ID:           finding.ID,
+		CycleID:      finding.CycleID,
+		Sequence:     int64(finding.Sequence),
+		Severity:     string(finding.Severity),
+		Title:        finding.Title,
+		Details:      finding.Details,
+		Command:      finding.Command,
+		ErrorOutput:  finding.ErrorOutput,
+		FileRefsJson: string(fileRefsJSON),
+		Status:       string(finding.Status),
+		AttemptCount: int64(finding.AttemptCount),
+		CreatedAt:    finding.CreatedAt.UnixMilli(),
+		UpdatedAt:    finding.UpdatedAt.UnixMilli(),
+	})
+}
+
+// ListRedoFindings returns all findings in a Redo cycle ordered by sequence.
+func (s *Store) ListRedoFindings(ctx context.Context, cycleID string) ([]domain.RedoFinding, error) {
+	rows, err := s.qr.ListRedoFindingsByCycle(ctx, cycleID)
+	if err != nil {
+		return nil, err
+	}
+	findings := make([]domain.RedoFinding, 0, len(rows))
+	for _, row := range rows {
+		var fileRefs []domain.FileRef
+		if row.FileRefsJson != "" {
+			_ = json.Unmarshal([]byte(row.FileRefsJson), &fileRefs)
+		}
+		findings = append(findings, domain.RedoFinding{
+			ID:           row.ID,
+			CycleID:      row.CycleID,
+			Sequence:     int(row.Sequence),
+			Severity:     domain.FindingSeverity(row.Severity),
+			Title:        row.Title,
+			Details:      row.Details,
+			Command:      row.Command,
+			ErrorOutput:  row.ErrorOutput,
+			FileRefs:     fileRefs,
+			Status:       domain.FindingStatus(row.Status),
+			AttemptCount: int(row.AttemptCount),
+			CreatedAt:    time.UnixMilli(row.CreatedAt).UTC(),
+			UpdatedAt:    time.UnixMilli(row.UpdatedAt).UTC(),
+		})
+	}
+	return findings, nil
+}
+
+// UpdateRedoFindingStatus updates status and increments attempt count for a finding.
+func (s *Store) UpdateRedoFindingStatus(ctx context.Context, findingID string, status domain.FindingStatus, addAttempts int, at time.Time) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	return s.qw.UpdateRedoFindingStatus(ctx, gen.UpdateRedoFindingStatusParams{
+		ID:           findingID,
+		Status:       string(status),
+		AttemptCount: int64(addAttempts),
+		UpdatedAt:    at.UnixMilli(),
+	})
+}
+
+// InsertRedoAttempt records an attempt execution for a finding.
+func (s *Store) InsertRedoAttempt(ctx context.Context, attempt domain.RedoAttempt) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	var finishedAt sql.NullInt64
+	if attempt.FinishedAt != nil {
+		finishedAt = sql.NullInt64{Int64: attempt.FinishedAt.UnixMilli(), Valid: true}
+	}
+	return s.qw.InsertRedoAttempt(ctx, gen.InsertRedoAttemptParams{
+		ID:             attempt.ID,
+		FindingID:      attempt.FindingID,
+		AttemptNumber:  int64(attempt.AttemptNumber),
+		Agent:          attempt.Agent,
+		StartedAt:      attempt.StartedAt.UnixMilli(),
+		FinishedAt:     finishedAt,
+		Result:         attempt.Result,
+		Output:         attempt.Output,
+		ValidationJson: attempt.ValidationJSON,
+	})
+}
+
+// ListRedoAttempts returns all attempt records for a finding.
+func (s *Store) ListRedoAttempts(ctx context.Context, findingID string) ([]domain.RedoAttempt, error) {
+	rows, err := s.qr.ListRedoAttemptsByFinding(ctx, findingID)
+	if err != nil {
+		return nil, err
+	}
+	attempts := make([]domain.RedoAttempt, 0, len(rows))
+	for _, row := range rows {
+		attempts = append(attempts, domain.RedoAttempt{
+			ID:             row.ID,
+			FindingID:      row.FindingID,
+			AttemptNumber:  int(row.AttemptNumber),
+			Agent:          row.Agent,
+			StartedAt:      time.UnixMilli(row.StartedAt).UTC(),
+			FinishedAt:     timeFromMillis(row.FinishedAt),
+			Result:         row.Result,
+			Output:         row.Output,
+			ValidationJSON: row.ValidationJson,
+		})
+	}
+	return attempts, nil
 }
 
 func millisFromTime(t *time.Time) sql.NullInt64 {

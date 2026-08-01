@@ -2,11 +2,12 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal, Split, Target, Zap } from "lucide-react";
 import { type FormEvent, useEffect, useId, useState } from "react";
 import type { components } from "../../api/schema";
-import { workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
+import { useWorkCardRedo, workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { formatDatetimeLocalValue, formatScheduledAtDisplay, parseDatetimeLocalValue } from "../lib/workboard-schedule";
 import type { Theme } from "../stores/ui-store";
 import type { WorkspaceSession } from "../types/workspace";
+import { RedoCyclePanel } from "./RedoCyclePanel";
 import { TerminalPane } from "./TerminalPane";
 import { Button } from "./ui/button";
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from "./ui/dropdown-menu";
@@ -136,6 +137,8 @@ export function WorkCardFocusPanel({
 		updateSchedule.mutate({ scheduledAt });
 	};
 
+	const redoQuery = useWorkCardRedo(card.id, (card.redoCount ?? 0) > 0 || card.status === "redo");
+
 	return (
 		<aside aria-label={`Focus panel for ${card.title}`} className="flex h-full w-[360px] shrink-0 flex-col border-l border-border bg-surface">
 			<div className="flex shrink-0 items-start gap-3 border-b border-border px-4 py-3">
@@ -173,6 +176,9 @@ export function WorkCardFocusPanel({
 					<span className="text-muted-foreground">Status</span>
 					<span className="font-mono uppercase tracking-[0.05em] text-foreground">{card.status}</span>
 				</div>
+				{(card.redoCount ?? 0) > 0 || card.status === "redo" ? (
+					<RedoCyclePanel cycles={redoQuery.data ?? []} latestSummary={card.latestRedoSummary} />
+				) : null}
 				{isScheduled ? (
 					<form className="space-y-2" onSubmit={saveSchedule}>
 						<Label className="text-[11px] text-muted-foreground" htmlFor={`schedule-${card.id}`}>Scheduled for</Label>

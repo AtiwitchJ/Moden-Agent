@@ -41,6 +41,7 @@ const scheduledCard: WorkCard = {
 	position: 0,
 	targetPath: "/repo/project",
 	agent: "codex",
+	redoCount: 0,
 	waitingForInput: false,
 	pausedRetarget: false,
 	goalVersion: 1,

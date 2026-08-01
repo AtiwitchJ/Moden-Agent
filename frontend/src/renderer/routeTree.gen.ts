@@ -11,6 +11,7 @@
 import { Route as rootRouteImport } from './routes/__root'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ShellIndexRouteImport } from './routes/_shell.index'
+import { Route as ShellWorkboardRouteImport } from './routes/_shell.workboard'
 import { Route as ShellTerminalsRouteImport } from './routes/_shell.terminals'
 import { Route as ShellSettingsRouteImport } from './routes/_shell.settings'
 import { Route as ShellPrsRouteImport } from './routes/_shell.prs'
@@ -27,6 +28,11 @@ const ShellRoute = ShellRouteImport.update({
 const ShellIndexRoute = ShellIndexRouteImport.update({
   id: '/',
   path: '/',
+  getParentRoute: () => ShellRoute,
+} as any)
+const ShellWorkboardRoute = ShellWorkboardRouteImport.update({
+  id: '/workboard',
+  path: '/workboard',
   getParentRoute: () => ShellRoute,
 } as any)
 const ShellTerminalsRoute = ShellTerminalsRouteImport.update({
@@ -77,6 +83,7 @@ export interface FileRoutesByFullPath {
   '/prs': typeof ShellPrsRoute
   '/settings': typeof ShellSettingsRoute
   '/terminals': typeof ShellTerminalsRoute
+  '/workboard': typeof ShellWorkboardRoute
   '/companies/$companyId': typeof ShellCompaniesCompanyIdRoute
   '/projects/$projectId': typeof ShellProjectsProjectIdRoute
   '/sessions/$sessionId': typeof ShellSessionsSessionIdRoute
@@ -87,6 +94,7 @@ export interface FileRoutesByTo {
   '/prs': typeof ShellPrsRoute
   '/settings': typeof ShellSettingsRoute
   '/terminals': typeof ShellTerminalsRoute
+  '/workboard': typeof ShellWorkboardRoute
   '/': typeof ShellIndexRoute
   '/companies/$companyId': typeof ShellCompaniesCompanyIdRoute
   '/projects/$projectId': typeof ShellProjectsProjectIdRoute
@@ -100,6 +108,7 @@ export interface FileRoutesById {
   '/_shell/prs': typeof ShellPrsRoute
   '/_shell/settings': typeof ShellSettingsRoute
   '/_shell/terminals': typeof ShellTerminalsRoute
+  '/_shell/workboard': typeof ShellWorkboardRoute
   '/_shell/': typeof ShellIndexRoute
   '/_shell/companies/$companyId': typeof ShellCompaniesCompanyIdRoute
   '/_shell/projects/$projectId': typeof ShellProjectsProjectIdRoute
@@ -114,6 +123,7 @@ export interface FileRouteTypes {
     | '/prs'
     | '/settings'
     | '/terminals'
+    | '/workboard'
     | '/companies/$companyId'
     | '/projects/$projectId'
     | '/sessions/$sessionId'
@@ -124,6 +134,7 @@ export interface FileRouteTypes {
     | '/prs'
     | '/settings'
     | '/terminals'
+    | '/workboard'
     | '/'
     | '/companies/$companyId'
     | '/projects/$projectId'
@@ -136,6 +147,7 @@ export interface FileRouteTypes {
     | '/_shell/prs'
     | '/_shell/settings'
     | '/_shell/terminals'
+    | '/_shell/workboard'
     | '/_shell/'
     | '/_shell/companies/$companyId'
     | '/_shell/projects/$projectId'
@@ -162,6 +174,13 @@ declare module '@tanstack/react-router' {
       path: '/'
       fullPath: '/'
       preLoaderRoute: typeof ShellIndexRouteImport
+      parentRoute: typeof ShellRoute
+    }
+    '/_shell/workboard': {
+      id: '/_shell/workboard'
+      path: '/workboard'
+      fullPath: '/workboard'
+      preLoaderRoute: typeof ShellWorkboardRouteImport
       parentRoute: typeof ShellRoute
     }
     '/_shell/terminals': {
@@ -227,6 +246,7 @@ interface ShellRouteChildren {
   ShellPrsRoute: typeof ShellPrsRoute
   ShellSettingsRoute: typeof ShellSettingsRoute
   ShellTerminalsRoute: typeof ShellTerminalsRoute
+  ShellWorkboardRoute: typeof ShellWorkboardRoute
   ShellIndexRoute: typeof ShellIndexRoute
   ShellCompaniesCompanyIdRoute: typeof ShellCompaniesCompanyIdRoute
   ShellProjectsProjectIdRoute: typeof ShellProjectsProjectIdRoute
@@ -239,6 +259,7 @@ const ShellRouteChildren: ShellRouteChildren = {
   ShellPrsRoute: ShellPrsRoute,
   ShellSettingsRoute: ShellSettingsRoute,
   ShellTerminalsRoute: ShellTerminalsRoute,
+  ShellWorkboardRoute: ShellWorkboardRoute,
   ShellIndexRoute: ShellIndexRoute,
   ShellCompaniesCompanyIdRoute: ShellCompaniesCompanyIdRoute,
   ShellProjectsProjectIdRoute: ShellProjectsProjectIdRoute,

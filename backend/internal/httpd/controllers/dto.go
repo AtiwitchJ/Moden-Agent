@@ -49,18 +49,25 @@ type WorkCardIDParam struct {
 type WorkCardResponse struct {
 	ID                 string     `json:"id"`
 	ProjectID          string     `json:"projectId"`
+	ProjectName        string     `json:"projectName,omitempty"`
 	BoardID            string     `json:"boardId"`
 	Title              string     `json:"title"`
 	Notes              string     `json:"notes"`
 	Priority           string     `json:"priority" enum:"low,normal,high,urgent"`
 	Labels             []string   `json:"labels"`
-	Status             string     `json:"status" enum:"triage,backlog,todo,scheduled,ready,running,review,blocked,done"`
+	Status             string     `json:"status" enum:"triage,backlog,todo,scheduled,ready,running,review,testing,redo,blocked,done"`
 	ScheduledAt        *time.Time `json:"scheduledAt,omitempty"`
 	ReadyAt            *time.Time `json:"readyAt,omitempty"`
 	Position           int64      `json:"position"`
 	TargetPath         string     `json:"targetPath"`
 	RepoName           string     `json:"repoName,omitempty"`
 	Agent              string     `json:"agent"`
+	CodingAgent        string     `json:"codingAgent,omitempty"`
+	ReviewerMode       string     `json:"reviewerMode,omitempty" enum:"same,separate"`
+	ReviewerAgent      string     `json:"reviewerAgent,omitempty"`
+	TestingAgent       string     `json:"testingAgent,omitempty"`
+	RedoCount          int        `json:"redoCount"`
+	LatestRedoSummary  string     `json:"latestRedoSummary,omitempty"`
 	SessionID          string     `json:"sessionId,omitempty"`
 	WaitingForInput    bool       `json:"waitingForInput"`
 	PausedRetarget     bool       `json:"pausedRetarget"`
@@ -70,25 +77,67 @@ type WorkCardResponse struct {
 	UpdatedAt          time.Time  `json:"updatedAt"`
 }
 
-// CreateWorkCardRequest is the body of POST /api/v1/projects/{projectId}/workboard/cards.
+// CreateWorkCardRequest is the body of POST /api/v1/workboard/cards or POST /api/v1/projects/{projectId}/workboard/cards.
 type CreateWorkCardRequest struct {
-	Title       string     `json:"title"`
-	Notes       string     `json:"notes"`
-	Priority    string     `json:"priority" enum:"low,normal,high,urgent"`
-	Labels      []string   `json:"labels"`
-	Status      string     `json:"status,omitempty" enum:"triage,backlog,todo,scheduled,ready,running,review,blocked,done"`
-	TargetPath  string     `json:"targetPath"`
-	Agent       string     `json:"agent"`
-	SessionID   string     `json:"sessionId,omitempty"`
-	ScheduledAt *time.Time `json:"scheduledAt,omitempty"`
+	ProjectID     string     `json:"projectId,omitempty"`
+	Title         string     `json:"title"`
+	Notes         string     `json:"notes,omitempty"`
+	Priority      string     `json:"priority,omitempty" enum:"low,normal,high,urgent"`
+	Labels        []string   `json:"labels,omitempty"`
+	Status        string     `json:"status,omitempty" enum:"triage,backlog,todo,scheduled,ready,running,review,testing,redo,blocked,done"`
+	TargetPath    string     `json:"targetPath,omitempty"`
+	Agent         string     `json:"agent,omitempty"`
+	CodingAgent   string     `json:"codingAgent,omitempty"`
+	ReviewerMode  string     `json:"reviewerMode,omitempty" enum:"same,separate"`
+	ReviewerAgent string     `json:"reviewerAgent,omitempty"`
+	TestingAgent  string     `json:"testingAgent,omitempty"`
+	SessionID     string     `json:"sessionId,omitempty"`
+	ScheduledAt   *time.Time `json:"scheduledAt,omitempty"`
 }
 
 func (r CreateWorkCardRequest) toInput(projectID string) workboardsvc.CreateInput {
-	return workboardsvc.CreateInput{
-		ProjectID: projectID, Title: r.Title, Notes: r.Notes,
-		Priority: domain.CardPriority(r.Priority), Labels: r.Labels, Status: domain.CardStatus(r.Status),
-		TargetPath: r.TargetPath, Agent: r.Agent, SessionID: r.SessionID, ScheduledAt: r.ScheduledAt,
+	pid := projectID
+	if pid == "" {
+		pid = r.ProjectID
 	}
+	return workboardsvc.CreateInput{
+		ProjectID: pid, Title: r.Title, Notes: r.Notes,
+		Priority: domain.CardPriority(r.Priority), Labels: r.Labels, Status: domain.CardStatus(r.Status),
+		TargetPath: r.TargetPath, Agent: r.Agent, CodingAgent: r.CodingAgent, ReviewerMode: r.ReviewerMode,
+		ReviewerAgent: r.ReviewerAgent, TestingAgent: r.TestingAgent, SessionID: r.SessionID, ScheduledAt: r.ScheduledAt,
+	}
+}
+
+type RedoFindingResponse struct {
+	ID           string           `json:"id"`
+	CycleID      string           `json:"cycleId"`
+	Sequence     int              `json:"sequence"`
+	Severity     string           `json:"severity"`
+	Title        string           `json:"title"`
+	Details      string           `json:"details"`
+	Command      string           `json:"command,omitempty"`
+	ErrorOutput  string           `json:"errorOutput,omitempty"`
+	FileRefs     []domain.FileRef `json:"fileRefs,omitempty"`
+	Status       string           `json:"status"`
+	AttemptCount int              `json:"attemptCount"`
+	CreatedAt    time.Time        `json:"createdAt"`
+	UpdatedAt    time.Time        `json:"updatedAt"`
+}
+
+type RedoCycleResponse struct {
+	ID          string                `json:"id"`
+	CardID      string                `json:"cardId"`
+	CycleNumber int                   `json:"cycleNumber"`
+	Status      string                `json:"status" enum:"in_progress,failed,passed"`
+	Source      string                `json:"source"`
+	Summary     string                `json:"summary"`
+	Findings    []RedoFindingResponse `json:"findings,omitempty"`
+	CreatedAt   time.Time             `json:"createdAt"`
+	CompletedAt *time.Time            `json:"completedAt,omitempty"`
+}
+
+type ListRedoCyclesResponse struct {
+	Cycles []RedoCycleResponse `json:"cycles"`
 }
 
 // UpdateWorkCardRequest is the body of PATCH /api/v1/workboard/cards/{cardId}.
@@ -143,7 +192,7 @@ func (r *UpdateWorkCardRequest) UnmarshalJSON(data []byte) error {
 
 // MoveWorkCardRequest is the body of POST /api/v1/workboard/cards/{cardId}/move.
 type MoveWorkCardRequest struct {
-	Status   string `json:"status" enum:"triage,backlog,todo,scheduled,ready,running,review,blocked,done"`
+	Status   string `json:"status" enum:"triage,backlog,todo,scheduled,ready,running,review,testing,redo,blocked,done"`
 	Position int64  `json:"position"`
 
 	positionSet bool
@@ -253,10 +302,12 @@ type WorkboardAutonomousResponse struct {
 
 func newWorkCardResponse(card domain.WorkCard) WorkCardResponse {
 	return WorkCardResponse{
-		ID: card.ID, ProjectID: card.ProjectID, BoardID: card.BoardID, Title: card.Title, Notes: card.Notes,
+		ID: card.ID, ProjectID: card.ProjectID, ProjectName: card.ProjectName, BoardID: card.BoardID, Title: card.Title, Notes: card.Notes,
 		Priority: string(card.Priority), Labels: append([]string(nil), card.Labels...), Status: string(card.Status),
 		ScheduledAt: card.ScheduledAt, ReadyAt: card.ReadyAt, Position: card.Position, TargetPath: card.TargetPath,
-		RepoName: card.RepoName, Agent: card.Agent, SessionID: card.SessionID, WaitingForInput: card.WaitingForInput,
+		RepoName: card.RepoName, Agent: card.Agent, CodingAgent: card.CodingAgent, ReviewerMode: card.ReviewerMode,
+		ReviewerAgent: card.ReviewerAgent, TestingAgent: card.TestingAgent, RedoCount: card.RedoCount, LatestRedoSummary: card.LatestRedoSummary,
+		SessionID: card.SessionID, WaitingForInput: card.WaitingForInput,
 		PausedRetarget: card.PausedRetarget, GoalVersion: card.GoalVersion, SupersededByCardID: card.SupersededByCardID,
 		CreatedAt: card.CreatedAt, UpdatedAt: card.UpdatedAt,
 	}

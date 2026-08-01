@@ -781,6 +781,24 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/workboard/cards": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List all durable work cards across projects */
+        get: operations["listGlobalWorkCards"];
+        put?: never;
+        /** Create a durable work card on a global workboard */
+        post: operations["createGlobalWorkCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workboard/cards/{cardId}": {
         parameters: {
             query?: never;
@@ -827,6 +845,23 @@ export interface paths {
         put?: never;
         /** Send a nudge message to a running card's linked worker session */
         post: operations["nudgeWorkCard"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/v1/workboard/cards/{cardId}/redo": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** List Redo cycles and findings for a work card */
+        get: operations["listWorkCardRedo"];
+        put?: never;
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -983,17 +1018,23 @@ export interface components {
             name: string;
         };
         CreateWorkCardRequest: {
-            agent: string;
-            labels: string[];
-            notes: string;
+            agent?: string;
+            codingAgent?: string;
+            labels?: string[];
+            notes?: string;
             /** @enum {string} */
-            priority: "low" | "normal" | "high" | "urgent";
+            priority?: "low" | "normal" | "high" | "urgent";
+            projectId?: string;
+            reviewerAgent?: string;
+            /** @enum {string} */
+            reviewerMode?: "same" | "separate";
             /** Format: date-time */
             scheduledAt?: null | string;
             sessionId?: string;
             /** @enum {string} */
-            status?: "triage" | "backlog" | "todo" | "scheduled" | "ready" | "running" | "review" | "blocked" | "done";
-            targetPath: string;
+            status?: "triage" | "backlog" | "todo" | "scheduled" | "ready" | "running" | "review" | "testing" | "redo" | "blocked" | "done";
+            targetPath?: string;
+            testingAgent?: string;
             title: string;
         };
         DegradedProject: {
@@ -1042,6 +1083,11 @@ export interface components {
         };
         EnsureHQResponse: {
             projectId: string;
+        };
+        FileRef: {
+            endLine?: number;
+            file: string;
+            startLine?: number;
         };
         GateResultDTO: {
             attempt: number;
@@ -1092,6 +1138,9 @@ export interface components {
         ListProjectsResponse: {
             projects: components["schemas"]["ProjectSummary"][];
         };
+        ListRedoCyclesResponse: {
+            cycles: components["schemas"]["RedoCycleResponse"][];
+        };
         ListReviewsResponse: {
             reviewerHandleId: string;
             reviews: components["schemas"]["PRReviewState"][];
@@ -1125,7 +1174,7 @@ export interface components {
             /** Format: int64 */
             position: number;
             /** @enum {string} */
-            status: "triage" | "backlog" | "todo" | "scheduled" | "ready" | "running" | "review" | "blocked" | "done";
+            status: "triage" | "backlog" | "todo" | "scheduled" | "ready" | "running" | "review" | "testing" | "redo" | "blocked" | "done";
         };
         NotificationEnvelope: {
             notification: components["schemas"]["NotificationResponse"];
@@ -1292,6 +1341,37 @@ export interface components {
             path: string;
             resolveError?: string;
             sessionPrefix: string;
+        };
+        RedoCycleResponse: {
+            cardId: string;
+            /** Format: date-time */
+            completedAt?: null | string;
+            /** Format: date-time */
+            createdAt: string;
+            cycleNumber: number;
+            findings?: components["schemas"]["RedoFindingResponse"][];
+            id: string;
+            source: string;
+            /** @enum {string} */
+            status: "in_progress" | "failed" | "passed";
+            summary: string;
+        };
+        RedoFindingResponse: {
+            attemptCount: number;
+            command?: string;
+            /** Format: date-time */
+            createdAt: string;
+            cycleId: string;
+            details: string;
+            errorOutput?: string;
+            fileRefs?: components["schemas"]["FileRef"][];
+            id: string;
+            sequence: number;
+            severity: string;
+            status: string;
+            title: string;
+            /** Format: date-time */
+            updatedAt: string;
         };
         RemoveProjectResult: {
             projectId: string;
@@ -1598,11 +1678,13 @@ export interface components {
         WorkCardResponse: {
             agent: string;
             boardId: string;
+            codingAgent?: string;
             /** Format: date-time */
             createdAt: string;
             goalVersion: number;
             id: string;
             labels: string[];
+            latestRedoSummary?: string;
             notes: string;
             pausedRetarget: boolean;
             /** Format: int64 */
@@ -1610,16 +1692,22 @@ export interface components {
             /** @enum {string} */
             priority: "low" | "normal" | "high" | "urgent";
             projectId: string;
+            projectName?: string;
             /** Format: date-time */
             readyAt?: null | string;
+            redoCount: number;
             repoName?: string;
+            reviewerAgent?: string;
+            /** @enum {string} */
+            reviewerMode?: "same" | "separate";
             /** Format: date-time */
             scheduledAt?: null | string;
             sessionId?: string;
             /** @enum {string} */
-            status: "triage" | "backlog" | "todo" | "scheduled" | "ready" | "running" | "review" | "blocked" | "done";
+            status: "triage" | "backlog" | "todo" | "scheduled" | "ready" | "running" | "review" | "testing" | "redo" | "blocked" | "done";
             supersededByCardId?: string;
             targetPath: string;
+            testingAgent?: string;
             title: string;
             /** Format: date-time */
             updatedAt: string;
@@ -4593,6 +4681,104 @@ export interface operations {
             };
         };
     };
+    listGlobalWorkCards: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListWorkCardsResponse"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    createGlobalWorkCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateWorkCardRequest"];
+            };
+        };
+        responses: {
+            /** @description Created */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkCardResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     getWorkCard: {
         parameters: {
             query?: never;
@@ -4801,6 +4987,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    listWorkCardRedo: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Work card identifier. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ListRedoCyclesResponse"];
                 };
             };
             /** @description Not Found */

@@ -18,12 +18,14 @@ import (
 type WorkboardService interface {
 	Create(ctx context.Context, in workboardsvc.CreateInput) (domain.WorkCard, error)
 	List(ctx context.Context, projectID, boardID string) ([]domain.WorkCard, error)
+	ListAll(ctx context.Context) ([]domain.WorkCard, error)
 	Get(ctx context.Context, id string) (domain.WorkCard, error)
 	Update(ctx context.Context, id string, in workboardsvc.UpdateInput) (domain.WorkCard, error)
 	Move(ctx context.Context, id string, status domain.CardStatus, position int64) (domain.WorkCard, error)
 	Nudge(ctx context.Context, id string, in workboardsvc.NudgeInput) (domain.WorkCard, error)
 	Retarget(ctx context.Context, id string, in workboardsvc.RetargetInput) (domain.WorkCard, error)
 	Split(ctx context.Context, id string, in workboardsvc.SplitInput) (workboardsvc.SplitResult, error)
+	ListRedo(ctx context.Context, cardID string) ([]domain.RedoCycle, error)
 }
 
 // WorkboardController owns the project-scoped work-card routes.
@@ -34,6 +36,9 @@ type WorkboardController struct {
 
 // Register mounts the workboard routes on the supplied router.
 func (c *WorkboardController) Register(r chi.Router) {
+	r.Get("/workboard/cards", c.listGlobal)
+	r.Post("/workboard/cards", c.createGlobal)
+	r.Get("/workboard/cards/{cardId}/redo", c.listRedo)
 	r.Get("/projects/{projectId}/workboard/cards", c.list)
 	r.Post("/projects/{projectId}/workboard/cards", c.create)
 	r.Patch("/projects/{id}/workboard/autonomous", c.updateAutonomous)
@@ -210,4 +215,80 @@ func (c *WorkboardController) split(w http.ResponseWriter, r *http.Request) {
 		OldCard: newWorkCardResponse(result.OldCard),
 		NewCard: newWorkCardResponse(result.NewCard),
 	})
+}
+
+func (c *WorkboardController) listGlobal(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodGet, "/api/v1/workboard/cards")
+		return
+	}
+	cards, err := c.Svc.ListAll(r.Context())
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, ListWorkCardsResponse{Cards: workCardResponses(cards)})
+}
+
+func (c *WorkboardController) createGlobal(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodPost, "/api/v1/workboard/cards")
+		return
+	}
+	var req CreateWorkCardRequest
+	if err := decodeJSONStrict(r, &req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	card, err := c.Svc.Create(r.Context(), req.toInput(req.ProjectID))
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusCreated, newWorkCardResponse(card))
+}
+
+func (c *WorkboardController) listRedo(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodGet, "/api/v1/workboard/cards/{cardId}/redo")
+		return
+	}
+	cardID := chi.URLParam(r, "cardId")
+	cycles, err := c.Svc.ListRedo(r.Context(), cardID)
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	respCycles := make([]RedoCycleResponse, 0, len(cycles))
+	for _, cycle := range cycles {
+		findingsResp := make([]RedoFindingResponse, 0, len(cycle.Findings))
+		for _, f := range cycle.Findings {
+			findingsResp = append(findingsResp, RedoFindingResponse{
+				ID:           f.ID,
+				CycleID:      f.CycleID,
+				Sequence:     f.Sequence,
+				Severity:     string(f.Severity),
+				Title:        f.Title,
+				Details:      f.Details,
+				Command:      f.Command,
+				ErrorOutput:  f.ErrorOutput,
+				FileRefs:     f.FileRefs,
+				Status:       string(f.Status),
+				AttemptCount: f.AttemptCount,
+				CreatedAt:    f.CreatedAt,
+				UpdatedAt:    f.UpdatedAt,
+			})
+		}
+		respCycles = append(respCycles, RedoCycleResponse{
+			ID:          cycle.ID,
+			CardID:      cycle.CardID,
+			CycleNumber: cycle.CycleNumber,
+			Source:      cycle.Source,
+			Summary:     cycle.Summary,
+			Findings:    findingsResp,
+			CreatedAt:   cycle.CreatedAt,
+			CompletedAt: cycle.CompletedAt,
+		})
+	}
+	envelope.WriteJSON(w, http.StatusOK, ListRedoCyclesResponse{Cycles: respCycles})
 }

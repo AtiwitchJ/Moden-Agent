@@ -20,24 +20,38 @@ type Store interface {
 	CreateWorkCard(ctx context.Context, card domain.WorkCard) error
 	GetWorkCard(ctx context.Context, id string) (domain.WorkCard, bool, error)
 	ListWorkCards(ctx context.Context, projectID, boardID string) ([]domain.WorkCard, error)
+	ListAllWorkCards(ctx context.Context) ([]domain.WorkCard, error)
 	UpdateWorkCard(ctx context.Context, card domain.WorkCard) error
 	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
 	ListWorkspaceRepos(ctx context.Context, projectID string) ([]domain.WorkspaceRepoRecord, error)
+	InsertRedoCycle(ctx context.Context, cycle domain.RedoCycle) error
+	GetLatestRedoCycle(ctx context.Context, cardID string) (domain.RedoCycle, bool, error)
+	ListRedoCycles(ctx context.Context, cardID string) ([]domain.RedoCycle, error)
+	CompleteRedoCycle(ctx context.Context, cycleID string, completedAt time.Time) error
+	InsertRedoFinding(ctx context.Context, finding domain.RedoFinding) error
+	ListRedoFindings(ctx context.Context, cycleID string) ([]domain.RedoFinding, error)
+	UpdateRedoFindingStatus(ctx context.Context, findingID string, status domain.FindingStatus, addAttempts int, at time.Time) error
+	InsertRedoAttempt(ctx context.Context, attempt domain.RedoAttempt) error
+	ListRedoAttempts(ctx context.Context, findingID string) ([]domain.RedoAttempt, error)
 }
 
 // CreateInput is the required content and placement of a new work card.
 type CreateInput struct {
-	ProjectID   string
-	BoardID     string
-	Title       string
-	Notes       string
-	Priority    domain.CardPriority
-	Labels      []string
-	Status      domain.CardStatus
-	TargetPath  string
-	Agent       string
-	SessionID   string
-	ScheduledAt *time.Time
+	ProjectID     string
+	BoardID       string
+	Title         string
+	Notes         string
+	Priority      domain.CardPriority
+	Labels        []string
+	Status        domain.CardStatus
+	TargetPath    string
+	Agent         string
+	CodingAgent   string
+	ReviewerMode  string
+	ReviewerAgent string
+	TestingAgent  string
+	SessionID     string
+	ScheduledAt   *time.Time
 }
 
 // UpdateInput is a partial update. Nil fields are left unchanged.
@@ -107,25 +121,30 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.WorkCard, 
 	if projectID == "" {
 		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_PROJECT_REQUIRED", "Project is required", nil)
 	}
-	title, notes, agent := strings.TrimSpace(in.Title), strings.TrimSpace(in.Notes), strings.TrimSpace(in.Agent)
+	project, ok, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return domain.WorkCard{}, apierr.Internal("PROJECT_LOAD_FAILED", "Failed to load project")
+	}
+	if !ok || !project.ArchivedAt.IsZero() {
+		return domain.WorkCard{}, apierr.NotFound("PROJECT_NOT_FOUND", "Unknown project")
+	}
+	title := strings.TrimSpace(in.Title)
 	if title == "" {
 		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_TITLE_REQUIRED", "Title is required", nil)
 	}
-	if notes == "" {
-		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_NOTES_REQUIRED", "Notes are required", nil)
-	}
-	if _, err := domain.ParseCardPriority(string(in.Priority)); err != nil {
+	priority := in.Priority
+	if priority == "" {
+		priority = domain.CardPriorityNormal
+	} else if _, err := domain.ParseCardPriority(string(priority)); err != nil {
 		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_PRIORITY_INVALID", err.Error(), nil)
 	}
-	if len(in.Labels) == 0 {
-		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_LABELS_REQUIRED", "At least one label is required", nil)
-	}
-	if agent == "" {
-		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_AGENT_REQUIRED", "Agent is required", nil)
+	labels := in.Labels
+	if labels == nil {
+		labels = []string{}
 	}
 	status := in.Status
 	if status == "" {
-		status = domain.CardStatusTriage
+		status = domain.CardStatusTodo
 	}
 	if err := domain.ValidateCardStatus(string(status)); err != nil {
 		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_STATUS_INVALID", err.Error(), nil)
@@ -134,10 +153,30 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.WorkCard, 
 	if boardID == "" {
 		boardID = defaultBoardID
 	}
-	targetPath, err := s.validateTargetPath(ctx, projectID, in.TargetPath)
-	if err != nil {
-		return domain.WorkCard{}, err
+	targetPath := strings.TrimSpace(in.TargetPath)
+	if targetPath == "" {
+		targetPath = project.Path
+	} else {
+		validatedPath, err := s.validateTargetPath(ctx, projectID, targetPath)
+		if err != nil {
+			return domain.WorkCard{}, err
+		}
+		targetPath = validatedPath
 	}
+
+	codingAgent := strings.TrimSpace(in.CodingAgent)
+	if codingAgent == "" {
+		codingAgent = strings.TrimSpace(in.Agent)
+	}
+	agent := codingAgent
+
+	reviewerMode := strings.TrimSpace(in.ReviewerMode)
+	if reviewerMode == "" {
+		reviewerMode = "same"
+	}
+	reviewerAgent := strings.TrimSpace(in.ReviewerAgent)
+	testingAgent := strings.TrimSpace(in.TestingAgent)
+
 	sessionID := strings.TrimSpace(in.SessionID)
 	if err := s.ensureSessionIDAvailable(ctx, projectID, "", sessionID); err != nil {
 		return domain.WorkCard{}, err
@@ -145,21 +184,26 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.WorkCard, 
 
 	now := s.clock().UTC()
 	card := domain.WorkCard{
-		ID:          s.newID(),
-		ProjectID:   projectID,
-		BoardID:     boardID,
-		Title:       title,
-		Notes:       notes,
-		Priority:    in.Priority,
-		Labels:      append([]string(nil), in.Labels...),
-		Status:      status,
-		ScheduledAt: cloneTime(in.ScheduledAt),
-		TargetPath:  targetPath,
-		Agent:       agent,
-		SessionID:   sessionID,
-		GoalVersion: 1,
-		CreatedAt:   now,
-		UpdatedAt:   now,
+		ID:            s.newID(),
+		ProjectID:     projectID,
+		ProjectName:   project.Name(),
+		BoardID:       boardID,
+		Title:         title,
+		Notes:         strings.TrimSpace(in.Notes),
+		Priority:      priority,
+		Labels:        append([]string{}, labels...),
+		Status:        status,
+		ScheduledAt:   cloneTime(in.ScheduledAt),
+		TargetPath:    targetPath,
+		Agent:         agent,
+		CodingAgent:   codingAgent,
+		ReviewerMode:  reviewerMode,
+		ReviewerAgent: reviewerAgent,
+		TestingAgent:  testingAgent,
+		SessionID:     sessionID,
+		GoalVersion:   1,
+		CreatedAt:     now,
+		UpdatedAt:     now,
 	}
 	if status == domain.CardStatusReady {
 		card.ReadyAt = &now
@@ -170,8 +214,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.WorkCard, 
 	return card, nil
 }
 
-// List returns a project's cards on one board. The default board is selected
-// when boardID is empty.
+// List returns a project's cards on one board.
 func (s *Service) List(ctx context.Context, projectID, boardID string) ([]domain.WorkCard, error) {
 	if strings.TrimSpace(projectID) == "" {
 		return nil, apierr.Invalid("WORK_CARD_PROJECT_REQUIRED", "Project is required", nil)
@@ -183,7 +226,41 @@ func (s *Service) List(ctx context.Context, projectID, boardID string) ([]domain
 	if err != nil {
 		return nil, apierr.Internal("WORK_CARDS_LIST_FAILED", "Failed to load work cards")
 	}
+	if project, ok, err := s.store.GetProject(ctx, projectID); err == nil && ok {
+		for i := range cards {
+			cards[i].ProjectName = project.Name()
+		}
+	}
 	return cards, nil
+}
+
+// ListAll returns cards across all projects.
+func (s *Service) ListAll(ctx context.Context) ([]domain.WorkCard, error) {
+	cards, err := s.store.ListAllWorkCards(ctx)
+	if err != nil {
+		return nil, apierr.Internal("WORK_CARDS_LIST_FAILED", "Failed to load work cards")
+	}
+	for i := range cards {
+		if project, ok, err := s.store.GetProject(ctx, cards[i].ProjectID); err == nil && ok {
+			cards[i].ProjectName = project.Name()
+		}
+	}
+	return cards, nil
+}
+
+// ListRedo returns all Redo cycles and findings for a card.
+func (s *Service) ListRedo(ctx context.Context, cardID string) ([]domain.RedoCycle, error) {
+	cycles, err := s.store.ListRedoCycles(ctx, cardID)
+	if err != nil {
+		return nil, apierr.Internal("REDO_CYCLES_LIST_FAILED", "Failed to load redo cycles")
+	}
+	for i := range cycles {
+		findings, err := s.store.ListRedoFindings(ctx, cycles[i].ID)
+		if err == nil {
+			cycles[i].Findings = findings
+		}
+	}
+	return cycles, nil
 }
 
 // Get returns a work card by id.

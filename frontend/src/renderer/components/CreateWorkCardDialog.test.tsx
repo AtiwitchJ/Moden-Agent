@@ -49,19 +49,18 @@ beforeEach(() => {
 });
 
 describe("CreateWorkCardDialog", () => {
-	it("refuses submit without labels before calling the backend", async () => {
-		renderDialog();
+	it("refuses submit without project in global context", async () => {
+		render(
+			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+				<CreateWorkCardDialog open onCreated={vi.fn()} onOpenChange={vi.fn()} />
+			</QueryClientProvider>,
+		);
 		const user = userEvent.setup();
 
-		await user.type(screen.getByLabelText("Title"), "Repair build diagnostics");
-		await user.type(screen.getByLabelText("Notes"), "Keep compiler errors actionable.");
-		await user.type(screen.getByLabelText("Folder"), "/repo/project");
-		await user.click(screen.getByLabelText("Agent"));
-		await user.click(await screen.findByRole("option", { name: "Codex" }));
+		await user.type(screen.getByLabelText("Title *"), "Repair build diagnostics");
 		await user.click(screen.getByRole("button", { name: "Create card" }));
 
-		expect(await screen.findByText("Add at least one label before creating this card.")).toBeInTheDocument();
-		expect(screen.getByLabelText("Labels")).toHaveAttribute("aria-invalid", "true");
+		expect(await screen.findByText("Select a project before creating this card.")).toBeInTheDocument();
 		expect(postMock).not.toHaveBeenCalled();
 	});
 
@@ -69,7 +68,7 @@ describe("CreateWorkCardDialog", () => {
 		renderDialog();
 		const user = userEvent.setup();
 
-		await user.type(screen.getByLabelText("Title"), "Repair build diagnostics");
+		await user.type(screen.getByLabelText("Title *"), "Repair build diagnostics");
 		await user.type(screen.getByLabelText("Notes"), "Keep compiler errors actionable.");
 		await user.type(screen.getByLabelText("Folder"), "/repo/project");
 		await user.type(screen.getByLabelText("Labels"), "frontend{Enter}");
@@ -105,11 +104,11 @@ describe("CreateWorkCardDialog", () => {
 		renderDialog();
 		const user = userEvent.setup();
 
-		await user.type(screen.getByLabelText("Title"), "Repair build diagnostics");
+		await user.type(screen.getByLabelText("Title *"), "Repair build diagnostics");
 		await user.type(screen.getByLabelText("Notes"), "Keep compiler errors actionable.");
 		await user.type(screen.getByLabelText("Folder"), "/repo/project");
 		await user.type(screen.getByLabelText("Labels"), "frontend{Enter}");
-		await user.click(screen.getByLabelText("Agent"));
+		await user.click(screen.getByLabelText("Coding Agent *"));
 		await user.click(await screen.findByRole("option", { name: "Codex" }));
 		await user.click(screen.getByRole("checkbox", { name: /Schedule for later/i }));
 		await user.click(screen.getByRole("button", { name: "Create card" }));
@@ -117,12 +116,15 @@ describe("CreateWorkCardDialog", () => {
 		expect(postMock).toHaveBeenCalledWith("/api/v1/projects/{projectId}/workboard/cards", {
 			params: { path: { projectId: "proj-1" } },
 			body: {
+				projectId: "proj-1",
 				title: "Repair build diagnostics",
 				notes: "Keep compiler errors actionable.",
 				targetPath: "/repo/project",
 				labels: ["frontend"],
 				priority: "normal",
 				agent: "codex",
+				codingAgent: "codex",
+				reviewerMode: "same",
 				status: "scheduled",
 				scheduledAt: "2026-07-17T15:30:00.000Z",
 			},
@@ -134,11 +136,11 @@ describe("CreateWorkCardDialog", () => {
 		renderDialog();
 		const user = userEvent.setup();
 
-		await user.type(screen.getByLabelText("Title"), "Repair build diagnostics");
+		await user.type(screen.getByLabelText("Title *"), "Repair build diagnostics");
 		await user.type(screen.getByLabelText("Notes"), "Keep compiler errors actionable.");
 		await user.type(screen.getByLabelText("Folder"), "/repo/project");
 		await user.type(screen.getByLabelText("Labels"), "frontend{Enter}");
-		await user.click(screen.getByLabelText("Agent"));
+		await user.click(screen.getByLabelText("Coding Agent *"));
 		await user.click(await screen.findByRole("option", { name: "Codex" }));
 		await user.click(screen.getByRole("button", { name: "Create card" }));
 

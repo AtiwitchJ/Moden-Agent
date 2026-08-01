@@ -14,6 +14,7 @@ const { getMock, patchMock, postMock, useWorkboardCardsMock, useWorkspaceQueryMo
 vi.mock("../hooks/useWorkboardQuery", () => ({
 	workboardQueryKey: (projectId?: string) => (projectId ? ["workboard", projectId] : ["workboard"]),
 	useWorkboardCards: (...args: unknown[]) => useWorkboardCardsMock(...args),
+	useWorkCardRedo: () => ({ data: [], isError: false }),
 }));
 
 vi.mock("../lib/api-client", () => ({
@@ -35,10 +36,11 @@ const card: WorkboardCard = {
 	notes: "Preserve actionable errors.",
 	priority: "high",
 	labels: ["frontend"],
-	status: "triage",
+	status: "todo",
 	position: 0,
 	targetPath: "/repo/project",
 	agent: "codex",
+	redoCount: 0,
 	waitingForInput: false,
 	pausedRetarget: false,
 	goalVersion: 1,
@@ -57,110 +59,17 @@ function renderBoard(onShowSessions?: () => void) {
 beforeEach(() => {
 	useWorkboardCardsMock.mockReset().mockReturnValue({ data: [card], isError: false });
 	useWorkspaceQueryMock.mockReset().mockReturnValue({ data: [] });
-	postMock.mockReset().mockResolvedValue({ data: { ...card, status: "ready" }, error: undefined });
+	postMock.mockReset().mockResolvedValue({ data: { ...card, status: "running" }, error: undefined });
 	patchMock.mockReset().mockResolvedValue({ data: { status: "ok" }, error: undefined });
 	getMock.mockReset().mockResolvedValue({ data: { status: "ok", project: { id: "proj-1", config: { workboard: { autonomous: { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined });
 });
 
 describe("Workboard", () => {
-	it("keeps the OpenClaw flow order and moves a dropped card", async () => {
+	it("renders columns in OpenClaw flow order", async () => {
 		renderBoard();
-		expect(screen.getAllByText(/^(Triage|Backlog|To do|Scheduled|Ready|Running|Review|Blocked|Done)$/).map((node) => node.textContent)).toEqual([
-			"Triage", "Backlog", "To do", "Scheduled", "Ready", "Running", "Review", "Blocked", "Done",
+		expect(screen.getAllByText(/^(Todo|Running|Review|Testing|Redo|Done)$/).map((node) => node.textContent)).toEqual([
+			"Todo", "Running", "Review", "Testing", "Redo", "Done",
 		]);
-
-		const values = new Map<string, string>();
-		const dataTransfer = {
-			effectAllowed: "",
-			setData: (type: string, value: string) => values.set(type, value),
-			getData: (type: string) => values.get(type) ?? "",
-		};
-		fireEvent.dragStart(screen.getByRole("article", { name: /Repair diagnostics/i }), { dataTransfer });
-		const readyColumn = screen.getByText("Ready").closest("section");
-		expect(readyColumn).not.toBeNull();
-		fireEvent.dragOver(readyColumn!, { dataTransfer });
-		fireEvent.drop(readyColumn!, { dataTransfer });
-
-		await waitFor(() => expect(postMock).toHaveBeenCalledWith("/api/v1/workboard/cards/{cardId}/move", {
-			params: { path: { cardId: "card-1" } },
-			body: { status: "ready", position: 0 },
-		}));
-	});
-
-	it("opens autonomous settings and saves only the autonomous workboard config", async () => {
-		renderBoard();
-		fireEvent.click(screen.getByRole("button", { name: "Autonomous" }));
-
-		expect(await screen.findByRole("heading", { name: "Autonomous mode" })).toBeInTheDocument();
-		fireEvent.click(await screen.findByRole("checkbox", { name: "Enable autonomous mode" }));
-		fireEvent.change(screen.getByLabelText("Short timeout (minutes)"), { target: { value: "5" } });
-		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-		await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/api/v1/projects/{id}/workboard/autonomous", {
-			params: { path: { id: "proj-1" } },
-			body: { enabled: true, shortTimeoutMinutes: 5 },
-		}));
-	});
-
-	it("does not resend a stale autonomous enabled value when another field changes", async () => {
-		getMock.mockResolvedValueOnce({ data: { status: "ok", project: { id: "proj-1", config: { workboard: { autonomous: { enabled: true, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined });
-		renderBoard();
-		fireEvent.click(screen.getByRole("button", { name: "Autonomous" }));
-
-		fireEvent.change(await screen.findByLabelText("Short timeout (minutes)"), { target: { value: "5" } });
-		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-		await waitFor(() => expect(patchMock).toHaveBeenCalledWith("/api/v1/projects/{id}/workboard/autonomous", {
-			params: { path: { id: "proj-1" } },
-			body: { shortTimeoutMinutes: 5 },
-		}));
-	});
-
-	it("round-trips sticky false and mode changes without collapsing to defaults", async () => {
-		getMock.mockResolvedValue({
-			data: {
-				status: "ok",
-				project: {
-					id: "proj-1",
-					config: {
-						workboard: {
-							autonomous: { enabled: true, mode: "short_timeout", shortTimeoutMinutes: 3, sticky: false },
-						},
-					},
-				},
-			},
-			error: undefined,
-		});
-		renderBoard();
-		fireEvent.click(screen.getByRole("button", { name: "Autonomous" }));
-
-		expect(await screen.findByRole("checkbox", { name: "Keep autonomous mode enabled" })).not.toBeChecked();
-		expect(screen.getByLabelText("Mode")).toHaveValue("short_timeout");
-
-		fireEvent.click(screen.getByRole("checkbox", { name: "Keep autonomous mode enabled" }));
-		fireEvent.change(screen.getByLabelText("Mode"), { target: { value: "skip_timeout" } });
-		fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
-
-		await waitFor(() =>
-			expect(patchMock).toHaveBeenCalledWith("/api/v1/projects/{id}/workboard/autonomous", {
-				params: { path: { id: "proj-1" } },
-				body: { sticky: true, mode: "skip_timeout" },
-			}),
-		);
-	});
-
-	it("moves a focused card to the adjacent column with the arrow keys", async () => {
-		renderBoard();
-		const workCard = screen.getByRole("article", { name: /Repair diagnostics/i });
-
-		fireEvent.keyDown(workCard, { key: "ArrowRight" });
-
-		await waitFor(() => expect(postMock).toHaveBeenCalledWith("/api/v1/workboard/cards/{cardId}/move", {
-			params: { path: { cardId: "card-1" } },
-			body: { status: "backlog", position: 0 },
-		}));
-		expect(await screen.findByText("Moved card to Backlog.")).toBeInTheDocument();
-		expect(workCard).toHaveClass("motion-reduce:transition-none");
 	});
 
 	it("opens a live terminal preview for a selected running card", () => {

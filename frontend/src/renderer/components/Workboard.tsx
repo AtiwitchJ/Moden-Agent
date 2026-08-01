@@ -31,18 +31,33 @@ const AUTONOMOUS_MODE_OPTIONS = [
 ] as const;
 
 export const WORKBOARD_COLUMNS: { status: CardStatus; label: string; rail: string }[] = [
-	{ status: "triage", label: "Triage", rail: "var(--purple)" },
-	{ status: "backlog", label: "Backlog", rail: "var(--fg-passive)" },
-	{ status: "todo", label: "To do", rail: "var(--accent)" },
-	{ status: "scheduled", label: "Scheduled", rail: "var(--amber)" },
-	{ status: "ready", label: "Ready", rail: "var(--green)" },
+	{ status: "todo", label: "Todo", rail: "var(--accent)" },
 	{ status: "running", label: "Running", rail: "var(--orange)" },
-	{ status: "review", label: "Review", rail: "var(--accent)" },
-	{ status: "blocked", label: "Blocked", rail: "var(--red)" },
-	{ status: "done", label: "Done", rail: "var(--fg-passive)" },
+	{ status: "review", label: "Review", rail: "var(--purple)" },
+	{ status: "testing", label: "Testing", rail: "var(--amber)" },
+	{ status: "redo", label: "Redo", rail: "var(--red)" },
+	{ status: "done", label: "Done", rail: "var(--green)" },
 ];
 
-export function Workboard({ projectId, onShowSessions }: { projectId: string; onShowSessions?: () => void }) {
+const mapStatusToColumn = (status: string): CardStatus => {
+	switch (status) {
+		case "triage":
+		case "backlog":
+		case "scheduled":
+		case "ready":
+			return "todo";
+		case "in_progress":
+			return "running";
+		case "blocked":
+			return "redo";
+		case "finished":
+			return "done";
+		default:
+			return status as CardStatus;
+	}
+};
+
+export function Workboard({ projectId, onShowSessions }: { projectId?: string; onShowSessions?: () => void }) {
 	const queryClient = useQueryClient();
 	const cardsQuery = useWorkboardCards(projectId);
 	const workspaceQuery = useWorkspaceQuery();
@@ -56,7 +71,10 @@ export function Workboard({ projectId, onShowSessions }: { projectId: string; on
 	const [isAutonomousOpen, setIsAutonomousOpen] = useState(false);
 	const cardsByStatus = useMemo(() => {
 		const grouped = new Map<CardStatus, WorkboardCard[]>();
-		for (const card of cardsQuery.data ?? []) (grouped.get(card.status) ?? grouped.set(card.status, []).get(card.status)!).push(card);
+		for (const card of cardsQuery.data ?? []) {
+			const targetCol = mapStatusToColumn(card.status);
+			(grouped.get(targetCol) ?? grouped.set(targetCol, []).get(targetCol)!).push(card);
+		}
 		for (const cards of grouped.values()) cards.sort((a, b) => a.position - b.position);
 		return grouped;
 	}, [cardsQuery.data]);
@@ -86,7 +104,8 @@ export function Workboard({ projectId, onShowSessions }: { projectId: string; on
 		moveCardTo(cardId, status, position);
 	};
 	const moveFocusedCard = (card: WorkboardCard, direction: "previous" | "next") => {
-		const columnIndex = WORKBOARD_COLUMNS.findIndex((column) => column.status === card.status);
+		const currentCol = mapStatusToColumn(card.status);
+		const columnIndex = WORKBOARD_COLUMNS.findIndex((column) => column.status === currentCol);
 		const destination = WORKBOARD_COLUMNS[columnIndex + (direction === "previous" ? -1 : 1)];
 		if (!destination) return;
 		moveCardTo(card.id, destination.status, (cardsByStatus.get(destination.status) ?? []).length);
@@ -100,14 +119,14 @@ export function Workboard({ projectId, onShowSessions }: { projectId: string; on
 		<div className="flex h-full min-h-0 flex-col bg-background text-foreground">
 			<DashboardSubhead
 				title="Workboard"
-				subtitle="Durable work cards in OpenClaw flow order."
-				actions={<><Button onClick={() => setIsAutonomousOpen(true)} size="sm" variant="ghost"><SlidersHorizontal className="size-3.5" aria-hidden="true" />Autonomous</Button><Button onClick={() => setIsCreateOpen(true)} size="sm"><Plus className="size-3.5" aria-hidden="true" />Create card</Button>{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">Sessions</Button> : null}</>}
+				subtitle="Global durable work cards in OpenClaw automated flow."
+				actions={<>{projectId ? <Button onClick={() => setIsAutonomousOpen(true)} size="sm" variant="ghost"><SlidersHorizontal className="size-3.5" aria-hidden="true" />Autonomous</Button> : null}<Button onClick={() => setIsCreateOpen(true)} size="sm"><Plus className="size-3.5" aria-hidden="true" />Create card</Button>{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">Sessions</Button> : null}</>}
 			/>
 			<p className="sr-only" id="workboard-keyboard-help">Press Left or Right Arrow to move the focused card between columns.</p>
 			<div className="flex min-h-0 flex-1">
 				<div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden p-[18px]">
 					{cardsQuery.isError ? <p className="py-10 text-center text-[12px] text-passive">Could not load workboard.</p> : (
-						<div className="grid h-full min-w-[1540px] grid-cols-9 gap-2">
+						<div className="grid h-full min-w-[1100px] grid-cols-6 gap-2">
 							{WORKBOARD_COLUMNS.map((column) => {
 								const cards = cardsByStatus.get(column.status) ?? [];
 								return <section aria-label={`${column.label} column, ${cards.length} cards`} className={cn("relative flex min-w-0 flex-col overflow-hidden rounded-[10px] bg-[var(--kanban-column-bg)]")} key={column.status} onDragOver={(event) => event.preventDefault()} onDrop={(event) => handleDrop(event, column.status, cards.length)}>
@@ -126,12 +145,12 @@ export function Workboard({ projectId, onShowSessions }: { projectId: string; on
 						</div>
 					)}
 				</div>
-				{focusedCard ? <WorkCardFocusPanel card={focusedCard} projectId={projectId} session={focusedSession} theme={theme} daemonReady={daemonStatus.state === "ready"} onClose={() => setFocusedCardId(undefined)} onShowSessions={onShowSessions} /> : null}
+				{focusedCard ? <WorkCardFocusPanel card={focusedCard} projectId={projectId ?? ""} session={focusedSession} theme={theme} daemonReady={daemonStatus.state === "ready"} onClose={() => setFocusedCardId(undefined)} onShowSessions={onShowSessions} /> : null}
 			</div>
 			{moveError ? <p className="px-[18px] pb-3 text-[12px] text-destructive" role="alert">{moveError}</p> : null}
 			{moveAnnouncement ? <p aria-live="polite" className="sr-only">{moveAnnouncement}</p> : null}
 			<CreateWorkCardDialog open={isCreateOpen} projectId={projectId} onCreated={() => undefined} onOpenChange={setIsCreateOpen} />
-			<AutonomousSettings projectId={projectId} open={isAutonomousOpen} onOpenChange={setIsAutonomousOpen} />
+			{projectId ? <AutonomousSettings projectId={projectId} open={isAutonomousOpen} onOpenChange={setIsAutonomousOpen} /> : null}
 		</div>
 	);
 }

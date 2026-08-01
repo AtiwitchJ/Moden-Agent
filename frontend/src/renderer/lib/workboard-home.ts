@@ -16,13 +16,11 @@ export function writeLastProjectId(projectId: string): void {
 	if (id) getLocalStorage()?.setItem(lastProjectStorageKey, id);
 }
 
-/** When a stored project still exists, return the workboard home route target. */
+/** Always return the global workboard home route target. */
 export function workboardHomeRedirectTarget(
-	workspaces: readonly WorkspaceSummary[],
-	lastProjectId: string | null = readLastProjectId(),
+	_workspaces?: readonly WorkspaceSummary[],
+	_lastProjectId: string | null = readLastProjectId(),
 ) {
-	if (!lastProjectId) return null;
-	return workspaces.some((workspace) => workspace.id === lastProjectId)
-		? { to: "/projects/$projectId" as const, params: { projectId: lastProjectId } }
-		: null;
+	return { to: "/workboard" as const };
 }
+

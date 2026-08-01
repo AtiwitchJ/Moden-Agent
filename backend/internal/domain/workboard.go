@@ -17,6 +17,8 @@ const (
 	CardStatusReady     CardStatus = "ready"
 	CardStatusRunning   CardStatus = "running"
 	CardStatusReview    CardStatus = "review"
+	CardStatusTesting   CardStatus = "testing"
+	CardStatusRedo      CardStatus = "redo"
 	CardStatusBlocked   CardStatus = "blocked"
 	CardStatusDone      CardStatus = "done"
 )
@@ -24,7 +26,8 @@ const (
 func ParseCardStatus(s string) (CardStatus, error) {
 	switch CardStatus(s) {
 	case CardStatusTriage, CardStatusBacklog, CardStatusTodo, CardStatusScheduled,
-		CardStatusReady, CardStatusRunning, CardStatusReview, CardStatusBlocked, CardStatusDone:
+		CardStatusReady, CardStatusRunning, CardStatusReview, CardStatusTesting,
+		CardStatusRedo, CardStatusBlocked, CardStatusDone:
 		return CardStatus(s), nil
 	default:
 		return "", fmt.Errorf("invalid card status %q", s)
@@ -35,6 +38,43 @@ func ParseCardStatus(s string) (CardStatus, error) {
 func ValidateCardStatus(s string) error {
 	_, err := ParseCardStatus(s)
 	return err
+}
+
+// ValidateWorkflowTransition enforces server-authoritative state transitions.
+func ValidateWorkflowTransition(from, to CardStatus, actor string) error {
+	if from == to {
+		return nil
+	}
+	if actor == "user" {
+		return fmt.Errorf("manual card movement from %s to %s is not permitted", from, to)
+	}
+	switch from {
+	case CardStatusTodo, CardStatusTriage, CardStatusBacklog, CardStatusScheduled, CardStatusReady:
+		if to == CardStatusRunning || to == CardStatusTodo || to == CardStatusBlocked {
+			return nil
+		}
+	case CardStatusRunning:
+		if to == CardStatusReview || to == CardStatusRedo || to == CardStatusBlocked || to == CardStatusTodo {
+			return nil
+		}
+	case CardStatusReview:
+		if to == CardStatusTesting || to == CardStatusRedo || to == CardStatusBlocked {
+			return nil
+		}
+	case CardStatusTesting:
+		if to == CardStatusDone || to == CardStatusRedo || to == CardStatusBlocked {
+			return nil
+		}
+	case CardStatusRedo:
+		if to == CardStatusTodo || to == CardStatusRunning || to == CardStatusRedo || to == CardStatusBlocked {
+			return nil
+		}
+	case CardStatusDone, CardStatusBlocked:
+		if to == CardStatusTodo || to == CardStatusRunning {
+			return nil
+		}
+	}
+	return fmt.Errorf("invalid workflow transition from %s to %s by %s", from, to, actor)
 }
 
 type CardPriority string
@@ -74,6 +114,7 @@ func (p CardPriority) Rank() int {
 type WorkCard struct {
 	ID                 string
 	ProjectID          string
+	ProjectName        string
 	BoardID            string
 	Title              string
 	Notes              string
@@ -86,6 +127,12 @@ type WorkCard struct {
 	TargetPath         string
 	RepoName           string
 	Agent              string
+	CodingAgent        string
+	ReviewerMode       string
+	ReviewerAgent      string
+	TestingAgent       string
+	RedoCount          int
+	LatestRedoSummary  string
 	SessionID          string
 	WaitingForInput    bool
 	PausedRetarget     bool
@@ -93,6 +140,84 @@ type WorkCard struct {
 	SupersededByCardID string
 	CreatedAt          time.Time
 	UpdatedAt          time.Time
+}
+
+type FindingSeverity string
+
+const (
+	FindingSeverityCritical FindingSeverity = "critical"
+	FindingSeverityHigh     FindingSeverity = "high"
+	FindingSeverityNormal   FindingSeverity = "normal"
+	FindingSeverityLow      FindingSeverity = "low"
+)
+
+func (s FindingSeverity) Rank() int {
+	switch s {
+	case FindingSeverityCritical:
+		return 4
+	case FindingSeverityHigh:
+		return 3
+	case FindingSeverityNormal:
+		return 2
+	case FindingSeverityLow:
+		return 1
+	default:
+		return 0
+	}
+}
+
+type FindingStatus string
+
+const (
+	FindingStatusPending    FindingStatus = "pending"
+	FindingStatusInProgress FindingStatus = "in_progress"
+	FindingStatusFixed      FindingStatus = "fixed"
+	FindingStatusFailed     FindingStatus = "failed"
+)
+
+type FileRef struct {
+	File      string `json:"file"`
+	StartLine int    `json:"startLine,omitempty"`
+	EndLine   int    `json:"endLine,omitempty"`
+}
+
+type RedoFinding struct {
+	ID           string          `json:"id"`
+	CycleID      string          `json:"cycleId"`
+	Sequence     int             `json:"sequence"`
+	Severity     FindingSeverity `json:"severity"`
+	Title        string          `json:"title"`
+	Details      string          `json:"details"`
+	Command      string          `json:"command,omitempty"`
+	ErrorOutput  string          `json:"errorOutput,omitempty"`
+	FileRefs     []FileRef       `json:"fileRefs,omitempty"`
+	Status       FindingStatus   `json:"status"`
+	AttemptCount int             `json:"attemptCount"`
+	CreatedAt    time.Time       `json:"createdAt"`
+	UpdatedAt    time.Time       `json:"updatedAt"`
+}
+
+type RedoAttempt struct {
+	ID             string     `json:"id"`
+	FindingID      string     `json:"findingId"`
+	AttemptNumber  int        `json:"attemptNumber"`
+	Agent          string     `json:"agent"`
+	StartedAt      time.Time  `json:"startedAt"`
+	FinishedAt     *time.Time `json:"finishedAt,omitempty"`
+	Result         string     `json:"result"`
+	Output         string     `json:"output,omitempty"`
+	ValidationJSON string     `json:"validationJson,omitempty"`
+}
+
+type RedoCycle struct {
+	ID          string        `json:"id"`
+	CardID      string        `json:"cardId"`
+	CycleNumber int           `json:"cycleNumber"`
+	Source      string        `json:"source"`
+	Summary     string        `json:"summary"`
+	Findings    []RedoFinding `json:"findings,omitempty"`
+	CreatedAt   time.Time     `json:"createdAt"`
+	CompletedAt *time.Time    `json:"completedAt,omitempty"`
 }
 
 // WorkCardEvent is an append-only audit fact associated with a work card.

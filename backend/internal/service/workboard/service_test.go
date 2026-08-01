@@ -34,8 +34,8 @@ func TestCreateDefaultsAndReadyTimestamp(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create triage: %v", err)
 	}
-	if card.ID == "" || card.BoardID != "default" || card.Status != domain.CardStatusTriage || card.ReadyAt != nil {
-		t.Fatalf("triage card = %#v", card)
+	if card.ID == "" || card.BoardID != "default" || card.Status != domain.CardStatusTodo || card.ReadyAt != nil {
+		t.Fatalf("todo card = %#v", card)
 	}
 
 	ready, err := svc.Create(ctx, workboard.CreateInput{
@@ -50,14 +50,17 @@ func TestCreateDefaultsAndReadyTimestamp(t *testing.T) {
 	}
 }
 
-func TestCreateRequiresLabels(t *testing.T) {
+func TestCreateAllowsEmptyLabels(t *testing.T) {
 	svc, _, root := newTestService(t)
-	_, err := svc.Create(context.Background(), workboard.CreateInput{
+	card, err := svc.Create(context.Background(), workboard.CreateInput{
 		ProjectID: "p1", Title: "missing labels", Notes: "notes", Priority: domain.CardPriorityNormal,
 		TargetPath: root, Agent: "codex",
 	})
-	if err == nil {
-		t.Fatal("Create without labels = nil error, want validation error")
+	if err != nil {
+		t.Fatalf("Create without labels failed: %v", err)
+	}
+	if card.Labels == nil {
+		t.Fatal("expected non-nil labels slice")
 	}
 }
 
@@ -78,7 +81,7 @@ func TestCRUDUsesPartialUpdateAndMove(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Update: %v", err)
 	}
-	if updated.Title != title || len(updated.Labels) != 2 || updated.Agent != "codex" || updated.Status != domain.CardStatusTriage {
+	if updated.Title != title || len(updated.Labels) != 2 || updated.Agent != "codex" || updated.Status != domain.CardStatusTodo {
 		t.Fatalf("updated card = %#v", updated)
 	}
 	outside := t.TempDir()

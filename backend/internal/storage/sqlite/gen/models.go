@@ -283,6 +283,24 @@ type WorkCard struct {
 	SupersededByCardID string
 	CreatedAt          int64
 	UpdatedAt          int64
+	CodingAgent        string
+	ReviewerMode       string
+	ReviewerAgent      string
+	TestingAgent       string
+	RedoCount          int64
+	LatestRedoSummary  string
+}
+
+type WorkCardAttempt struct {
+	ID             string
+	FindingID      string
+	AttemptNumber  int64
+	Agent          string
+	StartedAt      int64
+	FinishedAt     sql.NullInt64
+	Result         string
+	Output         string
+	ValidationJson string
 }
 
 type WorkCardEvent struct {
@@ -292,6 +310,32 @@ type WorkCardEvent struct {
 	Kind      string
 	Payload   string
 	CreatedAt int64
+}
+
+type WorkCardFinding struct {
+	ID           string
+	CycleID      string
+	Sequence     int64
+	Severity     string
+	Title        string
+	Details      string
+	Command      string
+	ErrorOutput  string
+	FileRefsJson string
+	Status       string
+	AttemptCount int64
+	CreatedAt    int64
+	UpdatedAt    int64
+}
+
+type WorkCardRedoCycle struct {
+	ID          string
+	CardID      string
+	CycleNumber int64
+	Source      string
+	Summary     string
+	CreatedAt   int64
+	CompletedAt sql.NullInt64
 }
 
 type WorkspaceRepo struct {

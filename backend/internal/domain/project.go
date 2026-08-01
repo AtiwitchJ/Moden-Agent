@@ -67,6 +67,13 @@ type ProjectRecord struct {
 	HQRole HQRole
 }
 
+func (p ProjectRecord) Name() string {
+	if p.DisplayName != "" {
+		return p.DisplayName
+	}
+	return p.ID
+}
+
 // WorkspaceRepoRecord is a child repo registered under a workspace project.
 // The root repo itself is represented by ProjectRecord and by session_worktrees
 // rows using RootWorkspaceRepoName; workspace_repos contains direct children.

@@ -2287,6 +2287,73 @@ paths:
       summary: Clean up terminated session workspaces
       tags:
       - sessions
+  /api/v1/workboard/cards:
+    get:
+      operationId: listGlobalWorkCards
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListWorkCardsResponse'
+          description: OK
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List all durable work cards across projects
+      tags:
+      - workboard
+    post:
+      operationId: createGlobalWorkCard
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWorkCardRequest'
+        required: true
+      responses:
+        "201":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkCardResponse'
+          description: Created
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Create a durable work card on a global workboard
+      tags:
+      - workboard
   /api/v1/workboard/cards/{cardId}:
     get:
       operationId: getWorkCard
@@ -2476,6 +2543,45 @@ paths:
                 $ref: '#/components/schemas/APIError'
           description: Not Implemented
       summary: Send a nudge message to a running card's linked worker session
+      tags:
+      - workboard
+  /api/v1/workboard/cards/{cardId}/redo:
+    get:
+      operationId: listWorkCardRedo
+      parameters:
+      - description: Work card identifier.
+        in: path
+        name: cardId
+        required: true
+        schema:
+          description: Work card identifier.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ListRedoCyclesResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: List Redo cycles and findings for a work card
       tags:
       - workboard
   /api/v1/workboard/cards/{cardId}/retarget:
@@ -2880,6 +2986,8 @@ components:
       properties:
         agent:
           type: string
+        codingAgent:
+          type: string
         labels:
           items:
             type: string
@@ -2892,6 +3000,15 @@ components:
           - normal
           - high
           - urgent
+          type: string
+        projectId:
+          type: string
+        reviewerAgent:
+          type: string
+        reviewerMode:
+          enum:
+          - same
+          - separate
           type: string
         scheduledAt:
           format: date-time
@@ -2909,20 +3026,19 @@ components:
           - ready
           - running
           - review
+          - testing
+          - redo
           - blocked
           - done
           type: string
         targetPath:
           type: string
+        testingAgent:
+          type: string
         title:
           type: string
       required:
       - title
-      - notes
-      - priority
-      - labels
-      - targetPath
-      - agent
       type: object
     DegradedProject:
       properties:
@@ -3030,6 +3146,17 @@ components:
           type: string
       required:
       - projectId
+      type: object
+    FileRef:
+      properties:
+        endLine:
+          type: integer
+        file:
+          type: string
+        startLine:
+          type: integer
+      required:
+      - file
       type: object
     GateResultDTO:
       properties:
@@ -3164,6 +3291,15 @@ components:
       required:
       - projects
       type: object
+    ListRedoCyclesResponse:
+      properties:
+        cycles:
+          items:
+            $ref: '#/components/schemas/RedoCycleResponse'
+          type: array
+      required:
+      - cycles
+      type: object
     ListReviewsResponse:
       properties:
         reviewerHandleId:
@@ -3252,6 +3388,8 @@ components:
           - ready
           - running
           - review
+          - testing
+          - redo
           - blocked
           - done
           type: string
@@ -3681,6 +3819,89 @@ components:
       - path
       - kind
       - sessionPrefix
+      type: object
+    RedoCycleResponse:
+      properties:
+        cardId:
+          type: string
+        completedAt:
+          format: date-time
+          type:
+          - "null"
+          - string
+        createdAt:
+          format: date-time
+          type: string
+        cycleNumber:
+          type: integer
+        findings:
+          items:
+            $ref: '#/components/schemas/RedoFindingResponse'
+          type: array
+        id:
+          type: string
+        source:
+          type: string
+        status:
+          enum:
+          - in_progress
+          - failed
+          - passed
+          type: string
+        summary:
+          type: string
+      required:
+      - id
+      - cardId
+      - cycleNumber
+      - status
+      - source
+      - summary
+      - createdAt
+      type: object
+    RedoFindingResponse:
+      properties:
+        attemptCount:
+          type: integer
+        command:
+          type: string
+        createdAt:
+          format: date-time
+          type: string
+        cycleId:
+          type: string
+        details:
+          type: string
+        errorOutput:
+          type: string
+        fileRefs:
+          items:
+            $ref: '#/components/schemas/FileRef'
+          type: array
+        id:
+          type: string
+        sequence:
+          type: integer
+        severity:
+          type: string
+        status:
+          type: string
+        title:
+          type: string
+        updatedAt:
+          format: date-time
+          type: string
+      required:
+      - id
+      - cycleId
+      - sequence
+      - severity
+      - title
+      - details
+      - status
+      - attemptCount
+      - createdAt
+      - updatedAt
       type: object
     RemoveProjectResult:
       properties:
@@ -4508,6 +4729,8 @@ components:
           type: string
         boardId:
           type: string
+        codingAgent:
+          type: string
         createdAt:
           format: date-time
           type: string
@@ -4519,6 +4742,8 @@ components:
           items:
             type: string
           type: array
+        latestRedoSummary:
+          type: string
         notes:
           type: string
         pausedRetarget:
@@ -4535,12 +4760,23 @@ components:
           type: string
         projectId:
           type: string
+        projectName:
+          type: string
         readyAt:
           format: date-time
           type:
           - "null"
           - string
+        redoCount:
+          type: integer
         repoName:
+          type: string
+        reviewerAgent:
+          type: string
+        reviewerMode:
+          enum:
+          - same
+          - separate
           type: string
         scheduledAt:
           format: date-time
@@ -4558,12 +4794,16 @@ components:
           - ready
           - running
           - review
+          - testing
+          - redo
           - blocked
           - done
           type: string
         supersededByCardId:
           type: string
         targetPath:
+          type: string
+        testingAgent:
           type: string
         title:
           type: string
@@ -4584,6 +4824,7 @@ components:
       - position
       - targetPath
       - agent
+      - redoCount
       - waitingForInput
       - pausedRetarget
       - goalVersion

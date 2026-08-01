@@ -159,6 +159,10 @@ var schemaNames = map[string]string{
 	"ControllersSplitWorkCardRequest":             "SplitWorkCardRequest",
 	"ControllersSplitWorkCardResponse":            "SplitWorkCardResponse",
 	"ControllersListWorkCardsResponse":            "ListWorkCardsResponse",
+	"ControllersListRedoCyclesResponse":           "ListRedoCyclesResponse",
+	"ControllersRedoCycleResponse":                "RedoCycleResponse",
+	"ControllersRedoFindingResponse":              "RedoFindingResponse",
+	"DomainFileRef":                               "FileRef",
 	"ControllersUpdateWorkboardAutonomousRequest": "UpdateWorkboardAutonomousRequest",
 	"ControllersWorkboardAutonomousResponse":      "WorkboardAutonomousResponse",
 	"ControllersProjectResponse":                  "ProjectResponse",
@@ -360,6 +364,38 @@ func operations() []operation {
 // 1:1 with WorkboardController.Register (enforced by TestRouteSpecParity).
 func workboardOperations() []operation {
 	return []operation{
+		{
+			method: http.MethodGet, path: "/api/v1/workboard/cards", id: "listGlobalWorkCards", tag: "workboard",
+			summary: "List all durable work cards across projects",
+			resps: []respUnit{
+				{http.StatusOK, controllers.ListWorkCardsResponse{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodPost, path: "/api/v1/workboard/cards", id: "createGlobalWorkCard", tag: "workboard",
+			summary: "Create a durable work card on a global workboard",
+			reqBody: controllers.CreateWorkCardRequest{},
+			resps: []respUnit{
+				{http.StatusCreated, controllers.WorkCardResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodGet, path: "/api/v1/workboard/cards/{cardId}/redo", id: "listWorkCardRedo", tag: "workboard",
+			summary:    "List Redo cycles and findings for a work card",
+			pathParams: []any{controllers.WorkCardIDParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.ListRedoCyclesResponse{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
 		{
 			method: http.MethodGet, path: "/api/v1/projects/{projectId}/workboard/cards", id: "listWorkCards", tag: "workboard",
 			summary:    "List a project's durable work cards",

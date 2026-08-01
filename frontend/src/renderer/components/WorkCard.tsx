@@ -1,5 +1,5 @@
-import { Terminal } from "lucide-react";
-import type { DragEvent, KeyboardEvent } from "react";
+import { RefreshCw, Terminal } from "lucide-react";
+import type { KeyboardEvent } from "react";
 import { cn } from "../lib/utils";
 import { formatScheduledAtDisplay } from "../lib/workboard-schedule";
 import type { WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
@@ -13,37 +13,32 @@ const PRIORITY: Record<WorkboardCard["priority"], { label: string; className: st
 
 export function WorkCard({
 	card,
-	onDragStart,
-	onMove,
 	onFocus,
 	selected = false,
 }: {
 	card: WorkboardCard;
-	onDragStart: (cardId: string) => void;
-	onMove: (direction: "previous" | "next") => void;
+	onDragStart?: (cardId: string) => void;
+	onMove?: (direction: "previous" | "next") => void;
 	onFocus: (card: WorkboardCard) => void;
 	selected?: boolean;
 }) {
-	const priority = PRIORITY[card.priority];
-	const handleDragStart = (event: DragEvent<HTMLElement>) => {
-		event.dataTransfer.effectAllowed = "move";
-		event.dataTransfer.setData("text/plain", card.id);
-		onDragStart(card.id);
-	};
+	const priority = PRIORITY[card.priority] ?? PRIORITY.normal;
 	const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
-		if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") return;
-		event.preventDefault();
-		onMove(event.key === "ArrowLeft" ? "previous" : "next");
+		if (event.key === "Enter" || event.key === " ") {
+			event.preventDefault();
+			onFocus(card);
+		}
 	};
+
+	const displayAgent = card.codingAgent || card.agent || "auto";
 
 	return (
 		<article
-			aria-describedby="workboard-keyboard-help"
-			aria-keyshortcuts="ArrowLeft ArrowRight"
 			aria-label={`${card.title}, ${priority.label} priority`}
-			className={cn("group cursor-grab rounded-[7px] border bg-surface text-left shadow-[0_1px_0_rgb(0_0_0_/_0.18)] transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-weak active:cursor-grabbing motion-reduce:transition-none", selected ? "border-accent ring-1 ring-accent/30" : "border-border")}
-			draggable
-			onDragStart={handleDragStart}
+			className={cn(
+				"group cursor-pointer rounded-[7px] border bg-surface text-left shadow-[0_1px_0_rgb(0_0_0_/_0.18)] transition-colors hover:border-border-strong focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-weak motion-reduce:transition-none",
+				selected ? "border-accent ring-1 ring-accent/30" : "border-border",
+			)}
 			onKeyDown={handleKeyDown}
 			onClick={() => onFocus(card)}
 			onFocus={() => onFocus(card)}
@@ -52,15 +47,32 @@ export function WorkCard({
 			<div className="flex items-center gap-2 px-3 pb-2 pt-2.5">
 				<span className={cn("size-1.5 shrink-0 rounded-full", priority.className)} title={`${priority.label} priority`} />
 				<span className="font-mono text-[10px] uppercase tracking-[0.06em] text-passive">{priority.label}</span>
-				<span className="ml-auto max-w-[7.5rem] truncate font-mono text-[10px] text-passive">{card.agent}</span>
+				{card.projectName ? (
+					<span className="rounded bg-muted/60 px-1.5 py-0.5 font-mono text-[9.5px] font-medium text-foreground">
+						{card.projectName}
+					</span>
+				) : null}
+				<span className="ml-auto max-w-[7.5rem] truncate font-mono text-[10px] text-passive" title={`Agent: ${displayAgent}`}>
+					{displayAgent}
+				</span>
 			</div>
 			<h2 className="line-clamp-2 px-3 pb-2 text-[13px] font-medium leading-[1.42] tracking-[-0.01em] text-foreground">
 				{card.title}
 			</h2>
 			{card.notes ? <p className="line-clamp-2 px-3 pb-2.5 text-[11.5px] leading-[1.45] text-muted-foreground">{card.notes}</p> : null}
+
+			{card.redoCount && card.redoCount > 0 ? (
+				<div className="mx-3 mb-2 flex items-center gap-1.5 rounded bg-destructive/10 px-2 py-1 font-mono text-[10px] text-destructive">
+					<RefreshCw className="size-3 shrink-0" />
+					<span className="font-semibold">Redo #{card.redoCount}</span>
+					{card.latestRedoSummary ? <span className="truncate text-muted-foreground">— {card.latestRedoSummary}</span> : null}
+				</div>
+			) : null}
+
 			{card.status === "scheduled" && card.scheduledAt ? (
 				<p className="px-3 pb-2 font-mono text-[10px] text-amber-300/90">Runs {formatScheduledAtDisplay(card.scheduledAt)}</p>
 			) : null}
+
 			<div className="flex min-w-0 flex-wrap gap-1 border-t border-border px-3 py-2">
 				{card.labels.map((label) => (
 					<span key={label} className="max-w-full truncate rounded-[3px] bg-raised px-1.5 py-0.5 font-mono text-[9.5px] text-muted-foreground">
