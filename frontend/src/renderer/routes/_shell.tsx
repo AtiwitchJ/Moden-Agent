@@ -5,15 +5,13 @@ import { ShellTopbar } from "../components/ShellTopbar";
 import { OrchestratorReplacementDialog } from "../components/OrchestratorReplacementDialog";
 import { Sidebar } from "../components/Sidebar";
 import { SidebarProvider } from "../components/ui/sidebar";
-import { TitlebarNav } from "../components/TitlebarNav";
 import { agentsQueryKey, agentsQueryOptions, refreshAgents } from "../hooks/useAgentsQuery";
 import { companiesQueryKey, companiesQueryOptions } from "../hooks/useCompaniesQuery";
-import { useDaemonStatus } from "../hooks/useDaemonStatus";
 import { useWorkspaceQuery, workspaceQueryKey, workspaceQueryOptions } from "../hooks/useWorkspaceQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { refreshDaemonStatus } from "../lib/daemon-status";
 import { addRendererExceptionStep, captureRendererEvent, captureRendererException } from "../lib/telemetry";
-import { ShellProvider } from "../lib/shell-context";
+import { ShellProvider, useShell } from "../lib/shell-context";
 import { spawnOrchestrator } from "../lib/spawn-orchestrator";
 import { restartProjectOrchestrator } from "../lib/restart-orchestrator";
 import { captureOrchestratorReplacementFailure } from "../lib/orchestrator-replacement-telemetry";
@@ -47,13 +45,14 @@ function errorMessage(error: unknown) {
 // Persistent app shell: the Sidebar + shared state survive route changes; only
 // the <Outlet> content (board / session / settings / …) swaps. Lifted out of
 // the old single <App>, with selection now owned by the router (route params)
-// instead of Zustand. The daemon-status effect runs here exactly once.
+// instead of Zustand. The daemon-status effect runs once in root and is
+// re-provided here to Code mode's project creation.
 function ShellLayout() {
 	const navigate = useNavigate();
 	const queryClient = useQueryClient();
 	const workspaceQuery = useWorkspaceQuery();
 	const workspaces = workspaceQuery.data ?? [];
-	const daemonStatus = useDaemonStatus(queryClient);
+	const { daemonStatus } = useShell();
 	const agentCatalogPortRef = useRef<number | undefined>(undefined);
 	const { theme, setTheme, isSidebarOpen, toggleSidebar } = useUiStore();
 	const setProjectRestarting = useUiStore((state) => state.setProjectRestarting);
@@ -234,13 +233,13 @@ function ShellLayout() {
 
 	return (
 		<ShellProvider value={{ daemonStatus, createProject }}>
-			{/* The topbar spans the full window width above the sidebar row (the
-          macOS traffic lights + TitlebarNav cluster sit in its left inset),
+			{/* Re-provide daemonStatus and override createProject for Code mode.
+          The topbar spans the full window width above the sidebar row,
           and the sidebar hangs below it — so the sidebar border stops at the
           header instead of cutting through the titlebar strip. The bar lives
           in the layout, not the screens, so the crumb and actions never shift
           when the outlet content swaps. */}
-			<div className="flex h-screen min-h-0 flex-col bg-background text-foreground">
+			<div className="flex h-full min-h-0 flex-col bg-background text-foreground">
 				<ShellTopbar />
 				{/* Controlled by the ui-store so TitlebarNav / Topbar toggles (which
             call the store directly) stay in sync. --sidebar-width chains to
@@ -264,15 +263,6 @@ function ShellLayout() {
 							<Outlet />
 						</div>
 					</main>
-					{/* Fixed macOS titlebar cluster beside the traffic lights — rendered
-              once here so the toggle/history buttons never move when the
-              sidebar collapses or expands. MUST come after the topbar in the
-              DOM: Electron builds the window-drag region in document order
-              (drag rects add, no-drag rects subtract), so the cluster's
-              no-drag holes only survive if they're processed after the drag
-              strips they overlap. Rendered first, real clicks get swallowed
-              by window-drag even though DOM hit-testing looks correct. */}
-					<TitlebarNav />
 				</SidebarProvider>
 				<OrchestratorReplacementDialog
 					error={replacementErrorProjectId ? orchestratorReplacementErrors[replacementErrorProjectId] : undefined}

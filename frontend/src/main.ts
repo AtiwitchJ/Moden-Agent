@@ -184,11 +184,9 @@ function createWindow(): void {
 		icon: windowIconPath(),
 		backgroundColor: "#0f1014",
 		titleBarStyle: "hiddenInset",
-		// Lights visually centered at y=28 — the 56px topbar/.titlebar-nav center
-		// line — so lights + nav cluster + header content share one row. macOS
-		// draws the 12pt disc 2pt below the given y (measured: center = y + 8),
-		// hence 20, not 22.
-		trafficLightPosition: { x: 14, y: 20 },
+		// Lights visually centered in 40px ModeBar strip. macOS draws the 12pt disc
+		// 2pt below the given y (measured: center = y + 8), hence 12 centers at 20.
+		trafficLightPosition: { x: 14, y: 12 },
 		webPreferences: {
 			preload: preloadPath(),
 			contextIsolation: true,

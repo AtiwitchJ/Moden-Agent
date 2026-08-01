@@ -1,10 +1,10 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { Workboard } from "../components/Workboard";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
+// The global Workboard moved to the Code Manage mode at /manage. Keep this
+// route only as a redirect so pre-mode deep links and any stored navigation
+// state keep resolving.
 export const Route = createFileRoute("/_shell/workboard")({
-	component: GlobalWorkboardPage,
+	beforeLoad: () => {
+		throw redirect({ to: "/manage" });
+	},
 });
-
-function GlobalWorkboardPage() {
-	return <Workboard />;
-}

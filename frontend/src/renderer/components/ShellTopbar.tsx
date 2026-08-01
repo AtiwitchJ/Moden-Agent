@@ -40,10 +40,8 @@ const STATUS_PILL: Record<WorkerDisplayStatus, { label: string; tone: string; br
 
 // The one app topbar (.dashboard-app-header), rendered by the shell layout
 // across the full window width — above both the sidebar and the route outlet —
-// so the crumb and actions sit at identical offsets on every screen and the
-// macOS traffic lights + TitlebarNav cluster live in its left inset
-// (.is-under-titlebar-nav pads past them). The
-// variant is derived from the route, not props: a sessionId in the URL swaps
+// so the crumb and actions sit at identical offsets on every screen.
+// The variant is derived from the route, not props: a sessionId in the URL swaps
 // the lead to the session identity (orchestrator crumb + mode badge, or worker
 // branch + status pill) and the actions to board/orchestrator + inspector
 // controls (orchestrators open the Kanban board; workers open their orchestrator);
@@ -133,7 +131,7 @@ export function ShellTopbar() {
 	};
 
 	return (
-		<header className={cn("dashboard-app-header", isMac && "is-under-titlebar-nav")} style={dragStyle}>
+		<header className="dashboard-app-header" style={dragStyle}>
 			<div className="session-topbar__lead">
 				{isSessionRoute && isOrchestrator ? (
 					<div className="topbar-project-pills-group">
