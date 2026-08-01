@@ -19,7 +19,7 @@ export function ManagePage() {
 				daemonStatus,
 				// Code Manage mode operates without project creation; provide a no-op
 				// that throws if invoked. Workboard only calls this in project-scoped
-				// views (via WorkCardFocusPanel.projectId), which don't reach here.
+				// views, which don't reach here.
 				createProject: () => {
 					throw new Error("createProject is not available in Code Manage mode");
 				},
