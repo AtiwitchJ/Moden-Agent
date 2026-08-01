@@ -9,6 +9,7 @@
 // Additionally, you should also exclude this file from your linter and/or formatter to prevent it from being checked or modified.
 
 import { Route as rootRouteImport } from './routes/__root'
+import { Route as ManageRouteImport } from './routes/manage'
 import { Route as ShellRouteImport } from './routes/_shell'
 import { Route as ShellIndexRouteImport } from './routes/_shell.index'
 import { Route as ShellWorkboardRouteImport } from './routes/_shell.workboard'
@@ -21,6 +22,11 @@ import { Route as ShellCompaniesCompanyIdRouteImport } from './routes/_shell.com
 import { Route as ShellProjectsProjectIdSettingsRouteImport } from './routes/_shell.projects.$projectId_.settings'
 import { Route as ShellProjectsProjectIdSessionsSessionIdRouteImport } from './routes/_shell.projects.$projectId_.sessions.$sessionId'
 
+const ManageRoute = ManageRouteImport.update({
+  id: '/manage',
+  path: '/manage',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const ShellRoute = ShellRouteImport.update({
   id: '/_shell',
   getParentRoute: () => rootRouteImport,
@@ -80,6 +86,7 @@ const ShellProjectsProjectIdSessionsSessionIdRoute =
 
 export interface FileRoutesByFullPath {
   '/': typeof ShellIndexRoute
+  '/manage': typeof ManageRoute
   '/prs': typeof ShellPrsRoute
   '/settings': typeof ShellSettingsRoute
   '/terminals': typeof ShellTerminalsRoute
@@ -91,6 +98,7 @@ export interface FileRoutesByFullPath {
   '/projects/$projectId/sessions/$sessionId': typeof ShellProjectsProjectIdSessionsSessionIdRoute
 }
 export interface FileRoutesByTo {
+  '/manage': typeof ManageRoute
   '/prs': typeof ShellPrsRoute
   '/settings': typeof ShellSettingsRoute
   '/terminals': typeof ShellTerminalsRoute
@@ -105,6 +113,7 @@ export interface FileRoutesByTo {
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
   '/_shell': typeof ShellRouteWithChildren
+  '/manage': typeof ManageRoute
   '/_shell/prs': typeof ShellPrsRoute
   '/_shell/settings': typeof ShellSettingsRoute
   '/_shell/terminals': typeof ShellTerminalsRoute
@@ -120,6 +129,7 @@ export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
   fullPaths:
     | '/'
+    | '/manage'
     | '/prs'
     | '/settings'
     | '/terminals'
@@ -131,6 +141,7 @@ export interface FileRouteTypes {
     | '/projects/$projectId/sessions/$sessionId'
   fileRoutesByTo: FileRoutesByTo
   to:
+    | '/manage'
     | '/prs'
     | '/settings'
     | '/terminals'
@@ -144,6 +155,7 @@ export interface FileRouteTypes {
   id:
     | '__root__'
     | '/_shell'
+    | '/manage'
     | '/_shell/prs'
     | '/_shell/settings'
     | '/_shell/terminals'
@@ -158,10 +170,18 @@ export interface FileRouteTypes {
 }
 export interface RootRouteChildren {
   ShellRoute: typeof ShellRouteWithChildren
+  ManageRoute: typeof ManageRoute
 }
 
 declare module '@tanstack/react-router' {
   interface FileRoutesByPath {
+    '/manage': {
+      id: '/manage'
+      path: '/manage'
+      fullPath: '/manage'
+      preLoaderRoute: typeof ManageRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/_shell': {
       id: '/_shell'
       path: ''
@@ -273,6 +293,7 @@ const ShellRouteWithChildren = ShellRoute._addFileChildren(ShellRouteChildren)
 
 const rootRouteChildren: RootRouteChildren = {
   ShellRoute: ShellRouteWithChildren,
+  ManageRoute: ManageRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
