@@ -15,4 +15,13 @@ describe("ManagePage", () => {
 		expect(screen.getByTestId("workboard")).toBeInTheDocument();
 		expect(screen.queryByLabelText("Holdings Dashboard")).not.toBeInTheDocument();
 	});
+
+	it("provides ShellProvider so Workboard's useShell() call does not throw", () => {
+		// Regression test: Workboard calls useShell() internally. ManagePage must
+		// wrap Workboard with ShellProvider, otherwise useShell throws "must be used
+		// within the _shell layout route". This test verifies that wrapping exists
+		// by rendering ManagePage and confirming no error is thrown.
+		const { container } = render(<ManagePage />);
+		expect(container).toBeInTheDocument();
+	});
 });
