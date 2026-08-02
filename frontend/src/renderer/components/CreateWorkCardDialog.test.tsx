@@ -49,7 +49,7 @@ beforeEach(() => {
 });
 
 describe("CreateWorkCardDialog", () => {
-	it("refuses submit without project in global context", async () => {
+	it("does not expose a project selector in global context", async () => {
 		render(
 			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
 				<CreateWorkCardDialog open onCreated={vi.fn()} onOpenChange={vi.fn()} />
@@ -60,22 +60,16 @@ describe("CreateWorkCardDialog", () => {
 		await user.type(screen.getByLabelText("Title *"), "Repair build diagnostics");
 		await user.click(screen.getByRole("button", { name: "Create card" }));
 
-		expect(await screen.findByText("Select a project before creating this card.")).toBeInTheDocument();
+		expect(screen.queryByText("Select project")).not.toBeInTheDocument();
+		expect(await screen.findByText("Choose a folder inside a registered project before creating this card.")).toBeInTheDocument();
 		expect(postMock).not.toHaveBeenCalled();
 	});
 
-	it("refuses submit until an agent is selected", async () => {
+	it("locks the coding agent to Hermes", () => {
 		renderDialog();
-		const user = userEvent.setup();
 
-		await user.type(screen.getByLabelText("Title *"), "Repair build diagnostics");
-		await user.type(screen.getByLabelText("Notes"), "Keep compiler errors actionable.");
-		await user.type(screen.getByLabelText("Folder"), "/repo/project");
-		await user.type(screen.getByLabelText("Labels"), "frontend{Enter}");
-		await user.click(screen.getByRole("button", { name: "Create card" }));
-
-		expect(await screen.findByText("Select an agent before creating this card.")).toBeInTheDocument();
-		expect(postMock).not.toHaveBeenCalled();
+		expect(screen.getByLabelText("Coding Agent: Hermes")).toHaveTextContent("hermes");
+		expect(screen.queryByRole("combobox", { name: "Coding Agent" })).not.toBeInTheDocument();
 	});
 
 	it("creates a scheduled card when schedule for later is enabled", async () => {
@@ -106,10 +100,8 @@ describe("CreateWorkCardDialog", () => {
 
 		await user.type(screen.getByLabelText("Title *"), "Repair build diagnostics");
 		await user.type(screen.getByLabelText("Notes"), "Keep compiler errors actionable.");
-		await user.type(screen.getByLabelText("Folder"), "/repo/project");
+		await user.type(screen.getByLabelText("Folder *"), "/repo/project");
 		await user.type(screen.getByLabelText("Labels"), "frontend{Enter}");
-		await user.click(screen.getByLabelText("Coding Agent *"));
-		await user.click(await screen.findByRole("option", { name: "Codex" }));
 		await user.click(screen.getByRole("checkbox", { name: /Schedule for later/i }));
 		await user.click(screen.getByRole("button", { name: "Create card" }));
 
@@ -122,8 +114,8 @@ describe("CreateWorkCardDialog", () => {
 				targetPath: "/repo/project",
 				labels: ["frontend"],
 				priority: "normal",
-				agent: "codex",
-				codingAgent: "codex",
+				agent: "hermes",
+				codingAgent: "hermes",
 				reviewerMode: "same",
 				status: "scheduled",
 				scheduledAt: "2026-07-17T15:30:00.000Z",
@@ -138,10 +130,8 @@ describe("CreateWorkCardDialog", () => {
 
 		await user.type(screen.getByLabelText("Title *"), "Repair build diagnostics");
 		await user.type(screen.getByLabelText("Notes"), "Keep compiler errors actionable.");
-		await user.type(screen.getByLabelText("Folder"), "/repo/project");
+		await user.type(screen.getByLabelText("Folder *"), "/repo/project");
 		await user.type(screen.getByLabelText("Labels"), "frontend{Enter}");
-		await user.click(screen.getByLabelText("Coding Agent *"));
-		await user.click(await screen.findByRole("option", { name: "Codex" }));
 		await user.click(screen.getByRole("button", { name: "Create card" }));
 
 		const spinner = document.querySelector(".animate-spin");

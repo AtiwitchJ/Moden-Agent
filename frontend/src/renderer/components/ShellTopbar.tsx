@@ -44,8 +44,6 @@ const STATUS_PILL: Record<WorkerDisplayStatus, { label: string; tone: string; br
 // never in the Code-session header. Merges the old DashboardTopbar/Topbar pair —
 // modern-agent keeps those as two components aligned only by CSS.
 export function ShellTopbar() {
-	const navigate = useNavigate();
-	const queryClient = useQueryClient();
 	const params = useParams({ strict: false }) as { projectId?: string; sessionId?: string };
 	const isInspectorOpen = useUiStore((state) => state.isInspectorOpen);
 	const toggleInspector = useUiStore((state) => state.toggleInspector);

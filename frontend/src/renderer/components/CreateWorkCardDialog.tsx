@@ -7,6 +7,7 @@ import { agentsQueryOptions } from "../hooks/useAgentsQuery";
 import { workboardQueryKey, type WorkCard } from "../hooks/useWorkboardQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { aoBridge } from "../lib/bridge";
+import { WORKBOARD_ORCHESTRATOR_AGENT } from "../lib/workboard-config";
 import { defaultScheduleValue, parseDatetimeLocalValue } from "../lib/workboard-schedule";
 import { RequiredAgentField } from "./CreateProjectAgentSheet";
 import { Button } from "./ui/button";
@@ -16,6 +17,15 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 
 type CreateWorkCardRequest = components["schemas"]["CreateWorkCardRequest"];
 type ProjectSummary = components["schemas"]["ProjectSummary"];
+
+function projectForTargetPath(projects: ProjectSummary[], targetPath: string): ProjectSummary | undefined {
+	const candidate = targetPath.trim().replace(/\\/g, "/").replace(/\/+$/, "");
+	if (!candidate) return undefined;
+	return projects
+		.map((project) => ({ project, path: project.path.trim().replace(/\\/g, "/").replace(/\/+$/, "") }))
+		.filter(({ path }) => path !== "" && (candidate === path || candidate.startsWith(`${path}/`)))
+		.sort((a, b) => b.path.length - a.path.length)[0]?.project;
+}
 
 type CreateWorkCardDialogProps = {
 	open: boolean;
@@ -28,11 +38,9 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 	const queryClient = useQueryClient();
 	const titleId = useId();
 	const notesId = useId();
-	const projectIdId = useId();
 	const folderId = useId();
 	const labelsId = useId();
 	const priorityId = useId();
-	const agentId = useId();
 	const reviewerModeId = useId();
 	const reviewerAgentId = useId();
 	const testingAgentId = useId();
@@ -47,7 +55,6 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 	const [labels, setLabels] = useState<string[]>([]);
 	const [labelInput, setLabelInput] = useState("");
 	const [priority, setPriority] = useState<CreateWorkCardRequest["priority"]>("normal");
-	const [agent, setAgent] = useState("");
 	const [reviewerMode, setReviewerMode] = useState<"same" | "separate">("same");
 	const [reviewerAgent, setReviewerAgent] = useState("");
 	const [testingAgent, setTestingAgent] = useState("");
@@ -105,7 +112,6 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 			setLabels([]);
 			setLabelInput("");
 			setPriority("normal");
-			setAgent("");
 			setReviewerMode("same");
 			setReviewerAgent("");
 			setTestingAgent("");
@@ -115,27 +121,26 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 		}
 	}, [open, projectIdProp]);
 
-	// In the global Director board there is no projectIdProp, so the user would
-	// otherwise have to pick a project before they can create a card. When there
-	// is only one registered project, auto-select it so the user can go straight
-	// to title + agent.
+	// Director cards still require a project at the API boundary, but the dialog
+	// never asks the user to select one. A folder inside a registered project is
+	// the source of truth; a single registered project is the safe fallback.
 	useEffect(() => {
 		if (projectIdProp) return;
-		if (selectedProjectId) return;
 		const projects = projectsQuery.data;
-		if (!projects || projects.length !== 1) return;
-		const only = projects[0];
-		setSelectedProjectId(only.id);
-		if (only.path) setTargetPath(only.path);
-	}, [projectIdProp, selectedProjectId, projectsQuery.data]);
-
-	const handleProjectChange = (projId: string) => {
-		setSelectedProjectId(projId);
-		const proj = projectsQuery.data?.find((p: ProjectSummary) => p.id === projId);
-		if (proj?.path) {
-			setTargetPath(proj.path);
+		if (!projects) return;
+		const matchingProject = projectForTargetPath(projects, targetPath);
+		if (matchingProject) {
+			setSelectedProjectId(matchingProject.id);
+			return;
 		}
-	};
+		if (projects.length === 1) {
+			const only = projects[0];
+			setSelectedProjectId(only.id);
+			if (!targetPath && only.path) setTargetPath(only.path);
+			return;
+		}
+		setSelectedProjectId("");
+	}, [projectIdProp, projectsQuery.data, targetPath]);
 
 	const addLabel = () => {
 		const next = labelInput.trim().replace(/,$/, "");
@@ -161,7 +166,7 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 		event.preventDefault();
 		if (createCard.isPending) return;
 		if (!effectiveProjectId) {
-			setError("Select a project before creating this card.");
+			setError("Choose a folder inside a registered project before creating this card.");
 			return;
 		}
 		const cleanTitle = title.trim();
@@ -169,10 +174,6 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 		const cleanPath = targetPath.trim();
 		if (!cleanTitle) {
 			setError("Title is required.");
-			return;
-		}
-		if (!agent) {
-			setError("Select an agent before creating this card.");
 			return;
 		}
 		const pendingLabel = labelInput.trim().replace(/,$/, "");
@@ -195,8 +196,8 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 			targetPath: cleanPath || undefined,
 			labels: nextLabels,
 			priority,
-			agent,
-			codingAgent: agent,
+			agent: WORKBOARD_ORCHESTRATOR_AGENT,
+			codingAgent: WORKBOARD_ORCHESTRATOR_AGENT,
 			reviewerMode,
 			reviewerAgent: reviewerMode === "separate" ? reviewerAgent : undefined,
 			testingAgent: testingAgent || undefined,
@@ -212,7 +213,7 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 					<div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
 						<div className="min-w-0">
 							<Dialog.Title className="text-[15px] font-semibold text-foreground">Create work card</Dialog.Title>
-							<Dialog.Description className="mt-1 text-[12px] text-muted-foreground">Select a project, set the goal, and configure agents for this work.</Dialog.Description>
+							<Dialog.Description className="mt-1 text-[12px] text-muted-foreground">Set the goal and folder. Hermes runs the coding phase; configure review and testing when needed.</Dialog.Description>
 						</div>
 						<Dialog.Close asChild>
 							<button aria-label="Close create work card dialog" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-surface hover:text-foreground motion-reduce:transition-none" type="button">
@@ -221,27 +222,8 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 						</Dialog.Close>
 					</div>
 					<form className="space-y-4 px-5 py-4" onSubmit={submit}>
-						<div className="grid gap-3 sm:grid-cols-2">
-							<div className="space-y-1.5">
-								<Label htmlFor={projectIdId}>Project *</Label>
-								{projectIdProp ? (
-									<Input disabled id={projectIdId} value={projectIdProp} />
-								) : (
-									<Select value={selectedProjectId} onValueChange={handleProjectChange}>
-										<SelectTrigger id={projectIdId} className="h-8 w-full text-[13px]">
-											<SelectValue placeholder="Select project" />
-										</SelectTrigger>
-										<SelectContent>
-											{(projectsQuery.data ?? []).map((p: ProjectSummary) => (
-												<SelectItem key={p.id} value={p.id}>
-													{p.name || p.id} ({p.path})
-												</SelectItem>
-											))}
-										</SelectContent>
-									</Select>
-								)}
-							</div>
-							<div className="space-y-1.5">
+						<div className="flex justify-end">
+							<div className="w-full space-y-1.5 sm:w-52">
 								<Label htmlFor={priorityId}>Priority</Label>
 								<Select value={priority} onValueChange={(value) => setPriority(value as CreateWorkCardRequest["priority"])}>
 									<SelectTrigger id={priorityId} className="h-8 w-full text-[13px]"><SelectValue /></SelectTrigger>
@@ -258,7 +240,7 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 							<textarea id={notesId} className="min-h-[84px] w-full resize-y rounded-md border border-border bg-transparent px-3 py-2 text-[13px] leading-relaxed text-foreground outline-none transition placeholder:text-passive focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent-weak motion-reduce:transition-none" onChange={(event) => setNotes(event.target.value)} placeholder="Describe the outcome and constraints for the coding agent." value={notes} />
 						</div>
 						<div className="space-y-1.5">
-							<Label htmlFor={folderId}>Folder</Label>
+							<Label htmlFor={folderId}>Folder *</Label>
 							<div className="flex gap-2">
 								<Input id={folderId} onChange={(event) => setTargetPath(event.target.value)} placeholder="Path inside project repo" value={targetPath} />
 								<Button aria-label="Choose folder" onClick={() => void chooseFolder()} size="icon" type="button" variant="outline"><FolderOpen className="size-3.5" aria-hidden="true" /></Button>
@@ -276,7 +258,10 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 						<div className="rounded-md border border-border p-3 space-y-3">
 							<h4 className="text-[12px] font-semibold text-foreground">Agent Configuration</h4>
 							<div className="grid gap-3 sm:grid-cols-2">
-								<RequiredAgentField authorized={agentsQuery.data?.authorized} disabled={agentsQuery.isFetching && !agentsQuery.data} id={agentId} installed={agentsQuery.data?.installed} invalid={Boolean(error) && !agent} label="Coding Agent *" onChange={setAgent} placeholder="Select coding agent" supported={agentsQuery.data?.supported} value={agent} />
+								<div className="space-y-1.5">
+									<Label>Coding Agent</Label>
+									<div aria-label="Coding Agent: Hermes" className="flex h-8 items-center rounded-md border border-input bg-muted/30 px-3 font-mono text-[13px] text-foreground">hermes</div>
+								</div>
 								<div className="space-y-1.5">
 									<Label htmlFor={reviewerModeId}>Reviewer Mode</Label>
 									<Select value={reviewerMode} onValueChange={(val) => setReviewerMode(val as "same" | "separate")}>
