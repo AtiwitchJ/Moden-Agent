@@ -24,6 +24,7 @@ import (
 // errors.Is.
 var (
 	ErrNotFound         = errors.New("session: not found")
+	ErrWorkspaceDirty   = errors.New("session: workspace has uncommitted changes")
 	ErrNotRestorable    = errors.New("session: not restorable (not terminal)")
 	ErrTerminated       = errors.New("session: terminated")
 	ErrIncompleteHandle = errors.New("session: incomplete teardown handle")
@@ -97,6 +98,9 @@ type Store interface {
 	// when the row had already progressed past seed state — preserving the
 	// no-resurrection guarantee for live sessions.
 	DeleteSession(ctx context.Context, id domain.SessionID) (bool, error)
+	// PurgeSession permanently removes a terminated session and its dependent
+	// durable facts. Callers must tear down its managed workspace first.
+	PurgeSession(ctx context.Context, id domain.SessionID) (bool, error)
 	// UpsertSessionWorktree records or updates the worktree row for a session.
 	// SaveAndTeardownAll writes the preserved_ref here (even when empty) as the
 	// "shutdown-saved" marker before ForceDestroying the worktree.
@@ -497,6 +501,35 @@ func (m *Manager) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 		freed = true
 	}
 	return freed, nil
+}
+
+// Delete stops a session, safely removes its managed worktree, then purges its
+// durable history. A dirty worktree is deliberately preserved and the session
+// remains available so the user can commit or stash it before trying again.
+func (m *Manager) Delete(ctx context.Context, id domain.SessionID) error {
+	rec, ok, err := m.store.GetSession(ctx, id)
+	if err != nil {
+		return fmt.Errorf("delete %s: %w", id, err)
+	}
+	if !ok {
+		return fmt.Errorf("delete %s: %w", id, ErrNotFound)
+	}
+
+	freed, err := m.Kill(ctx, id)
+	if err != nil {
+		return fmt.Errorf("delete %s: %w", id, err)
+	}
+	if rec.Metadata.WorkspacePath != "" && !freed {
+		return fmt.Errorf("delete %s: %w", id, ErrWorkspaceDirty)
+	}
+	deleted, err := m.store.PurgeSession(ctx, id)
+	if err != nil {
+		return fmt.Errorf("delete %s: purge: %w", id, err)
+	}
+	if !deleted {
+		return fmt.Errorf("delete %s: %w", id, ErrNotFound)
+	}
+	return nil
 }
 
 // RetireForReplacement terminates a live orchestrator and releases its branch

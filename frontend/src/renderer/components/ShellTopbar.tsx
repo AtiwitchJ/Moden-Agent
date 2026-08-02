@@ -153,6 +153,7 @@ export function ShellTopbar() {
 						    moved here from the inspector's Summary "Danger zone". */}
 						{!isOrchestrator && session ? <AddSessionToWorkboardButton session={session} variant="outline" /> : null}
 						{!isOrchestrator && session && sessionIsActive(session) ? <TopbarKillButton session={session} /> : null}
+						{session ? <TopbarDeleteButton session={session} /> : null}
 						{!isOrchestrator && (
 							<button
 								aria-label="Open orchestrator"
@@ -259,6 +260,72 @@ export function TopbarKillButton({ session }: { session: WorkspaceSession }) {
 		>
 			<Trash2 className="h-[13px] w-[13px]" aria-hidden="true" />
 			Kill
+		</button>
+	);
+}
+
+// Delete removes the durable session record after stopping it. The daemon
+// rejects dirty worktrees, so this control cannot orphan uncommitted changes.
+export function TopbarDeleteButton({ session }: { session: WorkspaceSession }) {
+	const navigate = useNavigate();
+	const queryClient = useQueryClient();
+	const [confirming, setConfirming] = useState(false);
+	const [error, setError] = useState<string | null>(null);
+	const remove = useMutation({
+		mutationFn: async () => {
+			const { error: apiError } = await apiClient.DELETE("/api/v1/sessions/{sessionId}", {
+				params: { path: { sessionId: session.id } },
+			});
+			if (apiError) throw new Error(apiErrorMessage(apiError, "Delete failed"));
+		},
+		onSuccess: async () => {
+			setConfirming(false);
+			await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
+			void navigate({ to: "/projects/$projectId", params: { projectId: session.workspaceId } });
+		},
+		onError: (e) => setError(e instanceof Error ? e.message : "Delete failed"),
+	});
+
+	if (confirming) {
+		return (
+			<div className="dashboard-app-header__kill-confirm" style={noDragStyle}>
+				<button
+					aria-label="Confirm delete"
+					className="dashboard-app-header__kill-confirm-btn"
+					disabled={remove.isPending}
+					onClick={() => remove.mutate()}
+					type="button"
+				>
+					<Trash2 className="h-3.5 w-3.5" aria-hidden="true" />
+					{remove.isPending ? "Deleting…" : "Confirm delete"}
+				</button>
+				<button
+					className="dashboard-app-header__kill-cancel-btn"
+					disabled={remove.isPending}
+					onClick={() => setConfirming(false)}
+					type="button"
+				>
+					Cancel
+				</button>
+				{error ? <span className="dashboard-app-header__kill-error" role="alert">{error}</span> : null}
+			</div>
+		);
+	}
+
+	return (
+		<button
+			aria-label="Delete session"
+			className="dashboard-app-header__kill-btn"
+			onClick={() => {
+				setError(null);
+				setConfirming(true);
+			}}
+			style={noDragStyle}
+			title="Delete session"
+			type="button"
+		>
+			<Trash2 className="h-[13px] w-[13px]" aria-hidden="true" />
+			Delete
 		</button>
 	);
 }

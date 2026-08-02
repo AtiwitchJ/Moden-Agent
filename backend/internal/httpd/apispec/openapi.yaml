@@ -1560,6 +1560,44 @@ paths:
       tags:
       - sessions
   /api/v1/sessions/{sessionId}:
+    delete:
+      operationId: deleteSession
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersDeleteSessionResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "409":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Conflict
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+      summary: Stop a session and permanently remove its durable history
+      tags:
+      - sessions
     get:
       operationId: getSession
       parameters:
@@ -2904,6 +2942,16 @@ components:
       - merge_strategy
       - min_pr_age_minutes
       - block_on_draft
+      type: object
+    ControllersDeleteSessionResponse:
+      properties:
+        ok:
+          type: boolean
+        sessionId:
+          type: string
+      required:
+      - ok
+      - sessionId
       type: object
     ControllersSessionView:
       properties:

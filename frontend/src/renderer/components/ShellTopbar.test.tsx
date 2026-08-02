@@ -43,14 +43,16 @@ vi.mock("../hooks/useWorkspaceQuery", () => ({
 // of unrelated terminal/inspector machinery).
 vi.mock("./NotificationCenter", () => ({ NotificationCenter: () => <div /> }));
 
-import { ShellTopbar, TopbarKillButton } from "./ShellTopbar";
+import { ShellTopbar, TopbarDeleteButton, TopbarKillButton } from "./ShellTopbar";
 
-const { postMock } = vi.hoisted(() => ({
+const { deleteMock, postMock } = vi.hoisted(() => ({
+	deleteMock: vi.fn(),
 	postMock: vi.fn(),
 }));
 
 vi.mock("../lib/api-client", () => ({
 	apiClient: {
+		DELETE: deleteMock,
 		POST: postMock,
 	},
 	apiErrorMessage: (error: unknown, fallback = "Request failed") => {
@@ -91,8 +93,25 @@ function renderKill(session: WorkspaceSession = worker) {
 }
 
 beforeEach(() => {
+	deleteMock.mockReset();
+	deleteMock.mockResolvedValue({ data: { ok: true, sessionId: "sess-1" }, error: undefined });
 	postMock.mockReset();
 	postMock.mockResolvedValue({ data: { ok: true, sessionId: "sess-1" }, error: undefined });
+});
+
+describe("TopbarDeleteButton", () => {
+	it("requires confirmation before permanently deleting a session", async () => {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+		render(<QueryClientProvider client={queryClient}><TopbarDeleteButton session={worker} /></QueryClientProvider>);
+
+		await userEvent.click(screen.getByRole("button", { name: "Delete session" }));
+		expect(deleteMock).not.toHaveBeenCalled();
+		await userEvent.click(screen.getByRole("button", { name: "Confirm delete" }));
+
+		await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/api/v1/sessions/{sessionId}", {
+			params: { path: { sessionId: "sess-1" } },
+		}));
+	});
 });
 
 describe("TopbarKillButton", () => {

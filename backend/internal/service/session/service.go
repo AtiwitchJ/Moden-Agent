@@ -53,6 +53,7 @@ type commander interface {
 	Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.SessionRecord, error)
 	Restore(ctx context.Context, id domain.SessionID) (domain.SessionRecord, error)
 	Kill(ctx context.Context, id domain.SessionID) (bool, error)
+	Delete(ctx context.Context, id domain.SessionID) error
 	RetireForReplacement(ctx context.Context, id domain.SessionID) error
 	Send(ctx context.Context, id domain.SessionID, message string) error
 	Cleanup(ctx context.Context, project domain.ProjectID) (sessionmanager.CleanupResult, error)
@@ -422,6 +423,12 @@ func (s *Service) Kill(ctx context.Context, id domain.SessionID) (bool, error) {
 	return freed, toAPIError(err)
 }
 
+// Delete permanently removes a session after the manager has stopped it and
+// safely reclaimed its managed worktree.
+func (s *Service) Delete(ctx context.Context, id domain.SessionID) error {
+	return toAPIError(s.manager.Delete(ctx, id))
+}
+
 // RollbackSpawn deletes a seed-state session row, or falls back to a Kill if
 // the session has spawn output. Used by the CLI to undo a `spawn --claim-pr`
 // when the claim step fails, avoiding the orphan terminated row that a plain
@@ -639,6 +646,8 @@ func toAPIError(err error) error {
 		return apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
 	case errors.Is(err, sessionmanager.ErrNotRestorable):
 		return apierr.Conflict("SESSION_NOT_RESTORABLE", "Session is not restorable", nil)
+	case errors.Is(err, sessionmanager.ErrWorkspaceDirty):
+		return apierr.Conflict("SESSION_WORKSPACE_DIRTY", "Session workspace has uncommitted changes; commit or stash them before deleting", nil)
 	case errors.Is(err, sessionmanager.ErrTerminated):
 		return apierr.Conflict("SESSION_TERMINATED", "Session is terminated", nil)
 	case errors.Is(err, sessionmanager.ErrIncompleteHandle):

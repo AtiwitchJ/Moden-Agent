@@ -373,6 +373,10 @@ func (f *fakeCommander) Kill(_ context.Context, id domain.SessionID) (bool, erro
 	f.killed = append(f.killed, id)
 	return true, nil
 }
+func (f *fakeCommander) Delete(_ context.Context, id domain.SessionID) error {
+	f.killed = append(f.killed, id)
+	return nil
+}
 func (f *fakeCommander) RetireForReplacement(_ context.Context, id domain.SessionID) error {
 	if f.retireErr != nil {
 		return f.retireErr

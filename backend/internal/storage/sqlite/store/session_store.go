@@ -148,6 +148,46 @@ WHERE id = ?
 	return n > 0, nil
 }
 
+// PurgeSession permanently removes a terminated session and its dependent
+// durable facts. Unlike DeleteSession, it is an explicit user action after the
+// manager has safely torn down the runtime/worktree; it must never remove a
+// live session row.
+func (s *Store) PurgeSession(ctx context.Context, id domain.SessionID) (bool, error) {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	tx, err := s.writeDB.BeginTx(ctx, nil)
+	if err != nil {
+		return false, fmt.Errorf("begin purge session: %w", err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	// change_log and session_messages deliberately have non-cascading foreign
+	// keys, so clear them before deleting the session row. The other dependent
+	// tables cascade from sessions.
+	if _, err := tx.ExecContext(ctx, `DELETE FROM change_log WHERE session_id = ?`, id); err != nil {
+		return false, fmt.Errorf("purge session: clear change log for %s: %w", id, err)
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM session_messages WHERE sender_session_id = ? OR target_session_id = ?`, id, id); err != nil {
+		return false, fmt.Errorf("purge session: clear messages for %s: %w", id, err)
+	}
+	// Workboard cards outlive their session; detach rather than delete the card.
+	if _, err := tx.ExecContext(ctx, `UPDATE work_cards SET session_id = '' WHERE session_id = ?`, id); err != nil {
+		return false, fmt.Errorf("purge session: detach work cards for %s: %w", id, err)
+	}
+	res, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ? AND is_terminated = 1`, id)
+	if err != nil {
+		return false, fmt.Errorf("purge session %s: %w", id, err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return false, fmt.Errorf("purge session %s: rows affected: %w", id, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return false, fmt.Errorf("purge session: commit: %w", err)
+	}
+	return n > 0, nil
+}
+
 // GetSession returns the full record for a session, or ok=false if absent.
 func (s *Store) GetSession(ctx context.Context, id domain.SessionID) (domain.SessionRecord, bool, error) {
 	row, err := s.qr.GetSession(ctx, id)

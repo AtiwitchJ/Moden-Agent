@@ -965,6 +965,17 @@ func sessionOperations() []operation {
 			},
 		},
 		{
+			method: http.MethodDelete, path: "/api/v1/sessions/{sessionId}", id: "deleteSession", tag: "sessions",
+			summary:    "Stop a session and permanently remove its durable history",
+			pathParams: []any{controllers.SessionIDParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.DeleteSessionResponse{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusConflict, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+			},
+		},
+		{
 			method: http.MethodGet, path: "/api/v1/sessions/{sessionId}/preview", id: "getSessionPreview", tag: "sessions",
 			summary:    "Discover a browser preview URL for a session workspace",
 			pathParams: []any{controllers.SessionIDParam{}},

@@ -78,6 +78,8 @@ func (f *fakeSessionService) Kill(context.Context, domain.SessionID) (bool, erro
 	return false, nil
 }
 
+func (f *fakeSessionService) Delete(context.Context, domain.SessionID) error { return nil }
+
 func (f *fakeSessionService) RollbackSpawn(context.Context, domain.SessionID) (sessionsvc.RollbackOutcome, error) {
 	return sessionsvc.RollbackOutcome{}, nil
 }

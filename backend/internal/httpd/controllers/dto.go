@@ -160,7 +160,7 @@ func (r UpdateWorkCardRequest) toInput() workboardsvc.UpdateInput {
 	in := workboardsvc.UpdateInput{
 		Title: r.Title, Notes: r.Notes, Labels: r.Labels,
 		ScheduledAt: workboardsvc.OptionalTime{Set: r.scheduledAtSet, Value: r.ScheduledAt},
-		TargetPath: r.TargetPath, Agent: r.Agent, SessionID: r.SessionID, Position: r.Position,
+		TargetPath:  r.TargetPath, Agent: r.Agent, SessionID: r.SessionID, Position: r.Position,
 	}
 	if r.Priority != nil {
 		priority := domain.CardPriority(*r.Priority)
@@ -493,6 +493,12 @@ type KillSessionResponse struct {
 	OK        bool             `json:"ok"`
 	SessionID domain.SessionID `json:"sessionId"`
 	Freed     bool             `json:"freed,omitempty"`
+}
+
+// DeleteSessionResponse is the body of DELETE /api/v1/sessions/{sessionId}.
+type DeleteSessionResponse struct {
+	OK        bool             `json:"ok"`
+	SessionID domain.SessionID `json:"sessionId"`
 }
 
 // RollbackSessionResponse is the body of POST /api/v1/sessions/{sessionId}/rollback.

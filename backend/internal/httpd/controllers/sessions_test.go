@@ -120,6 +120,14 @@ func (f *fakeSessionService) Kill(_ context.Context, id domain.SessionID) (bool,
 	return true, nil
 }
 
+func (f *fakeSessionService) Delete(_ context.Context, id domain.SessionID) error {
+	if _, ok := f.sessions[id]; !ok {
+		return apierr.NotFound("SESSION_NOT_FOUND", "Unknown session")
+	}
+	delete(f.sessions, id)
+	return nil
+}
+
 func (f *fakeSessionService) RollbackSpawn(_ context.Context, id domain.SessionID) (sessionsvc.RollbackOutcome, error) {
 	if _, ok := f.sessions[id]; ok {
 		delete(f.sessions, id)
@@ -329,6 +337,14 @@ func TestSessionsAPI_ListSpawnGetAndActions(t *testing.T) {
 	}
 	if svc.sessions["ao-2"].DisplayName != "Renamed" {
 		t.Fatalf("session displayName not updated: %+v", svc.sessions["ao-2"])
+	}
+
+	body, status, _ = doRequest(t, srv, "DELETE", "/api/v1/sessions/ao-2", "")
+	if status != http.StatusOK {
+		t.Fatalf("delete = %d, want 200; body=%s", status, body)
+	}
+	if _, ok := svc.sessions["ao-2"]; ok {
+		t.Fatal("deleted session remains in fake service")
 	}
 
 	body, status, _ = doRequest(t, srv, "POST", "/api/v1/orchestrators", `{"projectId":"ao"}`)

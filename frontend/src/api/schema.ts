@@ -551,7 +551,8 @@ export interface paths {
         get: operations["getSession"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Stop a session and permanently remove its durable history */
+        delete: operations["deleteSession"];
         options?: never;
         head?: never;
         /** Rename a session display name */
@@ -989,6 +990,10 @@ export interface components {
             review_strategy: string;
             tracker_label: string;
             veto_second_agent: string;
+        };
+        ControllersDeleteSessionResponse: {
+            ok: boolean;
+            sessionId: string;
         };
         ControllersSessionView: {
             activity: components["schemas"]["DomainActivity"];
@@ -3785,6 +3790,56 @@ export interface operations {
             };
             /** @description Not Found */
             404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    deleteSession: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Session identifier, e.g. project-1. */
+                sessionId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ControllersDeleteSessionResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Conflict */
+            409: {
                 headers: {
                     [name: string]: unknown;
                 };

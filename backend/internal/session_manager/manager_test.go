@@ -105,6 +105,14 @@ func (f *fakeStore) DeleteSession(_ context.Context, id domain.SessionID) (bool,
 	delete(f.sessions, id)
 	return true, nil
 }
+
+func (f *fakeStore) PurgeSession(_ context.Context, id domain.SessionID) (bool, error) {
+	if _, ok := f.sessions[id]; !ok {
+		return false, nil
+	}
+	delete(f.sessions, id)
+	return true, nil
+}
 func (f *fakeStore) GetDisplayPRFactsForSession(_ context.Context, id domain.SessionID) (domain.PRFacts, bool, error) {
 	if pr := f.pr[id]; pr.URL != "" {
 		return pr, true, nil
@@ -644,6 +652,34 @@ func TestKill_DirtyWorkspaceTerminatesAndPreserves(t *testing.T) {
 	}
 	if !st.sessions["mer-1"].IsTerminated {
 		t.Fatal("session should be terminated")
+	}
+}
+
+func TestDelete_PurgesAfterSafeTeardown(t *testing.T) {
+	m, st, rt, ws := newManager()
+	st.sessions["mer-1"] = mkLive("mer-1")
+
+	if err := m.Delete(ctx, "mer-1"); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if rt.destroyed != 1 || ws.destroyed != 1 {
+		t.Fatal("delete should tear down runtime and workspace")
+	}
+	if _, ok := st.sessions["mer-1"]; ok {
+		t.Fatal("deleted session remains in store")
+	}
+}
+
+func TestDelete_RefusesDirtyWorkspace(t *testing.T) {
+	m, st, _, ws := newManager()
+	st.sessions["mer-1"] = mkLive("mer-1")
+	ws.destroyErr = fmt.Errorf("gitworktree: refusing to remove: %w", ports.ErrWorkspaceDirty)
+
+	if err := m.Delete(ctx, "mer-1"); !errors.Is(err, ErrWorkspaceDirty) {
+		t.Fatalf("Delete error = %v, want ErrWorkspaceDirty", err)
+	}
+	if _, ok := st.sessions["mer-1"]; !ok {
+		t.Fatal("dirty session must remain available")
 	}
 }
 
