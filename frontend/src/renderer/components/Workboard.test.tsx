@@ -104,6 +104,16 @@ describe("Workboard", () => {
 		expect(screen.getByText("live terminal preview")).toBeInTheDocument();
 	});
 
+	it("moves a focused card with the arrow keys", async () => {
+		renderBoard();
+		fireEvent.keyDown(screen.getByRole("article", { name: /Repair diagnostics/i }), { key: "ArrowRight" });
+
+		await waitFor(() => expect(postMock).toHaveBeenCalledWith("/api/v1/workboard/cards/{cardId}/move", {
+			params: { path: { cardId: "card-1" } },
+			body: { status: "running", position: 0 },
+		}));
+	});
+
 	it("keeps non-focused cards off the live terminal and offers the fallback terminal action", async () => {
 		const onShowSessions = vi.fn();
 		const linkedCard = { ...card, status: "review" as const, sessionId: "session-1" };

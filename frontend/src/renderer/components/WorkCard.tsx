@@ -1,5 +1,5 @@
 import { RefreshCw, Terminal } from "lucide-react";
-import type { KeyboardEvent } from "react";
+import type { DragEvent, KeyboardEvent } from "react";
 import { cn } from "../lib/utils";
 import { formatScheduledAtDisplay } from "../lib/workboard-schedule";
 import type { WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
@@ -13,6 +13,8 @@ const PRIORITY: Record<WorkboardCard["priority"], { label: string; className: st
 
 export function WorkCard({
 	card,
+	onDragStart,
+	onMove,
 	onFocus,
 	selected = false,
 }: {
@@ -24,10 +26,20 @@ export function WorkCard({
 }) {
 	const priority = PRIORITY[card.priority] ?? PRIORITY.normal;
 	const handleKeyDown = (event: KeyboardEvent<HTMLElement>) => {
+		if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+			event.preventDefault();
+			onMove?.(event.key === "ArrowLeft" ? "previous" : "next");
+			return;
+		}
 		if (event.key === "Enter" || event.key === " ") {
 			event.preventDefault();
 			onFocus(card);
 		}
+	};
+	const handleDragStart = (event: DragEvent<HTMLElement>) => {
+		event.dataTransfer.effectAllowed = "move";
+		event.dataTransfer.setData("text/plain", card.id);
+		onDragStart?.(card.id);
 	};
 
 	const displayAgent = card.codingAgent || card.agent || "auto";
@@ -40,8 +52,10 @@ export function WorkCard({
 				selected ? "border-accent ring-1 ring-accent/30" : "border-border",
 			)}
 			onKeyDown={handleKeyDown}
+			onDragStart={handleDragStart}
 			onClick={() => onFocus(card)}
 			onFocus={() => onFocus(card)}
+			draggable={Boolean(onDragStart)}
 			tabIndex={0}
 		>
 			<div className="flex items-center gap-2 px-3 pb-2 pt-2.5">
