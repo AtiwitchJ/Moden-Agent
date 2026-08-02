@@ -113,3 +113,40 @@ Task 5 มี 2 ส่วนที่ทำถูก (DB constraint, error-path 
 **ลำดับซ่อมแนะนำ:** C-1 (แก้ lock ให้ enforce จริง หรือลบทิ้งแล้วพึ่ง DB constraint อย่างเดียว) → C-2 (เขียน concurrency test จริงด้วย goroutines) → M-1 (note ไว้ว่า session ID ยังปลอมอยู่ รอ session-service wiring) → minor ตามสะดวก
 
 ยังไม่ควรถือว่า Task 5 "done" ตามที่ commit message อ้าง จนกว่า C-1/C-2 จะแก้
+
+---
+
+## Post-fix verification (2026-08-02)
+
+Commit `4352dd78 fix(commander): enforce per-card spawn lock` แก้ C-1 และ C-2 แล้ว (พบว่ามี process อื่นแก้ไขคู่ขนานระหว่างตรวจงานอื่นในเซสชันนี้ ไม่ใช่ commit ที่ฉันแก้เอง) — ตรวจโค้ดจริงและรัน test แล้วดังนี้:
+
+### C-1 — ปิด ✅
+
+`TryAcquire()` (`spawner.go:88-100`) เปลี่ยน signature เป็น `(release func(), ok bool)` แล้ว `Spawn()` (`spawner.go:169-172`) เช็ค `ok` จริง คืน `ErrCardSpawnInProgress` ทันทีถ้า busy — ไม่ผ่านไปเรียก `launcher.Spawn()` อีกต่อไป ตรงกับที่ commit message เดิม (บน `b8bc7271`) เคยอ้างไว้ผิด ตอนนี้ error/behavior ตรงกับที่อ้างแล้วจริง (`ErrCardSpawnInProgress` ประกาศเป็น sentinel ที่ `spawner.go:72`)
+
+### C-2 — ปิด ✅
+
+`TestSpawn_ConcurrentSameCard` (`spawner_test.go:159-204`) เขียนใหม่ทั้งหมด ใช้ goroutine จริง + channel `started`/`unblock` บังคับให้ spawn แรกค้างอยู่กลาง `launcher.Spawn()` ก่อนยิง spawn ที่สองพร้อมกันจริง แล้ว assert `ErrorIs(err, ErrCardSpawnInProgress)` + `fl.callCount() == 1` (พิสูจน์ launcher ไม่ถูกเรียกซ้ำ)
+
+เพิ่ม `TestSpawn_ConcurrentDifferentCards` (`spawner_test.go:206-248`) ใหม่ทั้งฟังก์ชัน — 8 goroutine spawn 8 card ต่างกันพร้อมกันจริงผ่าน `start` barrier channel, assert ทุกตัวสำเร็จ, `active_session` insert ครบ 8 แถวไม่ซ้ำ — ตรงกับที่ plan's Task 5 Verification ต้องการ ("spawns for N cards in parallel and asserts exactly one `active_session` row per card") ที่รอบก่อนไม่มี
+
+### Evidence
+
+```
+cd backend && go test ./internal/commander/spawner/... -race -v
+--- PASS: TestSpawn_Hermes
+--- PASS: TestSpawn_UnknownAgent
+--- PASS: TestSpawn_LancherError
+--- PASS: TestSpawn_ClaudeCode
+--- PASS: TestSpawn_ConcurrentDifferentCards
+--- PASS: TestSpawn_ConcurrentSameCard
+PASS  (6/6, -race clean)
+```
+
+### ยังไม่แตะ (ตามที่รายงานไว้เดิม)
+
+- **M-1** (`RegistryLauncher.Spawn` คืน `SessionHandle.ID = spec.CardID` แทน session ID จริง) — ยังไม่ fix แต่เพิ่ม `// TODO(Task 6): replace the CardID placeholder with the real session-service handle once the orchestrator is wired to session creation.` ไว้ที่ `spawner.go:205-206` แล้ว — ไม่ลืมแล้ว แค่ยัง defer ตามแผนเดิม
+- **m-1** (`Deps` struct dead code, `spawner.go:102-108`) — ยังไม่ลบ
+- **m-2** (double registry lookup, `spawner.go:162-166` + `211-214`) — ยังซ้ำอยู่เหมือนเดิม
+
+**สถานะ:** CRITICAL ทั้ง 2 ข้อปิดจริง verify แล้วด้วย `-race`, Task 5 core (per-card lock) ถือว่า sound แล้ว เหลือ M-1 + minor 2 ข้อเป็นงานเก็บกวาดที่ไม่บล็อก Task 6

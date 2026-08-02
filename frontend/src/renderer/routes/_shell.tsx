@@ -13,6 +13,7 @@ import { refreshDaemonStatus } from "../lib/daemon-status";
 import { addRendererExceptionStep, captureRendererEvent, captureRendererException } from "../lib/telemetry";
 import { ShellProvider, useShell } from "../lib/shell-context";
 import { spawnOrchestrator } from "../lib/spawn-orchestrator";
+import { spawnWorker } from "../lib/spawn-worker";
 import { restartProjectOrchestrator } from "../lib/restart-orchestrator";
 import { captureOrchestratorReplacementFailure } from "../lib/orchestrator-replacement-telemetry";
 import { DEFAULT_WORKBOARD_CONFIG, WORKBOARD_ORCHESTRATOR_AGENT } from "../lib/workboard-config";
@@ -72,6 +73,7 @@ function ShellLayout() {
 			companyId?: string;
 			asWorkspace?: boolean;
 			prompt?: string;
+			sessionKind?: "orchestrator" | "worker";
 		}) => {
 			void addRendererExceptionStep("Project add requested", {
 				source: "project-add",
@@ -128,7 +130,10 @@ function ShellLayout() {
 			void captureRendererEvent("ao.renderer.project_add_succeeded", { project_id: workspace.id });
 			updateWorkspaces((current) => [workspace, ...current.filter((item) => item.id !== workspace.id)]);
 			try {
-				const sessionId = await spawnOrchestrator(workspace.id, false, input.prompt);
+				const sessionId =
+					input.sessionKind === "worker" && input.prompt
+						? await spawnWorker(workspace.id, input.prompt)
+						: await spawnOrchestrator(workspace.id, false, input.prompt);
 				await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
 				void navigate({
 					to: "/projects/$projectId/sessions/$sessionId",
@@ -137,8 +142,8 @@ function ShellLayout() {
 				return { projectId: workspace.id, sessionId };
 			} catch (spawnError) {
 				void navigate({ to: "/projects/$projectId", params: { projectId: workspace.id } });
-				const message = spawnError instanceof Error ? spawnError.message : "Could not start orchestrator";
-				throw new Error(`Project added, but orchestrator did not start: ${message}`);
+				const message = spawnError instanceof Error ? spawnError.message : "Could not start session";
+				throw new Error(`Project added, but its first session did not start: ${message}`);
 			}
 		},
 		[navigate, queryClient, updateWorkspaces],

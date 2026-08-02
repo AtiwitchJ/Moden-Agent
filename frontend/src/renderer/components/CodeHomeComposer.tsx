@@ -2,7 +2,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceQuery } from "../hooks/useWorkspaceQuery";
 import { useShell } from "../lib/shell-context";
-import { spawnOrchestrator } from "../lib/spawn-orchestrator";
+import { spawnWorker } from "../lib/spawn-worker";
 import type { CreateProjectAgentSelection } from "./CreateProjectAgentSheet";
 import { CODE_HOME_COMPOSER_INPUT_ID } from "./CodeSidebar";
 import { CreateProjectFlow } from "./Sidebar";
@@ -13,13 +13,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 const NEW_PROJECT_VALUE = "__new_project__";
 
 // Primary session-creation surface for Code mode's home: pick a project (or
-// create one), type a first prompt, submit — spawns a session with the prompt
-// as its first message. The daemon owns delivery timing (immediate for an
-// already-running orchestrator, readiness-polled for a freshly spawned one —
-// see session_manager.Manager.waitForOutputSteady); this composer only passes
-// the prompt through spawnOrchestrator/createProject and never calls
-// /sessions/{id}/send itself, so it can't race the agent's own boot. See
-// docs/superpowers/specs/2026-08-02-moden-code-home-design.md.
+// create one), type a first prompt, submit — starts a coding worker directly.
 export function CodeHomeComposer() {
 	const navigate = useNavigate();
 	const { createProject } = useShell();
@@ -39,7 +33,7 @@ export function CodeHomeComposer() {
 		setError(null);
 		setIsSubmitting(true);
 		try {
-			const result = await createProject({ ...selection, prompt: draft.trim() });
+			const result = await createProject({ ...selection, prompt: draft.trim(), sessionKind: "worker" });
 			setDraft("");
 			return result;
 		} catch (err) {
@@ -55,7 +49,7 @@ export function CodeHomeComposer() {
 		setError(null);
 		setIsSubmitting(true);
 		try {
-			const sessionId = await spawnOrchestrator(projectId, false, draft.trim());
+			const sessionId = await spawnWorker(projectId, draft.trim());
 			setDraft("");
 			void navigate({ to: "/projects/$projectId/sessions/$sessionId", params: { projectId, sessionId } });
 		} catch (err) {

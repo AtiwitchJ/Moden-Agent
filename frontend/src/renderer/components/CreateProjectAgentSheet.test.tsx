@@ -134,7 +134,7 @@ describe("CreateProjectAgentSheet", () => {
 		expect(screen.queryByText(/Detected repos:/)).not.toBeInTheDocument();
 	});
 
-	describe("simple mode (Code mode: hermes only, no config surface)", () => {
+	describe("simple mode (Code mode: direct coding, no config surface)", () => {
 		it("hides the agent pickers, workspace toggle, and issue intake", () => {
 			renderSheet(vi.fn().mockResolvedValue(undefined), null, true);
 
@@ -144,7 +144,7 @@ describe("CreateProjectAgentSheet", () => {
 			expect(screen.queryByLabelText("Enable issue intake")).not.toBeInTheDocument();
 		});
 
-		it("submits with an auto-picked worker agent and hermes, no workspace/intake, once agents are loaded", async () => {
+		it("prefers Codex for the auto-picked worker agent, with no workspace/intake, once agents are loaded", async () => {
 			const onSubmit = renderSheet(vi.fn().mockResolvedValue(undefined), null, true);
 
 			await waitFor(() => expect(screen.getByRole("button", { name: "Create and start" })).toBeEnabled());
@@ -152,7 +152,7 @@ describe("CreateProjectAgentSheet", () => {
 
 			await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
 			expect(onSubmit).toHaveBeenCalledWith({
-				workerAgent: "claude-code",
+				workerAgent: "codex",
 				orchestratorAgent: "hermes",
 				trackerIntake: undefined,
 			});

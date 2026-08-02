@@ -3,9 +3,9 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-const { navigateMock, spawnOrchestratorMock, createProjectMock } = vi.hoisted(() => ({
+const { navigateMock, spawnWorkerMock, createProjectMock } = vi.hoisted(() => ({
 	navigateMock: vi.fn(),
-	spawnOrchestratorMock: vi.fn(),
+	spawnWorkerMock: vi.fn(),
 	createProjectMock: vi.fn(),
 }));
 
@@ -14,7 +14,7 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 	return { ...actual, useNavigate: () => navigateMock };
 });
 
-vi.mock("../lib/spawn-orchestrator", () => ({ spawnOrchestrator: spawnOrchestratorMock }));
+vi.mock("../lib/spawn-worker", () => ({ spawnWorker: spawnWorkerMock }));
 vi.mock("../lib/shell-context", () => ({ useShell: () => ({ createProject: createProjectMock }) }));
 vi.mock("../hooks/useWorkspaceQuery", () => ({
 	useWorkspaceQuery: () => ({
@@ -39,9 +39,9 @@ describe("CodeHomeComposer", () => {
 		expect(screen.getByLabelText("Prompt")).toHaveFocus();
 	});
 
-	it("existing project: spawns a session with the prompt, and navigates — no separate /send call", async () => {
+	it("existing project: starts a coding worker with the prompt and navigates", async () => {
 		const user = userEvent.setup();
-		spawnOrchestratorMock.mockResolvedValue("sess1");
+		spawnWorkerMock.mockResolvedValue("sess1");
 		renderComposer();
 
 		await user.click(screen.getByLabelText("Project"));
@@ -49,7 +49,7 @@ describe("CodeHomeComposer", () => {
 		await user.type(screen.getByLabelText("Prompt"), "hello there");
 		await user.click(screen.getByRole("button", { name: "Send" }));
 
-		await waitFor(() => expect(spawnOrchestratorMock).toHaveBeenCalledWith("proj1", false, "hello there"));
+		await waitFor(() => expect(spawnWorkerMock).toHaveBeenCalledWith("proj1", "hello there"));
 		await waitFor(() =>
 			expect(navigateMock).toHaveBeenCalledWith({
 				to: "/projects/$projectId/sessions/$sessionId",

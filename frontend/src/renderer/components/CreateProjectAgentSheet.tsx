@@ -34,11 +34,9 @@ type CreateProjectAgentSheetProps = {
 	onSubmit: (selection: CreateProjectAgentSelection) => Promise<void>;
 	open: boolean;
 	path: string | null;
-	/** Code mode: hermes runs every project, so there's nothing to configure —
-	 * no worker/orchestrator pickers, no workspace toggle, no issue intake.
-	 * The worker agent is still required by the daemon, so it's auto-picked
-	 * (first authorized agent, falling back to the catalog's first entry)
-	 * instead of asked for. */
+	/** Code mode starts a coding worker directly, so there's nothing to
+	 * configure — no worker/orchestrator pickers, no workspace toggle, no issue
+	 * intake. The worker agent is auto-picked, preferring Codex when available. */
 	simple?: boolean;
 	targetCompanyId?: string;
 	workspaceDetection?: WorkspaceDetectionResult | null;
@@ -78,10 +76,17 @@ export function CreateProjectAgentSheet({
 	const [intake, setIntake] = useState<IntakeForm>(EMPTY_INTAKE);
 	const [asWorkspace, setAsWorkspace] = useState(false);
 	const intakeIncomplete = intakeNeedsRule(intake);
-	// Simple mode has no picker to set workerAgent from, so it's derived
-	// instead: first authorized agent, falling back down the catalog, down to
-	// the static option list if the catalog hasn't loaded yet.
-	const defaultWorkerAgent = agentOptions[0]?.id ?? installedAgents[0]?.id ?? supportedAgents[0]?.id ?? AGENT_OPTIONS[0];
+	// Simple mode has no picker to set workerAgent from, so it is derived from
+	// the catalog. Prefer Codex for Code mode, then retain the existing fallback
+	// order when Codex is unavailable.
+	const defaultWorkerAgent =
+		agentOptions.find((agent) => agent.id === "codex")?.id ??
+		installedAgents.find((agent) => agent.id === "codex")?.id ??
+		supportedAgents.find((agent) => agent.id === "codex")?.id ??
+		agentOptions[0]?.id ??
+		installedAgents[0]?.id ??
+		supportedAgents[0]?.id ??
+		AGENT_OPTIONS[0];
 	const effectiveWorkerAgent = simple ? defaultWorkerAgent : workerAgent;
 	const canSubmit = effectiveWorkerAgent !== "" && !intakeIncomplete && !isCreating && !isLoadingAgents;
 
