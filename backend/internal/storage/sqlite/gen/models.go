@@ -12,6 +12,14 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 )
 
+type ActiveSession struct {
+	CardID    string
+	SessionID string
+	Phase     string
+	Agent     string
+	CreatedAt int64
+}
+
 type ChangeLog struct {
 	Seq       int64
 	ProjectID domain.ProjectID
