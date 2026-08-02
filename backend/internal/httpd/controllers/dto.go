@@ -737,6 +737,11 @@ type OrchestratorIDParam struct {
 type SpawnOrchestratorRequest struct {
 	ProjectID domain.ProjectID `json:"projectId"`
 	Clean     bool             `json:"clean,omitempty"`
+	// Prompt, when set, is delivered to the orchestrator as its first message
+	// — immediately if one is already running, or once a freshly spawned
+	// orchestrator's process has finished booting (see
+	// session_manager.Manager.waitForOutputSteady).
+	Prompt string `json:"prompt,omitempty"`
 }
 
 // SpawnOrchestratorResponse is the body of POST /api/v1/orchestrators.

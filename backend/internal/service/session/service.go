@@ -295,7 +295,13 @@ func (s *Service) emitSpawnFailed(cfg ports.SpawnConfig, err error, durationMs i
 // one is the only live coordinator. When clean is false it is idempotent: if an
 // active orchestrator already exists it is returned as-is. A business rule that
 // belongs here, not in the HTTP controller.
-func (s *Service) SpawnOrchestrator(ctx context.Context, projectID domain.ProjectID, clean bool) (domain.Session, error) {
+// prompt, when non-empty, is delivered to the orchestrator as its first
+// message. A freshly spawned orchestrator delivers it through Spawn's
+// readiness-aware after-start path (session_manager.Manager); an existing,
+// already-running orchestrator (the clean=false, already-active branch below)
+// is sent to immediately — it's already booted, so there's no readiness race
+// to wait out.
+func (s *Service) SpawnOrchestrator(ctx context.Context, projectID domain.ProjectID, clean bool, prompt string) (domain.Session, error) {
 	unlock := s.lockOrchestratorProject(projectID)
 	defer unlock()
 
@@ -322,10 +328,16 @@ func (s *Service) SpawnOrchestrator(ctx context.Context, projectID domain.Projec
 			return domain.Session{}, err
 		}
 		if len(existing) > 0 {
-			return newestSession(existing), nil
+			sess := newestSession(existing)
+			if strings.TrimSpace(prompt) != "" {
+				if err := s.Send(ctx, sess.ID, prompt, ""); err != nil {
+					return domain.Session{}, err
+				}
+			}
+			return sess, nil
 		}
 	}
-	sess, err := s.Spawn(ctx, ports.SpawnConfig{ProjectID: projectID, Kind: domain.KindOrchestrator})
+	sess, err := s.Spawn(ctx, ports.SpawnConfig{ProjectID: projectID, Kind: domain.KindOrchestrator, Prompt: prompt})
 	if err != nil {
 		return domain.Session{}, err
 	}

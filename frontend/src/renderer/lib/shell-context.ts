@@ -13,6 +13,9 @@ export type ShellContextValue = {
 		trackerIntake?: any;
 		companyId?: string;
 		asWorkspace?: boolean;
+		/** Delivered as the new orchestrator's first message once the daemon
+		 * confirms it's ready — see spawn-orchestrator.ts's doc comment. */
+		prompt?: string;
 	}) => Promise<{ projectId: string; sessionId: string }>;
 	removeProject: (projectId: string) => Promise<void>;
 };

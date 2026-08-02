@@ -341,6 +341,8 @@ type fakeCommander struct {
 	killed          []domain.SessionID
 	retired         []domain.SessionID
 	sent            []domain.SessionID
+	sentMessages    []string
+	lastSpawnCfg    ports.SpawnConfig
 	cleanupProjects []domain.ProjectID
 	killErr         error
 	retireErr       error
@@ -353,6 +355,7 @@ type fakeCommander struct {
 }
 
 func (f *fakeCommander) Spawn(_ context.Context, cfg ports.SpawnConfig) (domain.SessionRecord, error) {
+	f.lastSpawnCfg = cfg
 	if f.spawnErr != nil {
 		return domain.SessionRecord{}, f.spawnErr
 	}
@@ -384,11 +387,12 @@ func (f *fakeCommander) RetireForReplacement(_ context.Context, id domain.Sessio
 	f.retired = append(f.retired, id)
 	return nil
 }
-func (f *fakeCommander) Send(_ context.Context, id domain.SessionID, _ string) error {
+func (f *fakeCommander) Send(_ context.Context, id domain.SessionID, message string) error {
 	if f.sendErr != nil {
 		return f.sendErr
 	}
 	f.sent = append(f.sent, id)
+	f.sentMessages = append(f.sentMessages, message)
 	return nil
 }
 func (f *fakeCommander) Cleanup(_ context.Context, project domain.ProjectID) (sessionmanager.CleanupResult, error) {
@@ -469,7 +473,7 @@ func TestSpawnOrchestratorCleanRetiresActiveOrchestratorsBeforeSpawn(t *testing.
 	fc := &fakeCommander{}
 	svc := &Service{manager: fc, store: st}
 
-	if _, err := svc.SpawnOrchestrator(context.Background(), "mer", true); err != nil {
+	if _, err := svc.SpawnOrchestrator(context.Background(), "mer", true, ""); err != nil {
 		t.Fatalf("SpawnOrchestrator: %v", err)
 	}
 
@@ -494,7 +498,7 @@ func TestSpawnOrchestratorCleanContinuesWhenRetireNoticeFails(t *testing.T) {
 	fc := &fakeCommander{sendErr: errors.New("pane closed")}
 	svc := &Service{manager: fc, store: st}
 
-	if _, err := svc.SpawnOrchestrator(context.Background(), "mer", true); err != nil {
+	if _, err := svc.SpawnOrchestrator(context.Background(), "mer", true, ""); err != nil {
 		t.Fatalf("SpawnOrchestrator: %v", err)
 	}
 	if len(fc.retired) != 1 || fc.retired[0] != "mer-1" {
@@ -697,7 +701,7 @@ func TestSpawnOrchestratorUnknownProjectReturns404(t *testing.T) {
 	fc := &fakeCommander{}
 	svc := &Service{manager: fc, store: st}
 
-	_, err := svc.SpawnOrchestrator(context.Background(), "ghost", false)
+	_, err := svc.SpawnOrchestrator(context.Background(), "ghost", false, "")
 	var e *apierr.Error
 	if !errors.As(err, &e) || e.Kind != apierr.KindNotFound || e.Code != "PROJECT_NOT_FOUND" {
 		t.Fatalf("err = %v, want apierr.NotFound PROJECT_NOT_FOUND", err)
@@ -760,7 +764,7 @@ func TestSpawnOrchestratorNoCleanReturnsExistingWhenActiveExists(t *testing.T) {
 	fc := &fakeCommander{}
 	svc := &Service{manager: fc, store: st}
 
-	got, err := svc.SpawnOrchestrator(context.Background(), "mer", false)
+	got, err := svc.SpawnOrchestrator(context.Background(), "mer", false, "")
 	if err != nil {
 		t.Fatalf("SpawnOrchestrator: %v", err)
 	}
@@ -792,7 +796,7 @@ func TestSpawnOrchestratorNoCleanSpawnsWhenNoneExists(t *testing.T) {
 	fc := &fakeCommander{}
 	svc := &Service{manager: fc, store: st}
 
-	got, err := svc.SpawnOrchestrator(context.Background(), "mer", false)
+	got, err := svc.SpawnOrchestrator(context.Background(), "mer", false, "")
 	if err != nil {
 		t.Fatalf("SpawnOrchestrator: %v", err)
 	}
@@ -804,6 +808,59 @@ func TestSpawnOrchestratorNoCleanSpawnsWhenNoneExists(t *testing.T) {
 	}
 	if got.ID == "" {
 		t.Fatal("returned session must have an id")
+	}
+}
+
+// TestSpawnOrchestratorNoCleanWithPromptSendsToExistingOrchestratorImmediately
+// covers the "existing project, composer types a prompt" path: an already
+// -running orchestrator has no boot race to wait out, so the prompt goes
+// straight through manager.Send rather than the fresh-spawn readiness wait
+// (that wait lives in session_manager.Manager.Spawn, not here — this only
+// proves the service picks the immediate path for an existing orchestrator).
+func TestSpawnOrchestratorNoCleanWithPromptSendsToExistingOrchestratorImmediately(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer"}
+	st.sessions["mer-1"] = domain.SessionRecord{ID: "mer-1", ProjectID: "mer", Kind: domain.KindOrchestrator}
+
+	fc := &fakeCommander{}
+	svc := &Service{manager: fc, store: st}
+
+	got, err := svc.SpawnOrchestrator(context.Background(), "mer", false, "do the thing")
+	if err != nil {
+		t.Fatalf("SpawnOrchestrator: %v", err)
+	}
+	if got.ID != "mer-1" {
+		t.Fatalf("returned id = %q, want existing orchestrator mer-1", got.ID)
+	}
+	if fc.spawned {
+		t.Fatal("manager.Spawn must NOT be called when an active orchestrator already exists")
+	}
+	if len(fc.sent) != 1 || fc.sent[0] != "mer-1" || len(fc.sentMessages) != 1 || fc.sentMessages[0] != "do the thing" {
+		t.Fatalf("sent = %v, sentMessages = %v, want one immediate send of the prompt to mer-1", fc.sent, fc.sentMessages)
+	}
+}
+
+// TestSpawnOrchestratorForwardsPromptOnFreshSpawn covers the "no orchestrator
+// yet" path: the prompt must reach ports.SpawnConfig.Prompt so
+// session_manager.Manager.Spawn can deliver it after the process boots
+// (readiness wait tested directly in session_manager's own test suite).
+func TestSpawnOrchestratorForwardsPromptOnFreshSpawn(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer"}
+
+	fc := &fakeCommander{}
+	svc := &Service{manager: fc, store: st}
+
+	if _, err := svc.SpawnOrchestrator(context.Background(), "mer", false, "do the thing"); err != nil {
+		t.Fatalf("SpawnOrchestrator: %v", err)
+	}
+	if fc.lastSpawnCfg.Prompt != "do the thing" {
+		t.Fatalf("Spawn cfg.Prompt = %q, want %q", fc.lastSpawnCfg.Prompt, "do the thing")
+	}
+	// The service itself must not ALSO Send it — that would double-deliver
+	// once the manager's after-start path (or an InCommand launch arg) lands it.
+	if len(fc.sent) != 0 {
+		t.Fatalf("sent = %v, want no immediate Send on a fresh spawn", fc.sent)
 	}
 }
 
@@ -824,7 +881,7 @@ func TestSpawnOrchestratorVerifiesReplacementHarness(t *testing.T) {
 	}
 	svc := &Service{manager: fc, store: st}
 
-	_, err := svc.SpawnOrchestrator(context.Background(), "mer", false)
+	_, err := svc.SpawnOrchestrator(context.Background(), "mer", false, "")
 	if err == nil || !strings.Contains(err.Error(), `uses harness "claude-code", want "codex"`) {
 		t.Fatalf("SpawnOrchestrator err = %v, want harness verification failure", err)
 	}

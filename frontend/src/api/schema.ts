@@ -1579,6 +1579,7 @@ export interface components {
         SpawnOrchestratorRequest: {
             clean?: boolean;
             projectId: string;
+            prompt?: string;
         };
         SpawnOrchestratorResponse: {
             orchestrator: components["schemas"]["OrchestratorResponse"];

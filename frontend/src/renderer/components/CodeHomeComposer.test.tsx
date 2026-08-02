@@ -3,9 +3,8 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-const { navigateMock, postMock, spawnOrchestratorMock, createProjectMock } = vi.hoisted(() => ({
+const { navigateMock, spawnOrchestratorMock, createProjectMock } = vi.hoisted(() => ({
 	navigateMock: vi.fn(),
-	postMock: vi.fn(),
 	spawnOrchestratorMock: vi.fn(),
 	createProjectMock: vi.fn(),
 }));
@@ -14,11 +13,6 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@tanstack/react-router")>();
 	return { ...actual, useNavigate: () => navigateMock };
 });
-
-vi.mock("../lib/api-client", () => ({
-	apiClient: { POST: postMock },
-	apiErrorMessage: (error: unknown, fallback = "Request failed") => (error instanceof Error ? error.message : fallback),
-}));
 
 vi.mock("../lib/spawn-orchestrator", () => ({ spawnOrchestrator: spawnOrchestratorMock }));
 vi.mock("../lib/shell-context", () => ({ useShell: () => ({ createProject: createProjectMock }) }));
@@ -45,10 +39,9 @@ describe("CodeHomeComposer", () => {
 		expect(screen.getByLabelText("Prompt")).toHaveFocus();
 	});
 
-	it("existing project: spawns a session, sends the prompt, and navigates", async () => {
+	it("existing project: spawns a session with the prompt, and navigates — no separate /send call", async () => {
 		const user = userEvent.setup();
 		spawnOrchestratorMock.mockResolvedValue("sess1");
-		postMock.mockResolvedValue({ data: {}, error: undefined });
 		renderComposer();
 
 		await user.click(screen.getByLabelText("Project"));
@@ -56,11 +49,7 @@ describe("CodeHomeComposer", () => {
 		await user.type(screen.getByLabelText("Prompt"), "hello there");
 		await user.click(screen.getByRole("button", { name: "Send" }));
 
-		await waitFor(() => expect(spawnOrchestratorMock).toHaveBeenCalledWith("proj1"));
-		expect(postMock).toHaveBeenCalledWith("/api/v1/sessions/{sessionId}/send", {
-			params: { path: { sessionId: "sess1" } },
-			body: { message: "hello there" },
-		});
+		await waitFor(() => expect(spawnOrchestratorMock).toHaveBeenCalledWith("proj1", false, "hello there"));
 		await waitFor(() =>
 			expect(navigateMock).toHaveBeenCalledWith({
 				to: "/projects/$projectId/sessions/$sessionId",

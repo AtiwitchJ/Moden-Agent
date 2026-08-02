@@ -26,6 +26,7 @@ type fakeSessionService struct {
 	sessions        map[domain.SessionID]domain.Session
 	sent            string
 	sentSender      domain.SessionID
+	spawnPrompt     string
 	cleanupProjects []domain.ProjectID
 	cleanupResult   []domain.SessionID
 	cleanupSkipped  []sessionsvc.CleanupSkipped
@@ -67,7 +68,8 @@ func (f *fakeSessionService) Spawn(_ context.Context, cfg ports.SpawnConfig) (do
 	return s, nil
 }
 
-func (f *fakeSessionService) SpawnOrchestrator(ctx context.Context, projectID domain.ProjectID, clean bool) (domain.Session, error) {
+func (f *fakeSessionService) SpawnOrchestrator(ctx context.Context, projectID domain.ProjectID, clean bool, prompt string) (domain.Session, error) {
+	f.spawnPrompt = prompt
 	if clean {
 		active := true
 		existing, err := f.List(ctx, sessionsvc.ListFilter{ProjectID: projectID, Active: &active, OrchestratorOnly: true})
@@ -350,6 +352,14 @@ func TestSessionsAPI_ListSpawnGetAndActions(t *testing.T) {
 	body, status, _ = doRequest(t, srv, "POST", "/api/v1/orchestrators", `{"projectId":"ao"}`)
 	if status != http.StatusCreated {
 		t.Fatalf("orchestrator = %d, want 201; body=%s", status, body)
+	}
+
+	body, status, _ = doRequest(t, srv, "POST", "/api/v1/orchestrators", `{"projectId":"ao","prompt":"do the thing"}`)
+	if status != http.StatusCreated {
+		t.Fatalf("orchestrator with prompt = %d, want 201; body=%s", status, body)
+	}
+	if svc.spawnPrompt != "do the thing" {
+		t.Fatalf("service received prompt %q, want %q", svc.spawnPrompt, "do the thing")
 	}
 }
 

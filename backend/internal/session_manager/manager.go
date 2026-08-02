@@ -76,6 +76,10 @@ type runtimeController interface {
 	// IsAlive reports whether the handle's runtime session still exists. Used by
 	// Reconcile on boot to adopt crash-surviving sessions and reap leaked ones.
 	IsAlive(ctx context.Context, handle ports.RuntimeHandle) (bool, error)
+	// GetOutput returns the pane's last `lines` lines of captured output. Spawn
+	// polls this to detect when a PromptDeliveryAfterStart agent's process has
+	// actually booted, before delivering its initial prompt.
+	GetOutput(ctx context.Context, handle ports.RuntimeHandle, lines int) (string, error)
 }
 
 // Store is the persistence surface needed by the internal session Manager.
@@ -136,6 +140,11 @@ type Manager struct {
 	// workspace hook commands resolve back to this daemon. Tests inject a stub.
 	executable func() (string, error)
 	logger     *slog.Logger
+	// promptReadyPoll/Quiet/MaxWait tune waitForOutputSteady — see its doc
+	// comment. Defaulted in New when zero.
+	promptReadyPoll    time.Duration
+	promptReadyQuiet   time.Duration
+	promptReadyMaxWait time.Duration
 }
 
 // Deps are the collaborators a Session Manager needs; New wires them together.
@@ -161,23 +170,32 @@ type Deps struct {
 	// Logger receives spawn-time diagnostics (e.g. when the session PATH
 	// cannot be pinned to the daemon binary). Nil defaults to slog.Default().
 	Logger *slog.Logger
+	// PromptReadyPoll/Quiet/MaxWait tune waitForOutputSteady (see its doc
+	// comment on Manager). Zero defaults to 250ms / 600ms / 10s in production;
+	// tests inject small values to keep the poll loop fast.
+	PromptReadyPoll    time.Duration
+	PromptReadyQuiet   time.Duration
+	PromptReadyMaxWait time.Duration
 }
 
 // New builds a Session Manager from its dependencies, defaulting the clock to
 // time.Now when Deps.Clock is nil.
 func New(d Deps) *Manager {
 	m := &Manager{
-		runtime:    d.Runtime,
-		agents:     d.Agents,
-		workspace:  d.Workspace,
-		store:      d.Store,
-		messenger:  d.Messenger,
-		lcm:        d.Lifecycle,
-		dataDir:    d.DataDir,
-		clock:      d.Clock,
-		lookPath:   d.LookPath,
-		executable: d.Executable,
-		logger:     d.Logger,
+		runtime:            d.Runtime,
+		agents:             d.Agents,
+		workspace:          d.Workspace,
+		store:              d.Store,
+		messenger:          d.Messenger,
+		lcm:                d.Lifecycle,
+		dataDir:            d.DataDir,
+		clock:              d.Clock,
+		lookPath:           d.LookPath,
+		executable:         d.Executable,
+		logger:             d.Logger,
+		promptReadyPoll:    d.PromptReadyPoll,
+		promptReadyQuiet:   d.PromptReadyQuiet,
+		promptReadyMaxWait: d.PromptReadyMaxWait,
 	}
 	if m.clock == nil {
 		// UTC so spawn-stamped CreatedAt/UpdatedAt match every other session
@@ -190,6 +208,15 @@ func New(d Deps) *Manager {
 	}
 	if m.executable == nil {
 		m.executable = os.Executable
+	}
+	if m.promptReadyPoll <= 0 {
+		m.promptReadyPoll = 250 * time.Millisecond
+	}
+	if m.promptReadyQuiet <= 0 {
+		m.promptReadyQuiet = 600 * time.Millisecond
+	}
+	if m.promptReadyMaxWait <= 0 {
+		m.promptReadyMaxWait = 10 * time.Second
 	}
 	if m.logger == nil {
 		m.logger = slog.Default()
@@ -286,7 +313,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		return domain.SessionRecord{}, fmt.Errorf("spawn %s: %w", id, err)
 	}
 	agentConfig := effectiveAgentConfig(cfg.Kind, project.Config)
-	argv, err := agent.GetLaunchCommand(ctx, ports.LaunchConfig{
+	launchCfg := ports.LaunchConfig{
 		SessionID:     string(id),
 		WorkspacePath: launchPath,
 		Prompt:        prompt,
@@ -294,7 +321,8 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		IssueID:       string(cfg.IssueID),
 		Config:        agentConfig,
 		Permissions:   agentConfig.Permissions,
-	})
+	}
+	argv, err := agent.GetLaunchCommand(ctx, launchCfg)
 	if err != nil {
 		_ = m.workspace.Destroy(ctx, ws)
 		m.rollbackSpawnSeedRow(ctx, id)
@@ -328,7 +356,80 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		m.markSpawnFailedTerminated(ctx, id)
 		return domain.SessionRecord{}, fmt.Errorf("spawn %s: completed: %w", id, err)
 	}
+	m.deliverPromptAfterStart(ctx, id, handle, agent, launchCfg, prompt)
 	return m.getRecord(ctx, id)
+}
+
+// deliverPromptAfterStart sends the initial prompt to agents that cannot take
+// it as a launch argument (hermes; ports.PromptDeliveryAfterStart). It waits
+// for the pane's output to steady first — see waitForOutputSteady's doc
+// comment for why sending immediately is unsafe. No-op for InCommand agents
+// (their prompt is already in argv) or an empty prompt. Delivery failure is
+// logged, not returned: the session spawned successfully and the caller
+// should not see a spawn failure over a best-effort follow-up message.
+func (m *Manager) deliverPromptAfterStart(ctx context.Context, id domain.SessionID, handle ports.RuntimeHandle, agent ports.Agent, launchCfg ports.LaunchConfig, prompt string) {
+	if strings.TrimSpace(prompt) == "" {
+		return
+	}
+	strategy, err := agent.GetPromptDeliveryStrategy(ctx, launchCfg)
+	if err != nil {
+		if m.logger != nil {
+			m.logger.Warn("spawn: could not resolve prompt delivery strategy; skipping after-start delivery", "sessionID", id, "error", err)
+		}
+		return
+	}
+	if strategy != ports.PromptDeliveryAfterStart {
+		return
+	}
+	m.waitForOutputSteady(ctx, handle)
+	if err := m.messenger.Send(ctx, id, prompt); err != nil && m.logger != nil {
+		m.logger.Warn("spawn: after-start prompt delivery failed", "sessionID", id, "error", err)
+	}
+}
+
+// waitForOutputSteady polls the runtime's captured pane output for handle
+// until it stops changing for m.promptReadyQuiet, or m.promptReadyMaxWait
+// elapses — whichever comes first. A PromptDeliveryAfterStart agent's process
+// needs time to boot (banner render, model handshake) before its PTY
+// genuinely accepts stdin; sending immediately after runtime.Create races
+// that boot. Reproduced live via `tmux capture-pane`: the typed message
+// landed ABOVE the agent's own banner, on the shell that ran before the agent
+// took over the pane — the agent never saw it. Best-effort: if the context is
+// cancelled or the output never steadies, this returns anyway (the caller
+// still attempts Send) rather than dropping the prompt silently forever.
+func (m *Manager) waitForOutputSteady(ctx context.Context, handle ports.RuntimeHandle) {
+	const captureLines = 200
+	deadline := time.Now().Add(m.promptReadyMaxWait)
+	var last string
+	var lastChangedAt time.Time
+	seenOutput := false
+	for {
+		if out, err := m.runtime.GetOutput(ctx, handle, captureLines); err == nil {
+			// A blank pane means the process hasn't printed anything yet — it's
+			// still booting, not "steady". Two blank reads in a row look
+			// identical to two genuinely-steady reads by plain equality, so the
+			// quiet timer must not start until real content has appeared at
+			// least once (reproduced live: the message landed on a still-blank
+			// pane seconds before the agent's own banner rendered).
+			if trimmed := strings.TrimSpace(out); trimmed != "" {
+				if !seenOutput || out != last {
+					last = out
+					lastChangedAt = time.Now()
+					seenOutput = true
+				} else if time.Since(lastChangedAt) >= m.promptReadyQuiet {
+					return
+				}
+			}
+		}
+		if time.Now().After(deadline) {
+			return
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(m.promptReadyPoll):
+		}
+	}
 }
 
 // loadProject loads the project record so spawn can resolve its per-project

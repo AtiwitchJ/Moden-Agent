@@ -42,6 +42,30 @@ describe("spawnOrchestrator", () => {
 		});
 	});
 
+	it("includes prompt in the request body when given", async () => {
+		(apiClient.POST as ReturnType<typeof vi.fn>).mockResolvedValue({
+			data: { orchestrator: { id: "proj-1" } },
+			error: undefined,
+			response: { status: 201 },
+		});
+		await spawnOrchestrator("proj", false, "do the thing");
+		expect(apiClient.POST).toHaveBeenCalledWith("/api/v1/orchestrators", {
+			body: { projectId: "proj", clean: false, prompt: "do the thing" },
+		});
+	});
+
+	it("omits prompt from the request body when not given", async () => {
+		(apiClient.POST as ReturnType<typeof vi.fn>).mockResolvedValue({
+			data: { orchestrator: { id: "proj-1" } },
+			error: undefined,
+			response: { status: 201 },
+		});
+		await spawnOrchestrator("proj");
+		expect(apiClient.POST).toHaveBeenCalledWith("/api/v1/orchestrators", {
+			body: { projectId: "proj", clean: false },
+		});
+	});
+
 	it("surfaces daemon spawn error messages and codes", async () => {
 		(apiClient.POST as ReturnType<typeof vi.fn>).mockResolvedValue({
 			data: undefined,

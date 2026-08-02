@@ -1,7 +1,6 @@
 import { useNavigate } from "@tanstack/react-router";
 import { useEffect, useRef, useState } from "react";
 import { useWorkspaceQuery } from "../hooks/useWorkspaceQuery";
-import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { useShell } from "../lib/shell-context";
 import { spawnOrchestrator } from "../lib/spawn-orchestrator";
 import type { CreateProjectAgentSelection } from "./CreateProjectAgentSheet";
@@ -14,8 +13,12 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 const NEW_PROJECT_VALUE = "__new_project__";
 
 // Primary session-creation surface for Code mode's home: pick a project (or
-// create one), type a first prompt, submit — spawns a session and sends the
-// prompt as its first message. See
+// create one), type a first prompt, submit — spawns a session with the prompt
+// as its first message. The daemon owns delivery timing (immediate for an
+// already-running orchestrator, readiness-polled for a freshly spawned one —
+// see session_manager.Manager.waitForOutputSteady); this composer only passes
+// the prompt through spawnOrchestrator/createProject and never calls
+// /sessions/{id}/send itself, so it can't race the agent's own boot. See
 // docs/superpowers/specs/2026-08-02-moden-code-home-design.md.
 export function CodeHomeComposer() {
 	const navigate = useNavigate();
@@ -32,24 +35,11 @@ export function CodeHomeComposer() {
 		inputRef.current?.focus();
 	}, []);
 
-	const sendFirstMessage = async (sessionId: string) => {
-		const message = draft.trim();
-		if (!message) return;
-		const { error: sendError } = await apiClient.POST("/api/v1/sessions/{sessionId}/send", {
-			params: { path: { sessionId } },
-			body: { message },
-		});
-		if (sendError) {
-			throw new Error(apiErrorMessage(sendError, "Session started, but the first message failed to send"));
-		}
-	};
-
 	const onCreateProject = async (selection: CreateProjectAgentSelection & { path: string }) => {
 		setError(null);
 		setIsSubmitting(true);
 		try {
-			const result = await createProject(selection);
-			await sendFirstMessage(result.sessionId);
+			const result = await createProject({ ...selection, prompt: draft.trim() });
 			setDraft("");
 			return result;
 		} catch (err) {
@@ -65,8 +55,7 @@ export function CodeHomeComposer() {
 		setError(null);
 		setIsSubmitting(true);
 		try {
-			const sessionId = await spawnOrchestrator(projectId);
-			await sendFirstMessage(sessionId);
+			const sessionId = await spawnOrchestrator(projectId, false, draft.trim());
 			setDraft("");
 			void navigate({ to: "/projects/$projectId/sessions/$sessionId", params: { projectId, sessionId } });
 		} catch (err) {

@@ -182,6 +182,10 @@ type fakeRuntime struct {
 	aliveByHandle map[string]bool
 	aliveErr      error
 	destroyedIDs  []string
+	// outputs/outputIdx/outputErr drive GetOutput — see its doc comment.
+	outputs   []string
+	outputIdx int
+	outputErr error
 }
 
 func (r *fakeRuntime) Create(_ context.Context, cfg ports.RuntimeConfig) (ports.RuntimeHandle, error) {
@@ -202,6 +206,25 @@ func (r *fakeRuntime) IsAlive(_ context.Context, handle ports.RuntimeHandle) (bo
 		return false, r.aliveErr
 	}
 	return r.aliveByHandle[handle.ID], nil
+}
+
+// GetOutput returns r.outputs in sequence (advancing one entry per call),
+// repeating the last entry once exhausted — lets a test script a "booting,
+// booting, steady" pane-content timeline for the prompt-readiness poll.
+func (r *fakeRuntime) GetOutput(_ context.Context, _ ports.RuntimeHandle, _ int) (string, error) {
+	if r.outputErr != nil {
+		return "", r.outputErr
+	}
+	if len(r.outputs) == 0 {
+		return "", nil
+	}
+	idx := r.outputIdx
+	if idx >= len(r.outputs) {
+		idx = len(r.outputs) - 1
+	} else {
+		r.outputIdx++
+	}
+	return r.outputs[idx], nil
 }
 
 type fakeAgent struct{}
@@ -268,6 +291,15 @@ type alwaysResumeAgent struct{ fakeAgent }
 
 func (alwaysResumeAgent) GetRestoreCommand(_ context.Context, cfg ports.RestoreConfig) ([]string, bool, error) {
 	return []string{"resume", cfg.Session.ID}, true, nil
+}
+
+// afterStartAgent mimics hermes: it reports PromptDeliveryAfterStart, so
+// Spawn must deliver the prompt via messenger.Send once the pane's output
+// steadies, rather than baking it into argv.
+type afterStartAgent struct{ fakeAgent }
+
+func (afterStartAgent) GetPromptDeliveryStrategy(context.Context, ports.LaunchConfig) (ports.PromptDeliveryStrategy, error) {
+	return ports.PromptDeliveryAfterStart, nil
 }
 
 // missingAgents resolves no harness, simulating a typo'd or unregistered agent.
@@ -346,10 +378,19 @@ func (w *fakeWorkspace) ApplyPreserved(_ context.Context, info ports.WorkspaceIn
 	return w.applyErr
 }
 
-type fakeMessenger struct{ msgs []string }
+type fakeMessenger struct {
+	msgs []string
+	// onSend, if set, fires synchronously inside Send — lets a test capture
+	// collaborator state (e.g. how many GetOutput polls had happened) at the
+	// exact moment delivery occurred.
+	onSend func()
+}
 
 func (m *fakeMessenger) Send(_ context.Context, _ domain.SessionID, msg string) error {
 	m.msgs = append(m.msgs, msg)
+	if m.onSend != nil {
+		m.onSend()
+	}
 	return nil
 }
 
@@ -421,6 +462,120 @@ func TestSpawn_ResolvesProjectConfig(t *testing.T) {
 	}
 	if !agent.lastConfig.IsZero() {
 		t.Fatalf("launch config = %#v, want zero for project without config", agent.lastConfig)
+	}
+}
+
+// TestSpawn_DeliversPromptAfterOutputSteadiesForAfterStartAgents guards the
+// hermes prompt-delivery race: sending the first message immediately after
+// Spawn returns lands on the pre-agent shell (reproduced live via
+// `tmux capture-pane`, the typed text appeared ABOVE the agent's own banner,
+// and the agent's own prompt stayed empty — it never saw the message). Spawn
+// must instead wait for the pane's captured output to stop changing before
+// calling messenger.Send.
+func TestSpawn_DeliversPromptAfterOutputSteadiesForAfterStartAgents(t *testing.T) {
+	st := newFakeStore()
+	st.projects["p"] = domain.ProjectRecord{ID: "p"}
+	rt := &fakeRuntime{outputs: []string{"booting...", "booting...", "steady banner"}}
+	msgr := &fakeMessenger{}
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime: rt, Agents: singleAgent{agent: afterStartAgent{}}, Workspace: &fakeWorkspace{},
+		Store: st, Messenger: msgr, Lifecycle: &fakeLCM{store: st}, LookPath: lookPath,
+		PromptReadyPoll: time.Millisecond, PromptReadyQuiet: 3 * time.Millisecond, PromptReadyMaxWait: 200 * time.Millisecond,
+	})
+
+	if _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "p", Kind: domain.KindOrchestrator, Harness: domain.HarnessClaudeCode, Prompt: "hello hermes"}); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	if len(msgr.msgs) != 1 || msgr.msgs[0] != "hello hermes" {
+		t.Fatalf("messenger.msgs = %#v, want exactly one delivery of the prompt", msgr.msgs)
+	}
+}
+
+// TestSpawn_DoesNotDeliverPromptDuringInitialEmptyPane guards a bug found by
+// live verification: the readiness wait treated an EMPTY pane (nothing
+// printed yet — the process hasn't started producing output) as "steady" the
+// moment two consecutive polls both read "", because a plain equality check
+// can't tell "genuinely quiet after boot" from "hasn't booted enough to print
+// anything yet". Reproduced live via `tmux capture-pane`: the prompt landed
+// while the pane was still blank, and the agent's own banner/prompt appeared
+// seconds later, never having seen it. The quiet timer must not start until
+// the pane has shown real (non-empty) content at least once.
+func TestSpawn_DoesNotDeliverPromptDuringInitialEmptyPane(t *testing.T) {
+	st := newFakeStore()
+	st.projects["p"] = domain.ProjectRecord{ID: "p"}
+	// Blank for several polls (process still booting, nothing printed yet),
+	// THEN real content arrives and steadies.
+	rt := &fakeRuntime{outputs: []string{"", "", "", "", "", "banner", "banner", "banner"}}
+	msgr := &fakeMessenger{}
+	var outputIdxAtSend int
+	msgr.onSend = func() { outputIdxAtSend = rt.outputIdx }
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime: rt, Agents: singleAgent{agent: afterStartAgent{}}, Workspace: &fakeWorkspace{},
+		Store: st, Messenger: msgr, Lifecycle: &fakeLCM{store: st}, LookPath: lookPath,
+		// Quiet window spans more than the blank-output run (5 polls) but less
+		// than the run once "banner" appears (3 polls) — if the timer
+		// incorrectly starts on the blank reads, Send fires too early, before
+		// GetOutput has even reached the "banner" entries in rt.outputs.
+		PromptReadyPoll: time.Millisecond, PromptReadyQuiet: 2 * time.Millisecond, PromptReadyMaxWait: 200 * time.Millisecond,
+	})
+
+	if _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "p", Kind: domain.KindOrchestrator, Harness: domain.HarnessClaudeCode, Prompt: "hello hermes"}); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	if len(msgr.msgs) != 1 || msgr.msgs[0] != "hello hermes" {
+		t.Fatalf("messenger.msgs = %#v, want exactly one delivery of the prompt", msgr.msgs)
+	}
+	// rt.outputs[0:5] are the blank entries; index 5 is the first "banner".
+	// Send must not fire until GetOutput has consumed past the blank run.
+	if outputIdxAtSend < 5 {
+		t.Fatalf("Send fired after only %d GetOutput polls — still inside the blank-pane run, before the agent printed anything", outputIdxAtSend)
+	}
+}
+
+// TestSpawn_DeliversPromptEvenIfOutputNeverSteadies proves the readiness wait
+// is bounded: a pane that keeps changing must not stall prompt delivery
+// forever — Spawn still attempts Send once PromptReadyMaxWait elapses.
+func TestSpawn_DeliversPromptEvenIfOutputNeverSteadies(t *testing.T) {
+	st := newFakeStore()
+	st.projects["p"] = domain.ProjectRecord{ID: "p"}
+	rt := &fakeRuntime{outputs: []string{"a", "b", "c", "d", "e", "f", "g", "h", "i", "j", "k", "l", "m", "n", "o"}}
+	msgr := &fakeMessenger{}
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{
+		Runtime: rt, Agents: singleAgent{agent: afterStartAgent{}}, Workspace: &fakeWorkspace{},
+		Store: st, Messenger: msgr, Lifecycle: &fakeLCM{store: st}, LookPath: lookPath,
+		PromptReadyPoll: time.Millisecond, PromptReadyQuiet: time.Hour, PromptReadyMaxWait: 20 * time.Millisecond,
+	})
+
+	if _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "p", Kind: domain.KindOrchestrator, Harness: domain.HarnessClaudeCode, Prompt: "hello hermes"}); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	if len(msgr.msgs) != 1 || msgr.msgs[0] != "hello hermes" {
+		t.Fatalf("messenger.msgs = %#v, want the prompt delivered once the max wait elapses", msgr.msgs)
+	}
+}
+
+// TestSpawn_DoesNotSendPromptForInCommandAgents proves the InCommand path is
+// unchanged: the prompt is baked into argv (asserted elsewhere), and Spawn
+// must not ALSO deliver it via messenger.Send.
+func TestSpawn_DoesNotSendPromptForInCommandAgents(t *testing.T) {
+	st := newFakeStore()
+	st.projects["p"] = domain.ProjectRecord{ID: "p"}
+	msgr := &fakeMessenger{}
+	lookPath := func(string) (string, error) { return "/bin/true", nil }
+	m := New(Deps{Runtime: &fakeRuntime{}, Agents: fakeAgents{}, Workspace: &fakeWorkspace{}, Store: st, Messenger: msgr, Lifecycle: &fakeLCM{store: st}, LookPath: lookPath})
+
+	if _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "p", Kind: domain.KindOrchestrator, Harness: domain.HarnessClaudeCode, Prompt: "hi"}); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+
+	if len(msgr.msgs) != 0 {
+		t.Fatalf("messenger.msgs = %#v, want none — InCommand agents get the prompt via argv, not Send", msgr.msgs)
 	}
 }
 

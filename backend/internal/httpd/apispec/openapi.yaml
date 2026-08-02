@@ -4472,6 +4472,8 @@ components:
           type: boolean
         projectId:
           type: string
+        prompt:
+          type: string
       required:
       - projectId
       type: object
