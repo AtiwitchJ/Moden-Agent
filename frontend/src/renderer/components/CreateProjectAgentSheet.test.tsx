@@ -15,14 +15,17 @@ function renderSheet(
 		supported: [
 			{ id: "claude-code", label: "claude-code" },
 			{ id: "codex", label: "codex" },
+			{ id: "hermes", label: "hermes" },
 		],
 		installed: [
 			{ id: "claude-code", label: "claude-code", authStatus: "authorized" },
 			{ id: "codex", label: "codex", authStatus: "authorized" },
+			{ id: "hermes", label: "hermes", authStatus: "authorized" },
 		],
 		authorized: [
 			{ id: "claude-code", label: "claude-code", authStatus: "authorized" },
 			{ id: "codex", label: "codex", authStatus: "authorized" },
+			{ id: "hermes", label: "hermes", authStatus: "authorized" },
 		],
 	});
 	render(
@@ -144,7 +147,7 @@ describe("CreateProjectAgentSheet", () => {
 			expect(screen.queryByLabelText("Enable issue intake")).not.toBeInTheDocument();
 		});
 
-		it("prefers Codex for the auto-picked worker agent, with no workspace/intake, once agents are loaded", async () => {
+		it("prefers Hermes for the auto-picked worker agent, with no workspace/intake, once agents are loaded", async () => {
 			const onSubmit = renderSheet(vi.fn().mockResolvedValue(undefined), null, true);
 
 			await waitFor(() => expect(screen.getByRole("button", { name: "Create and start" })).toBeEnabled());
@@ -152,7 +155,7 @@ describe("CreateProjectAgentSheet", () => {
 
 			await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
 			expect(onSubmit).toHaveBeenCalledWith({
-				workerAgent: "codex",
+				workerAgent: "hermes",
 				orchestratorAgent: "hermes",
 				trackerIntake: undefined,
 			});

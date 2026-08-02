@@ -5,9 +5,10 @@ import { type FormEvent, type KeyboardEvent, useEffect, useId, useState } from "
 import type { components } from "../../api/schema";
 import { agentsQueryOptions } from "../hooks/useAgentsQuery";
 import { workboardQueryKey, type WorkCard } from "../hooks/useWorkboardQuery";
+import { workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { aoBridge } from "../lib/bridge";
-import { WORKBOARD_ORCHESTRATOR_AGENT } from "../lib/workboard-config";
+import { DEFAULT_WORKBOARD_CONFIG, WORKBOARD_ORCHESTRATOR_AGENT } from "../lib/workboard-config";
 import { defaultScheduleValue, parseDatetimeLocalValue } from "../lib/workboard-schedule";
 import { RequiredAgentField } from "./CreateProjectAgentSheet";
 import { Button } from "./ui/button";
@@ -17,6 +18,11 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from ".
 
 type CreateWorkCardRequest = components["schemas"]["CreateWorkCardRequest"];
 type ProjectSummary = components["schemas"]["ProjectSummary"];
+type CreateCardInput = {
+	body: CreateWorkCardRequest;
+	projectID: string;
+	folderPath: string;
+};
 
 function projectForTargetPath(projects: ProjectSummary[], targetPath: string): ProjectSummary | undefined {
 	const candidate = targetPath.trim().replace(/\\/g, "/").replace(/\/+$/, "");
@@ -77,7 +83,26 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 	const effectiveProjectId = selectedProjectId || projectIdProp || "";
 
 	const createCard = useMutation({
-		mutationFn: async (body: CreateWorkCardRequest) => {
+		mutationFn: async ({ body, projectID: initialProjectID, folderPath }: CreateCardInput) => {
+			let projectID = initialProjectID;
+			if (!projectID) {
+				// Director is folder-first. The persistent project is an internal
+				// runtime boundary for worktrees and sessions, so create it on demand
+				// instead of making the user manage it before writing a card.
+				const { data, error: projectError } = await apiClient.POST("/api/v1/projects", {
+					body: {
+						path: folderPath,
+						config: {
+							worker: { agent: WORKBOARD_ORCHESTRATOR_AGENT },
+							orchestrator: { agent: WORKBOARD_ORCHESTRATOR_AGENT },
+							workboard: DEFAULT_WORKBOARD_CONFIG,
+						},
+					},
+				});
+				if (projectError) throw new Error(apiErrorMessage(projectError, "Could not use this folder."));
+				if (!data?.project) throw new Error("Folder registration returned no project.");
+				projectID = data.project.id;
+			}
 			if (projectIdProp) {
 				const { data, error: apiError } = await apiClient.POST("/api/v1/projects/{projectId}/workboard/cards", {
 					params: { path: { projectId: projectIdProp } },
@@ -88,13 +113,15 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 				return data as WorkCard;
 			}
 			const { data, error: apiError } = await apiClient.POST("/api/v1/workboard/cards", {
-				body: { ...body, projectId: effectiveProjectId },
+				body: { ...body, projectId: projectID },
 			});
 			if (apiError) throw new Error(apiErrorMessage(apiError, "Could not create work card."));
 			if (!data) throw new Error("Work card creation returned no card.");
 			return data as WorkCard;
 		},
 		onSuccess: async (card) => {
+			await queryClient.invalidateQueries({ queryKey: ["projects"] });
+			await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
 			await queryClient.invalidateQueries({ queryKey: workboardQueryKey(projectIdProp) });
 			await queryClient.invalidateQueries({ queryKey: workboardQueryKey() });
 			onCreated?.(card);
@@ -121,9 +148,9 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 		}
 	}, [open, projectIdProp]);
 
-	// Director cards still require a project at the API boundary, but the dialog
-	// never asks the user to select one. A folder inside a registered project is
-	// the source of truth; a single registered project is the safe fallback.
+	// Director is folder-first. A registered project is an internal runtime
+	// boundary, resolved from the folder when it already exists or created on
+	// demand during submit when it does not.
 	useEffect(() => {
 		if (projectIdProp) return;
 		const projects = projectsQuery.data;
@@ -165,15 +192,15 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 	const submit = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (createCard.isPending) return;
-		if (!effectiveProjectId) {
-			setError("Choose a folder inside a registered project before creating this card.");
-			return;
-		}
 		const cleanTitle = title.trim();
 		const cleanNotes = notes.trim();
 		const cleanPath = targetPath.trim();
 		if (!cleanTitle) {
 			setError("Title is required.");
+			return;
+		}
+		if (!cleanPath) {
+			setError("Choose a folder before creating this card.");
 			return;
 		}
 		const pendingLabel = labelInput.trim().replace(/,$/, "");
@@ -190,18 +217,22 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 		setLabels(nextLabels);
 		setLabelInput("");
 		createCard.mutate({
-			projectId: effectiveProjectId,
-			title: cleanTitle,
-			notes: cleanNotes,
-			targetPath: cleanPath || undefined,
-			labels: nextLabels,
-			priority,
-			agent: WORKBOARD_ORCHESTRATOR_AGENT,
-			codingAgent: WORKBOARD_ORCHESTRATOR_AGENT,
-			reviewerMode,
-			reviewerAgent: reviewerMode === "separate" ? reviewerAgent : undefined,
-			testingAgent: testingAgent || undefined,
-			...(scheduleEnabled ? { status: "scheduled" as const, scheduledAt } : {}),
+			projectID: effectiveProjectId,
+			folderPath: cleanPath,
+			body: {
+				projectId: effectiveProjectId,
+				title: cleanTitle,
+				notes: cleanNotes,
+				targetPath: cleanPath,
+				labels: nextLabels,
+				priority,
+				agent: WORKBOARD_ORCHESTRATOR_AGENT,
+				codingAgent: WORKBOARD_ORCHESTRATOR_AGENT,
+				reviewerMode,
+				reviewerAgent: reviewerMode === "separate" ? reviewerAgent : undefined,
+				testingAgent: testingAgent || undefined,
+				...(scheduleEnabled ? { status: "scheduled" as const, scheduledAt } : {}),
+			},
 		});
 	};
 
@@ -213,7 +244,7 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 					<div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
 						<div className="min-w-0">
 							<Dialog.Title className="text-[15px] font-semibold text-foreground">Create work card</Dialog.Title>
-							<Dialog.Description className="mt-1 text-[12px] text-muted-foreground">Set the goal and folder. Hermes runs the coding phase; configure review and testing when needed.</Dialog.Description>
+							<Dialog.Description className="mt-1 text-[12px] text-muted-foreground">Set the goal and folder. Hermes runs the coding phase; the folder is registered automatically when needed.</Dialog.Description>
 						</div>
 						<Dialog.Close asChild>
 							<button aria-label="Close create work card dialog" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-surface hover:text-foreground motion-reduce:transition-none" type="button">
@@ -242,7 +273,7 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 						<div className="space-y-1.5">
 							<Label htmlFor={folderId}>Folder *</Label>
 							<div className="flex gap-2">
-								<Input id={folderId} onChange={(event) => setTargetPath(event.target.value)} placeholder="Path inside project repo" value={targetPath} />
+								<Input id={folderId} onChange={(event) => setTargetPath(event.target.value)} placeholder="Project folder or subfolder" value={targetPath} />
 								<Button aria-label="Choose folder" onClick={() => void chooseFolder()} size="icon" type="button" variant="outline"><FolderOpen className="size-3.5" aria-hidden="true" /></Button>
 							</div>
 						</div>

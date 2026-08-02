@@ -36,7 +36,7 @@ type CreateProjectAgentSheetProps = {
 	path: string | null;
 	/** Code mode starts a coding worker directly, so there's nothing to
 	 * configure — no worker/orchestrator pickers, no workspace toggle, no issue
-	 * intake. The worker agent is auto-picked, preferring Codex when available. */
+	 * intake. The worker agent is auto-picked, preferring Hermes when available. */
 	simple?: boolean;
 	targetCompanyId?: string;
 	workspaceDetection?: WorkspaceDetectionResult | null;
@@ -77,12 +77,12 @@ export function CreateProjectAgentSheet({
 	const [asWorkspace, setAsWorkspace] = useState(false);
 	const intakeIncomplete = intakeNeedsRule(intake);
 	// Simple mode has no picker to set workerAgent from, so it is derived from
-	// the catalog. Prefer Codex for Code mode, then retain the existing fallback
-	// order when Codex is unavailable.
+	// the catalog. Prefer Hermes for Code mode, then retain the existing fallback
+	// order when Hermes is unavailable.
 	const defaultWorkerAgent =
-		agentOptions.find((agent) => agent.id === "codex")?.id ??
-		installedAgents.find((agent) => agent.id === "codex")?.id ??
-		supportedAgents.find((agent) => agent.id === "codex")?.id ??
+		agentOptions.find((agent) => agent.id === "hermes")?.id ??
+		installedAgents.find((agent) => agent.id === "hermes")?.id ??
+		supportedAgents.find((agent) => agent.id === "hermes")?.id ??
 		agentOptions[0]?.id ??
 		installedAgents[0]?.id ??
 		supportedAgents[0]?.id ??

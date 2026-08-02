@@ -49,20 +49,35 @@ beforeEach(() => {
 });
 
 describe("CreateWorkCardDialog", () => {
-	it("does not expose a project selector in global context", async () => {
+	it("registers a selected folder with Hermes when no project exists", async () => {
 		render(
 			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
 				<CreateWorkCardDialog open onCreated={vi.fn()} onOpenChange={vi.fn()} />
 			</QueryClientProvider>,
 		);
 		const user = userEvent.setup();
+		postMock
+			.mockResolvedValueOnce({ data: { project: { id: "folder-project", name: "folder-project", path: "/repo/project" } }, error: undefined })
+			.mockResolvedValueOnce({ data: { id: "card-1" }, error: undefined });
 
 		await user.type(screen.getByLabelText("Title *"), "Repair build diagnostics");
+		await user.type(screen.getByLabelText("Folder *"), "/repo/project");
 		await user.click(screen.getByRole("button", { name: "Create card" }));
 
 		expect(screen.queryByText("Select project")).not.toBeInTheDocument();
-		expect(await screen.findByText("Choose a folder inside a registered project before creating this card.")).toBeInTheDocument();
-		expect(postMock).not.toHaveBeenCalled();
+		expect(postMock).toHaveBeenNthCalledWith(1, "/api/v1/projects", {
+			body: {
+				path: "/repo/project",
+				config: {
+					worker: { agent: "hermes" },
+					orchestrator: { agent: "hermes" },
+					workboard: { wipLimit: 4 },
+				},
+			},
+		});
+		expect(postMock).toHaveBeenNthCalledWith(2, "/api/v1/workboard/cards", {
+			body: expect.objectContaining({ projectId: "folder-project", targetPath: "/repo/project", codingAgent: "hermes" }),
+		});
 	});
 
 	it("locks the coding agent to Hermes", () => {
