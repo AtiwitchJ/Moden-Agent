@@ -241,7 +241,7 @@ func TestDispatchOnce_HermesProjectBriefsCommanderInsteadOfSpawningWorker(t *tes
 	if got := store.cards["card"].SessionID; got != "hermes-1" {
 		t.Fatalf("card session = %q, want Hermes", got)
 	}
-	if len(spawner.orchestratorPrompts) != 1 || !strings.Contains(spawner.orchestratorPrompts[0], `"cardId":"card"`) || !strings.Contains(spawner.orchestratorPrompts[0], `"codingAgent":"claude-code"`) {
+	if len(spawner.orchestratorPrompts) != 1 || !strings.Contains(spawner.orchestratorPrompts[0], `"cardId":"card"`) || !strings.Contains(spawner.orchestratorPrompts[0], `"codingAgent":"claude-code"`) || !strings.Contains(spawner.orchestratorPrompts[0], "Do not spawn a separate reviewer or testing session") || !strings.Contains(spawner.orchestratorPrompts[0], "even if this card's older reviewer/testing fields name another agent") {
 		t.Fatalf("briefing = %q", spawner.orchestratorPrompts)
 	}
 }

@@ -369,7 +369,9 @@ func dispatchRole(commanding bool) string {
 }
 
 // hermesCardBriefing is intentionally a complete, machine-readable snapshot.
-// Hermes must refresh the card through the CLI before it changes its plan.
+// It includes the auto-review policy in the task message because interactive
+// harnesses must receive their operational policy in-band, not only through a
+// launch-time system prompt.
 func hermesCardBriefing(card domain.WorkCard) (string, error) {
 	payload, err := json.Marshal(struct {
 		CardID        string              `json:"cardId"`
@@ -393,7 +395,9 @@ func hermesCardBriefing(card domain.WorkCard) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("marshal Hermes briefing for card %s: %w", card.ID, err)
 	}
-	return "AO work-card command briefing. You own this card. Refresh it with `ao workboard get " + card.ID + " --json` before acting, then coordinate workers according to your standing instructions.\n\n" + string(payload), nil
+	return "AO work-card command briefing. You own this card. Refresh it with `ao workboard get " + card.ID + " --json` before acting.\n\n" +
+		"Automation policy: delegate at most one implementation worker at a time. Then perform review and testing yourself in this Hermes commander session: inspect the actual diff or commit, run the relevant checks, and record the commands and results. Do not spawn a separate reviewer or testing session, even if this card's older reviewer/testing fields name another agent. Advance the card automatically through review, testing, and done only after the checks pass; otherwise move it to blocked with the exact reason.\n\n" +
+		string(payload), nil
 }
 
 func cardReadyAt(card domain.WorkCard) time.Time {

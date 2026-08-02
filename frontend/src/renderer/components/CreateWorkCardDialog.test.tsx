@@ -80,11 +80,15 @@ describe("CreateWorkCardDialog", () => {
 		});
 	});
 
-	it("locks the coding agent to Hermes", () => {
+	it("uses Hermes automatically for coding, review, and testing", () => {
 		renderDialog();
 
 		expect(screen.getByLabelText("Coding Agent: Hermes")).toHaveTextContent("hermes");
+		expect(screen.getByLabelText("Review: Hermes automatic")).toHaveTextContent("hermes · auto");
+		expect(screen.getByLabelText("Testing: Hermes automatic")).toHaveTextContent("hermes · auto");
 		expect(screen.queryByRole("combobox", { name: "Coding Agent" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("combobox", { name: "Reviewer Mode" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("combobox", { name: "Testing Agent (Optional)" })).not.toBeInTheDocument();
 	});
 
 	it("creates a scheduled card when schedule for later is enabled", async () => {
@@ -132,6 +136,8 @@ describe("CreateWorkCardDialog", () => {
 				agent: "hermes",
 				codingAgent: "hermes",
 				reviewerMode: "same",
+				reviewerAgent: "hermes",
+				testingAgent: "hermes",
 				status: "scheduled",
 				scheduledAt: "2026-07-17T15:30:00.000Z",
 			},
