@@ -73,6 +73,14 @@ func idleCommander(id string, idleSince time.Time) domain.SessionRecord {
 	}
 }
 
+func idleNonCommander(id string, idleSince time.Time, kind domain.SessionKind, harness domain.AgentHarness) domain.SessionRecord {
+	return domain.SessionRecord{
+		ID: domain.SessionID(id), ProjectID: "p1",
+		Kind: kind, Harness: harness,
+		Activity: domain.Activity{State: domain.ActivityIdle, LastActivityAt: idleSince},
+	}
+}
+
 func TestStallNudge_IdlePastThresholdGetsNudged(t *testing.T) {
 	now := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
 	store := &stallNudgeStore{
@@ -220,5 +228,41 @@ func TestStallNudge_SkipsPausedRetargetAndMissingSession(t *testing.T) {
 	}
 	if len(nudged) != 0 {
 		t.Fatalf("nudged = %v, want none (paused skipped, missing session skipped)", nudged)
+	}
+}
+
+func TestStallNudge_ExcludesNonCommanderSessions(t *testing.T) {
+	now := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
+	store := &stallNudgeStore{
+		cards: map[string]domain.WorkCard{
+			"c-worker":        stallCard("c-worker", "running", "worker-1"),
+			"c-bad-harness":   stallCard("c-bad-harness", "running", "orch-1"),
+			"c-commander":     stallCard("c-commander", "running", "hermes-1"),
+		},
+		sessions: []domain.SessionRecord{
+			// Plain worker session, idle past threshold
+			idleNonCommander("worker-1", now.Add(-11*time.Minute), domain.KindWorker, domain.HarnessAutohand),
+			// Orchestrator but not Hermes, idle past threshold
+			idleNonCommander("orch-1", now.Add(-11*time.Minute), domain.KindOrchestrator, domain.HarnessAutohand),
+			// Hermes commander, idle past threshold (should be nudged)
+			idleCommander("hermes-1", now.Add(-11*time.Minute)),
+		},
+	}
+	sender := &stallNudgeSender{}
+	n := NewStallNudger(StallNudgeDeps{Store: store, Sender: sender, Clock: func() time.Time { return now }, NewID: func() string { return "ev" }})
+
+	nudged, err := n.ReconcileProject(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("ReconcileProject: %v", err)
+	}
+	// Only the Hermes commander should be nudged
+	if len(nudged) != 1 || nudged[0] != "c-commander" {
+		t.Fatalf("nudged = %v, want [c-commander] only", nudged)
+	}
+	if len(sender.sent) != 1 || sender.sent[0].session != "hermes-1" {
+		t.Fatalf("sent = %+v, want one message to hermes-1", sender.sent)
+	}
+	if len(store.appended) != 1 || store.appended[0].Kind != workCardEventStallNudged {
+		t.Fatalf("events = %+v, want one stall_nudged event", store.appended)
 	}
 }
