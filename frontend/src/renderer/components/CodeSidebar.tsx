@@ -1,10 +1,9 @@
 import { useNavigate, useRouterState } from "@tanstack/react-router";
-import { GitPullRequest, Moon, Plus, Settings, Sun, Terminal } from "lucide-react";
-import { recentSessions } from "../lib/recent-sessions";
-import { formatRelativeTime } from "../lib/relative-time";
+import { ChevronDown, ChevronRight, Folder, GitPullRequest, Moon, Plus, Settings, Sun, Terminal } from "lucide-react";
+import { useState } from "react";
 import { cn } from "../lib/utils";
 import { useUiStore } from "../stores/ui-store";
-import type { WorkspaceSummary } from "../types/workspace";
+import { workerSessions, type WorkspaceSummary } from "../types/workspace";
 import aoLogo from "../assets/ao-logo.png";
 import { SessionDot } from "./SessionDot";
 import {
@@ -28,7 +27,6 @@ import {
 	SidebarTrigger,
 } from "./ui/sidebar";
 
-const RECENTS_LIMIT = 20;
 const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
 
 /** DOM id CodeHomeComposer tags its prompt input with, so New (below) can
@@ -39,20 +37,28 @@ export type CodeSidebarProps = {
 	workspaces: WorkspaceSummary[];
 };
 
-// Replaces the project/company tree in Code mode: a flat New / Recents / More
-// nav modeled on the Claude Code desktop app. Project/company selection moved
-// into CodeHomeComposer's picker and the New flow — see
-// docs/superpowers/specs/2026-08-02-moden-code-home-design.md.
+// Code mode keeps the coding-agent navigation grounded in the user's projects:
+// each project expands to its own worker sessions. Director/orchestrator
+// sessions stay out of this surface, which is reserved for hands-on coding.
 export function CodeSidebar({ workspaces }: CodeSidebarProps) {
 	const navigate = useNavigate();
 	const pathname = useRouterState({ select: (state) => state.location.pathname });
 	const theme = useUiStore((s) => s.theme);
 	const toggleTheme = useUiStore((s) => s.toggleTheme);
-	const recents = recentSessions(workspaces, RECENTS_LIMIT);
+	const [collapsedProjectIDs, setCollapsedProjectIDs] = useState<Set<string>>(() => new Set());
 
 	const goNew = () => {
 		if (pathname !== "/") void navigate({ to: "/" });
 		requestAnimationFrame(() => document.getElementById(CODE_HOME_COMPOSER_INPUT_ID)?.focus());
+	};
+
+	const toggleProject = (projectID: string) => {
+		setCollapsedProjectIDs((current) => {
+			const next = new Set(current);
+			if (next.has(projectID)) next.delete(projectID);
+			else next.add(projectID);
+			return next;
+		});
 	};
 
 	return (
@@ -94,32 +100,60 @@ export function CodeSidebar({ workspaces }: CodeSidebarProps) {
 
 				<SidebarGroup className="mt-2 p-0 group-data-[collapsible=icon]:hidden">
 					<SidebarGroupLabel className="h-auto rounded-none px-2 pb-2 text-[10.5px] font-semibold uppercase tracking-[0.09em] text-passive">
-						Recents
+						Projects
 					</SidebarGroupLabel>
 					<SidebarGroupContent>
 						<SidebarMenu className="gap-0">
-							{recents.length === 0 ? (
-								<p className="px-2 py-1.5 text-[12px] text-passive">No sessions yet.</p>
+							{workspaces.length === 0 ? (
+								<p className="px-2 py-1.5 text-[12px] text-passive">No projects yet.</p>
 							) : (
-								recents.map((session) => (
-									<SidebarMenuItem key={session.id}>
-										<SidebarMenuButton
-											className="h-auto items-start gap-2 rounded-[4px] px-2 py-1.5"
-											onClick={() =>
-												void navigate({
-													to: "/projects/$projectId/sessions/$sessionId",
-													params: { projectId: session.workspaceId, sessionId: session.id },
-												})
-											}
-										>
-											<SessionDot session={session} />
-											<span className="min-w-0 flex-1">
-												<span className="block truncate text-[12px] text-foreground">{session.title}</span>
-												<span className="block text-[11px] text-passive">{formatRelativeTime(session.updatedAt)}</span>
-											</span>
-										</SidebarMenuButton>
-									</SidebarMenuItem>
-								))
+								workspaces.map((workspace) => {
+									const sessions = [...workerSessions(workspace.sessions)].sort(
+										(a, b) => sessionTimestamp(b.updatedAt) - sessionTimestamp(a.updatedAt),
+									);
+									const expanded = !collapsedProjectIDs.has(workspace.id);
+									return (
+										<div key={workspace.id} className="mb-1">
+											<SidebarMenuItem>
+												<SidebarMenuButton
+													aria-expanded={expanded}
+													aria-label={`Toggle project ${workspace.name}`}
+													className="h-8 gap-1.5 rounded-[4px] px-2 text-[12px] font-medium text-muted-foreground hover:bg-interactive-hover hover:text-foreground"
+													onClick={() => toggleProject(workspace.id)}
+												>
+													{expanded ? <ChevronDown aria-hidden="true" className="size-3.5" /> : <ChevronRight aria-hidden="true" className="size-3.5" />}
+													<Folder aria-hidden="true" className="size-3.5" />
+													<span className="min-w-0 flex-1 truncate text-left">{workspace.name}</span>
+													<span className="text-[10px] tabular-nums text-passive">{sessions.length}</span>
+												</SidebarMenuButton>
+											</SidebarMenuItem>
+											{expanded && (
+												<SidebarMenu className="ml-3.5 gap-0 border-l border-border/70 pl-1.5">
+													{sessions.length === 0 ? (
+														<p className="px-2 py-1 text-[11px] text-passive">No sessions yet.</p>
+													) : (
+														sessions.map((session) => (
+															<SidebarMenuItem key={session.id}>
+																<SidebarMenuButton
+																	className="h-auto items-start gap-2 rounded-[4px] px-2 py-1.5"
+																	onClick={() =>
+																		void navigate({
+																			to: "/projects/$projectId/sessions/$sessionId",
+																			params: { projectId: workspace.id, sessionId: session.id },
+																		})
+																	}
+																>
+																	<SessionDot session={session} />
+																	<span className="min-w-0 flex-1 truncate text-[12px] text-foreground">{session.title}</span>
+																</SidebarMenuButton>
+															</SidebarMenuItem>
+														))
+													)}
+												</SidebarMenu>
+											)}
+										</div>
+									);
+								})
 							)}
 						</SidebarMenu>
 					</SidebarGroupContent>
@@ -165,4 +199,9 @@ export function CodeSidebar({ workspaces }: CodeSidebarProps) {
 			</SidebarFooter>
 		</SidebarRoot>
 	);
+}
+
+function sessionTimestamp(value: string): number {
+	const timestamp = Date.parse(value);
+	return Number.isNaN(timestamp) ? 0 : timestamp;
 }

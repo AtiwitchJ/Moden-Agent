@@ -550,8 +550,7 @@ function ProjectItem({
 	const [isSpawning, setIsSpawning] = useState(false);
 	const restartingProjectIds = useUiStore((state) => state.restartingProjectIds);
 	const isProjectRestarting = restartingProjectIds.has(workspace.id);
-	// Live workers only: merged/terminated sessions leave the sidebar and stay
-	// reachable through the board's Done / Terminated bar (SessionsBoard).
+	// Live workers only: merged/terminated sessions leave this sidebar.
 	const sessions = workerSessions(workspace.sessions).filter(sessionIsActive);
 	// The project's live orchestrator (if any) backs the hover Orchestrator
 	// button: navigate to it when present, otherwise spawn one first.

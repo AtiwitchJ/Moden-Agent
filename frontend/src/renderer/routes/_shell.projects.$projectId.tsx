@@ -1,11 +1,9 @@
-import { createFileRoute } from "@tanstack/react-router";
-import { ProjectBoard } from "../components/ProjectBoard";
+import { createFileRoute, redirect } from "@tanstack/react-router";
 
 export const Route = createFileRoute("/_shell/projects/$projectId")({
-	component: ProjectBoardRoute,
+	// Code mode has no project-level kanban. Session navigation goes directly to
+	// a terminal, and the Code home owns starting/selecting work.
+	beforeLoad: () => {
+		throw redirect({ to: "/" });
+	},
 });
-
-function ProjectBoardRoute() {
-	const { projectId } = Route.useParams();
-	return <ProjectBoard projectId={projectId} />;
-}

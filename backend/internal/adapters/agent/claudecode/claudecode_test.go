@@ -140,6 +140,24 @@ func TestGetLaunchCommandInjectsSessionID(t *testing.T) {
 	}
 }
 
+func TestGetLaunchCommandPrefersProvidedAgentSessionID(t *testing.T) {
+	p := &Plugin{resolvedBinary: "claude"}
+	nativeID := "1f58a19a-4765-4f2a-82f7-42c07a9ec0a2"
+	cmd, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{
+		SessionID:      "test-6",
+		AgentSessionID: nativeID,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsSubsequence(cmd, []string{"--session-id", nativeID}) {
+		t.Fatalf("command %#v missing provided --session-id %q", cmd, nativeID)
+	}
+	if contains(cmd, claudeSessionUUID("test-6")) {
+		t.Fatalf("command %#v used the legacy deterministic session id", cmd)
+	}
+}
+
 func TestClaudeSessionUUIDDeterministicAndUnique(t *testing.T) {
 	a1 := claudeSessionUUID("alpha")
 	a2 := claudeSessionUUID("alpha")

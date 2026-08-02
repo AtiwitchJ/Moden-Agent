@@ -133,6 +133,11 @@ type LaunchConfig struct {
 	Permissions PermissionMode
 	Prompt      string
 	SessionID   string
+	// AgentSessionID is an optional native id chosen before an agent starts.
+	// Adapters that require a client-provided session id (Claude Code) use it
+	// instead of deriving one from the reusable AO session id. The manager also
+	// persists it in SessionMetadata so restores target the same native session.
+	AgentSessionID string
 	// AllowedTools and DisallowedTools scope the agent to a tool allowlist when
 	// it runs in a non-bypass permission mode (allow rules auto-approve, deny
 	// rules auto-reject). They are the enforced read-only guarantee the reviewer

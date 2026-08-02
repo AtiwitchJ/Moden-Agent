@@ -6,8 +6,7 @@ import { isOrchestratorSession, sessionIsActive, type WorkspaceSession, type Wor
  * section — the flat, cross-project view that replaced the project/company
  * tree. Orchestrator sessions (Director/project commanders) are excluded so
  * they don't leak into the Code shell, which is reserved for hands-on worker
- * sessions. The per-project Workboard sidebar and SessionsBoard already
- * filter the same way via workerSessions().
+ * sessions. Director filters its own worker/session views independently.
  */
 export function recentSessions(workspaces: WorkspaceSummary[], limit = Infinity): WorkspaceSession[] {
 	return workspaces

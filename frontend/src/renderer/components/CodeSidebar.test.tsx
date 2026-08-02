@@ -58,7 +58,7 @@ describe("CodeSidebar", () => {
 		await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("composer stand-in")));
 	});
 
-	it("lists recent sessions across workspaces and navigates to the clicked one", async () => {
+	it("lists sessions beneath their project and navigates to the clicked one", async () => {
 		const user = userEvent.setup();
 		const workspaces: WorkspaceSummary[] = [
 			{
@@ -82,6 +82,7 @@ describe("CodeSidebar", () => {
 		];
 		renderSidebar(workspaces);
 
+		expect(screen.getByText("Proj One")).toBeInTheDocument();
 		expect(screen.getByText("Fix the thing")).toBeInTheDocument();
 		await user.click(screen.getByText("Fix the thing"));
 
@@ -91,9 +92,40 @@ describe("CodeSidebar", () => {
 		});
 	});
 
-	it("shows an empty state when there are no recent sessions", () => {
+	it("collapses and expands a project's sessions without navigating away", async () => {
+		const user = userEvent.setup();
+		const workspaces: WorkspaceSummary[] = [
+			{
+				id: "proj1",
+				name: "Proj One",
+				path: "/proj1",
+				sessions: [
+					{
+						id: "sess1",
+						workspaceId: "proj1",
+						workspaceName: "Proj One",
+						title: "Fix the thing",
+						provider: "claude-code",
+						branch: "main",
+						status: "working",
+						updatedAt: "2026-08-02T00:00:00Z",
+						prs: [],
+					},
+				],
+			},
+		];
+		renderSidebar(workspaces);
+
+		await user.click(screen.getByRole("button", { name: "Toggle project Proj One" }));
+		expect(screen.queryByText("Fix the thing")).not.toBeInTheDocument();
+		expect(navigateMock).not.toHaveBeenCalled();
+		await user.click(screen.getByRole("button", { name: "Toggle project Proj One" }));
+		expect(screen.getByText("Fix the thing")).toBeInTheDocument();
+	});
+
+	it("shows an empty state when there are no projects", () => {
 		renderSidebar([]);
-		expect(screen.getByText("No sessions yet.")).toBeInTheDocument();
+		expect(screen.getByText("No projects yet.")).toBeInTheDocument();
 	});
 
 	it("More menu opens and navigates to Settings", async () => {

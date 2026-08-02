@@ -465,6 +465,33 @@ func TestSpawn_ResolvesProjectConfig(t *testing.T) {
 	}
 }
 
+func TestSpawn_ClaudeCodePersistsFreshNativeSessionID(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: testRoleAgents()}
+	agent := &recordingAgent{}
+	rt := &fakeRuntime{}
+	ws := &fakeWorkspace{}
+	m := New(Deps{
+		Runtime: rt, Agents: singleAgent{agent: agent}, Workspace: ws, Store: st,
+		Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		LookPath: func(string) (string, error) { return "/bin/true", nil },
+	})
+
+	rec, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if agent.lastLaunch.AgentSessionID == "" {
+		t.Fatal("launch config missing fresh Claude native session id")
+	}
+	if agent.lastLaunch.AgentSessionID == agent.lastLaunch.SessionID {
+		t.Fatalf("native id %q must not reuse AO id", agent.lastLaunch.AgentSessionID)
+	}
+	if rec.Metadata.AgentSessionID != agent.lastLaunch.AgentSessionID {
+		t.Fatalf("stored native id = %q, launch native id = %q", rec.Metadata.AgentSessionID, agent.lastLaunch.AgentSessionID)
+	}
+}
+
 // TestSpawn_DeliversPromptAfterOutputSteadiesForAfterStartAgents guards the
 // hermes prompt-delivery race: sending the first message immediately after
 // Spawn returns lands on the pre-agent shell (reproduced live via

@@ -14,6 +14,8 @@ import (
 	"strings"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/ports"
 	aoprocess "github.com/modernagent/modern-agent/backend/internal/process"
@@ -313,14 +315,24 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		return domain.SessionRecord{}, fmt.Errorf("spawn %s: %w", id, err)
 	}
 	agentConfig := effectiveAgentConfig(cfg.Kind, project.Config)
+	// AO session labels are allocated per project (for example, "test-6") and
+	// can be reused after a local data reset. Claude Code rejects a duplicate
+	// --session-id globally, so give every new Claude launch a random native id
+	// and persist it for resume. Other adapters own their native ids and must
+	// not receive one here.
+	agentSessionID := ""
+	if cfg.Harness == domain.HarnessClaudeCode {
+		agentSessionID = uuid.NewString()
+	}
 	launchCfg := ports.LaunchConfig{
-		SessionID:     string(id),
-		WorkspacePath: launchPath,
-		Prompt:        prompt,
-		SystemPrompt:  systemPrompt,
-		IssueID:       string(cfg.IssueID),
-		Config:        agentConfig,
-		Permissions:   agentConfig.Permissions,
+		SessionID:      string(id),
+		AgentSessionID: agentSessionID,
+		WorkspacePath:  launchPath,
+		Prompt:         prompt,
+		SystemPrompt:   systemPrompt,
+		IssueID:        string(cfg.IssueID),
+		Config:         agentConfig,
+		Permissions:    agentConfig.Permissions,
 	}
 	argv, err := agent.GetLaunchCommand(ctx, launchCfg)
 	if err != nil {
@@ -349,7 +361,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		return domain.SessionRecord{}, fmt.Errorf("spawn %s: runtime: %w", id, err)
 	}
 
-	metadata := domain.SessionMetadata{Branch: ws.Branch, WorkspacePath: ws.Path, RuntimeHandleID: handle.ID, Prompt: prompt, TargetPath: cfg.TargetPath}
+	metadata := domain.SessionMetadata{Branch: ws.Branch, WorkspacePath: ws.Path, RuntimeHandleID: handle.ID, AgentSessionID: agentSessionID, Prompt: prompt, TargetPath: cfg.TargetPath}
 	if err := m.lcm.MarkSpawned(ctx, id, metadata); err != nil {
 		_ = m.runtime.Destroy(ctx, handle)
 		_ = m.workspace.Destroy(ctx, ws)
