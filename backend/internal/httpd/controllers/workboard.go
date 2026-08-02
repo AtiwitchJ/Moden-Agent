@@ -31,8 +31,9 @@ type WorkboardService interface {
 
 // WorkboardController owns the project-scoped work-card routes.
 type WorkboardController struct {
-	Svc      WorkboardService
-	Projects projectsvc.Manager
+	Svc            WorkboardService
+	Projects       projectsvc.Manager
+	DispatchKicker workboardsvc.DispatchKicker
 }
 
 // Register mounts the workboard routes on the supplied router.
@@ -42,6 +43,7 @@ func (c *WorkboardController) Register(r chi.Router) {
 	r.Get("/workboard/cards/{cardId}/redo", c.listRedo)
 	r.Get("/projects/{projectId}/workboard/cards", c.list)
 	r.Post("/projects/{projectId}/workboard/cards", c.create)
+	r.Post("/projects/{projectId}/workboard/dispatch", c.dispatch)
 	r.Patch("/projects/{id}/workboard/autonomous", c.updateAutonomous)
 	r.Get("/workboard/cards/{cardId}", c.get)
 	r.Delete("/workboard/cards/{cardId}", c.delete)
@@ -107,6 +109,20 @@ func (c *WorkboardController) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envelope.WriteJSON(w, http.StatusCreated, newWorkCardResponse(card))
+}
+
+func (c *WorkboardController) dispatch(w http.ResponseWriter, r *http.Request) {
+	if c.DispatchKicker == nil {
+		apispec.NotImplemented(w, r, http.MethodPost, "/api/v1/projects/{projectId}/workboard/dispatch")
+		return
+	}
+	projectID := chi.URLParam(r, "projectId")
+	if projectID == "" {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "PROJECT_ID_REQUIRED", "Project ID is required", nil)
+		return
+	}
+	c.DispatchKicker.Kick(projectID)
+	envelope.WriteJSON(w, http.StatusAccepted, DispatchWorkboardResponse{ProjectID: projectID, Dispatched: true})
 }
 
 func (c *WorkboardController) get(w http.ResponseWriter, r *http.Request) {

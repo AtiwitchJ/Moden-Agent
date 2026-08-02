@@ -8,10 +8,25 @@ import (
 	"sort"
 	"time"
 
+	"github.com/google/uuid"
+
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/ports"
 	sessionsvc "github.com/modernagent/modern-agent/backend/internal/service/session"
 )
+
+const (
+	workCardEventDispatchFailed = "dispatch_failed"
+
+	dispatchFailedReasonHermesUnavailable      = "hermes_unavailable"
+	dispatchFailedReasonNonHermesOrchestrator = "non_hermes_orchestrator"
+	dispatchFailedReasonSpawnFailed          = "spawn_failed"
+)
+
+// ErrHermesUnavailable is returned by an OrchestratorSpawner when the project's
+// Hermes commander is not currently reachable. Dispatch records this reason so
+// the UI can explain the failure without exposing inner errors.
+var ErrHermesUnavailable = errors.New("Hermes unavailable")
 
 // DispatchStore is the durable surface required to promote and claim cards.
 // Workboard v1 has one board per project, so ListWorkCards uses defaultBoardID
@@ -22,6 +37,7 @@ type DispatchStore interface {
 	ListSessions(ctx context.Context, projectID domain.ProjectID) ([]domain.SessionRecord, error)
 	UpdateWorkCard(ctx context.Context, card domain.WorkCard) error
 	ClaimReadyWorkCard(ctx context.Context, cardID, projectID string, wipLimit int, at time.Time) (bool, error)
+	AppendWorkCardEvent(ctx context.Context, event domain.WorkCardEvent) error
 }
 
 // WorkerSpawner starts a worker through the existing session-service boundary.
@@ -48,6 +64,7 @@ type DispatchDeps struct {
 	Spawner    WorkerSpawner
 	Rollbacker SpawnRollbacker
 	Clock      func() time.Time
+	NewID      func() string
 }
 
 // Dispatcher promotes due cards and claims ready cards under a project's WIP
@@ -58,6 +75,7 @@ type Dispatcher struct {
 	spawner    WorkerSpawner
 	rollbacker SpawnRollbacker
 	clock      func() time.Time
+	newID      func() string
 }
 
 // NewDispatcher constructs a workboard dispatcher.
@@ -70,13 +88,22 @@ func NewDispatcher(d DispatchDeps) *Dispatcher {
 	if rollbacker == nil {
 		rollbacker, _ = d.Spawner.(SpawnRollbacker)
 	}
-	return &Dispatcher{store: d.Store, spawner: d.Spawner, rollbacker: rollbacker, clock: clock}
+	newID := d.NewID
+	if newID == nil {
+		newID = func() string { return uuid.NewString() }
+	}
+	return &Dispatcher{store: d.Store, spawner: d.Spawner, rollbacker: rollbacker, clock: clock, newID: newID}
 }
 
 // DispatchOnce promotes todo and due scheduled cards, then claims ready cards
 // in priority/FIFO order. Before starting a worker, it atomically writes a
 // durable running claim only if the project is still below its WIP limit, so
 // independent dispatcher instances cannot over-claim the same project.
+//
+// A recoverable failure to start an individual card releases that card's claim,
+// records a dispatch_failed event, and continues with the next candidate. Project
+// reads, card-list reads, claim/update failures, and session-link failures remain
+// fatal so the daemon logs real problems instead of silently dropping them.
 func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
@@ -109,12 +136,12 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 	}
 
 	now := d.clock().UTC()
+	wasTodo := make(map[string]bool, len(cards))
 	for i := range cards {
 		card := &cards[i]
 		switch card.Status {
 		case domain.CardStatusTodo:
-			// Todo is the normal auto-start queue: promote it in this same
-			// dispatch pass so it can claim a worker immediately.
+			wasTodo[card.ID] = true
 		case domain.CardStatusScheduled:
 			if card.ScheduledAt == nil || card.ScheduledAt.After(now) {
 				continue
@@ -126,7 +153,7 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 		card.ReadyAt = timePtr(now)
 		card.UpdatedAt = now
 		if err := d.store.UpdateWorkCard(ctx, *card); err != nil {
-			return nil, fmt.Errorf("promote scheduled card %s: %w", card.ID, err)
+			return nil, fmt.Errorf("promote card %s: %w", card.ID, err)
 		}
 	}
 
@@ -159,31 +186,46 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 			return claimed, fmt.Errorf("persist dispatch claim for card %s: %w", card.ID, err)
 		}
 		if !won {
-			continue
+			// WIP pressure is not an error. A card that was just promoted from Todo
+			// goes back to Todo so the board shows it is queued, not stuck in Ready.
+			if wasTodo[card.ID] {
+				card.Status = domain.CardStatusTodo
+				card.ReadyAt = nil
+				card.SessionID = ""
+				card.UpdatedAt = now
+				if err := d.store.UpdateWorkCard(ctx, card); err != nil {
+					return claimed, fmt.Errorf("release Todo promotion for card %s: %w", card.ID, err)
+				}
+			}
+			break
 		}
 		card.Status = domain.CardStatusRunning
 		card.SessionID = ""
 		card.UpdatedAt = now
 
 		var session domain.Session
+		var spawnErr error
+		failureReason := ""
 		if commanding {
 			active, activeErr := d.store.ListSessions(ctx, domain.ProjectID(projectID))
 			if activeErr != nil {
-				err = fmt.Errorf("list orchestrators for card %s: %w", card.ID, activeErr)
+				return claimed, fmt.Errorf("list orchestrators for card %s: %w", card.ID, activeErr)
 			} else if hasActiveNonHermesOrchestrator(active) {
-				err = fmt.Errorf("project %s has a non-Hermes active orchestrator", projectID)
+				spawnErr = fmt.Errorf("project %s has a non-Hermes active orchestrator", projectID)
+				failureReason = dispatchFailedReasonNonHermesOrchestrator
 			} else {
 				briefing, briefErr := hermesCardBriefing(card)
 				if briefErr != nil {
 					return claimed, briefErr
 				}
-				session, err = orchestrator.SpawnOrchestrator(ctx, domain.ProjectID(projectID), false, briefing)
+				session, spawnErr = orchestrator.SpawnOrchestrator(ctx, domain.ProjectID(projectID), false, briefing)
 			}
-			if err == nil && (session.Kind != domain.KindOrchestrator || session.Harness != domain.HarnessHermes) {
-				err = fmt.Errorf("project %s has a non-Hermes active orchestrator", projectID)
+			if spawnErr == nil && (session.Kind != domain.KindOrchestrator || session.Harness != domain.HarnessHermes) {
+				spawnErr = fmt.Errorf("project %s has a non-Hermes active orchestrator", projectID)
+				failureReason = dispatchFailedReasonNonHermesOrchestrator
 			}
 		} else {
-			session, err = d.spawner.Spawn(ctx, ports.SpawnConfig{
+			session, spawnErr = d.spawner.Spawn(ctx, ports.SpawnConfig{
 				ProjectID:  domain.ProjectID(projectID),
 				Kind:       domain.KindWorker,
 				Harness:    domain.AgentHarness(card.Agent),
@@ -191,19 +233,17 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 				TargetPath: card.TargetPath,
 			})
 		}
-		if err != nil {
-			spawnErr := fmt.Errorf("start %s for card %s: %w", dispatchRole(commanding), card.ID, err)
-			card.Status = domain.CardStatusReady
-			card.SessionID = ""
-			card.UpdatedAt = now
-			if releaseErr := d.store.UpdateWorkCard(context.WithoutCancel(ctx), card); releaseErr != nil {
-				return claimed, errors.Join(
-					spawnErr,
-					fmt.Errorf("release dispatch claim for card %s: %w", card.ID, releaseErr),
-					fmt.Errorf("card %s remains durably claimed as running without a session ID", card.ID),
-				)
+		if spawnErr != nil {
+			if failureReason == "" && commanding && errors.Is(spawnErr, ErrHermesUnavailable) {
+				failureReason = dispatchFailedReasonHermesUnavailable
 			}
-			return claimed, spawnErr
+			if failureReason == "" {
+				failureReason = dispatchFailedReasonSpawnFailed
+			}
+			if recoverErr := d.recoverCardFromSpawnFailure(ctx, card, wasTodo[card.ID], commanding, failureReason, spawnErr, now); recoverErr != nil {
+				return claimed, recoverErr
+			}
+			continue
 		}
 
 		card.SessionID = string(session.ID)
@@ -242,6 +282,58 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 		claimed = append(claimed, card.ID)
 	}
 	return claimed, nil
+}
+
+// recoverCardFromSpawnFailure releases a card after an individual recoverable
+// spawn failure, records a dispatch_failed event with a safe reason, and swallows
+// the original spawn error. If the durable release or event append fails, it
+// returns a fatal joined error so the caller does not silently drop the card.
+func (d *Dispatcher) recoverCardFromSpawnFailure(ctx context.Context, card domain.WorkCard, originallyTodo, commanding bool, reason string, spawnErr error, now time.Time) error {
+	switch {
+	case commanding:
+		// Hermes-commanded projects keep their single commander. A failed briefing
+		// returns the card to the Todo queue so it can retry on the next pass.
+		card.Status = domain.CardStatusTodo
+		card.ReadyAt = nil
+	case originallyTodo:
+		// A card that was promoted from Todo goes back to Todo so the board shows
+		// it is queued, not stuck in Ready.
+		card.Status = domain.CardStatusTodo
+		card.ReadyAt = nil
+	default:
+		card.Status = domain.CardStatusReady
+	}
+	card.SessionID = ""
+	card.UpdatedAt = now
+
+	payload, _ := json.Marshal(map[string]string{
+		"reason":      reason,
+		"attemptedAt": now.Format(time.RFC3339),
+	})
+	event := domain.WorkCardEvent{
+		ID:        d.newID(),
+		CardID:    card.ID,
+		ProjectID: card.ProjectID,
+		Kind:      workCardEventDispatchFailed,
+		Payload:   string(payload),
+		CreatedAt: now,
+	}
+
+	persistenceCtx := context.WithoutCancel(ctx)
+	if releaseErr := d.store.UpdateWorkCard(persistenceCtx, card); releaseErr != nil {
+		return errors.Join(
+			fmt.Errorf("start %s for card %s: %w", dispatchRole(commanding), card.ID, spawnErr),
+			fmt.Errorf("release dispatch claim for card %s: %w", card.ID, releaseErr),
+			fmt.Errorf("card %s remains durably claimed as running without a session ID", card.ID),
+		)
+	}
+	if eventErr := d.store.AppendWorkCardEvent(persistenceCtx, event); eventErr != nil {
+		return errors.Join(
+			fmt.Errorf("start %s for card %s: %w", dispatchRole(commanding), card.ID, spawnErr),
+			fmt.Errorf("record dispatch failure event for card %s: %w", card.ID, eventErr),
+		)
+	}
+	return nil
 }
 
 func hasActiveNonHermesOrchestrator(sessions []domain.SessionRecord) bool {

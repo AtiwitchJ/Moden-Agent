@@ -135,11 +135,7 @@ func TestDispatchOnce(t *testing.T) {
 			dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
 
 			claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
-			if tc.spawnErr != nil {
-				if !errors.Is(err, tc.spawnErr) {
-					t.Fatalf("DispatchOnce error = %v, want %v", err, tc.spawnErr)
-				}
-			} else if err != nil {
+			if err != nil {
 				t.Fatalf("DispatchOnce: %v", err)
 			}
 			if !reflect.DeepEqual(claimed, tc.wantClaimed) {
@@ -167,6 +163,10 @@ func TestDispatchOnce(t *testing.T) {
 				if card.ReadyAt == nil || !card.ReadyAt.Equal(now.Add(-time.Hour)) {
 					t.Fatalf("failed card ready_at = %v, want original %v", card.ReadyAt, now.Add(-time.Hour))
 				}
+				events := store.events["ready"]
+				if len(events) != 1 || events[0].Kind != workCardEventDispatchFailed || !strings.Contains(events[0].Payload, dispatchFailedReasonSpawnFailed) {
+					t.Fatalf("dispatch events = %+v, want one spawn_failed event", events)
+				}
 			}
 		})
 	}
@@ -189,6 +189,33 @@ func TestDispatchOnceSpawnsWorkerWithCardHarnessAndPrompt(t *testing.T) {
 	got := spawner.configs[0]
 	if got.ProjectID != "p1" || got.Kind != domain.KindWorker || got.Harness != domain.HarnessCodex || got.Prompt != "card title\n\ncard notes" || got.TargetPath != "/repo/services/api" {
 		t.Fatalf("spawn config = %#v", got)
+	}
+}
+
+func TestDispatchOnce_SpawnFailureDoesNotBlockLaterCards(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
+	store := newDispatchStore(2, []domain.WorkCard{
+		readyCard("bad", domain.CardPriorityUrgent, now.Add(-time.Minute)),
+		readyCard("good", domain.CardPriorityNormal, now.Add(-2*time.Minute)),
+	})
+	spawner := &dispatchSpawner{failCardIDs: map[string]error{"bad": errors.New("agent unavailable")}}
+	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
+
+	claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("DispatchOnce: %v", err)
+	}
+	if !reflect.DeepEqual(claimed, []string{"good"}) {
+		t.Fatalf("claimed = %v, want good card only", claimed)
+	}
+	if card := store.cards["bad"]; card.Status != domain.CardStatusReady || card.SessionID != "" {
+		t.Fatalf("bad card = %#v, want released ready card", card)
+	}
+	if events := store.events["bad"]; len(events) != 1 || !strings.Contains(events[0].Payload, dispatchFailedReasonSpawnFailed) {
+		t.Fatalf("bad dispatch events = %+v, want one spawn failure", events)
+	}
+	if card := store.cards["good"]; card.Status != domain.CardStatusRunning || card.SessionID == "" {
+		t.Fatalf("good card = %#v, want running linked card", card)
 	}
 }
 
@@ -223,19 +250,23 @@ func TestDispatchOnce_HermesUnavailableReleasesCardWithoutWorker(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
 	store := newDispatchStore(1, []domain.WorkCard{readyCard("card", domain.CardPriorityNormal, now)})
 	store.project.Config.Orchestrator.Harness = domain.HarnessHermes
-	spawner := &dispatchSpawner{orchestratorErr: errors.New("Hermes unavailable")}
+	spawner := &dispatchSpawner{orchestratorErr: ErrHermesUnavailable}
 	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
 
 	claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
-	if err == nil || len(claimed) != 0 || len(spawner.configs) != 0 {
+	if err != nil || len(claimed) != 0 || len(spawner.configs) != 0 {
 		t.Fatalf("claimed=%v err=%v worker spawns=%v", claimed, err, spawner.configs)
 	}
-	if card := store.cards["card"]; card.Status != domain.CardStatusReady || card.SessionID != "" {
-		t.Fatalf("card = %#v, want ready and unlinked", card)
+	if card := store.cards["card"]; card.Status != domain.CardStatusTodo || card.SessionID != "" {
+		t.Fatalf("card = %#v, want Todo and unlinked", card)
+	}
+	events := store.events["card"]
+	if len(events) != 1 || !strings.Contains(events[0].Payload, dispatchFailedReasonHermesUnavailable) {
+		t.Fatalf("dispatch events = %+v, want Hermes unavailable event", events)
 	}
 }
 
-func TestDispatchOnce_HermesProjectDoesNotBriefStaleNonHermesOrchestrator(t *testing.T) {
+func TestDispatchOnce_HermesProjectBlockedByNonHermesOrchestratorReturnsCardToTodo(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
 	store := newDispatchStore(1, []domain.WorkCard{readyCard("card", domain.CardPriorityNormal, now)})
 	store.project.Config.Orchestrator.Harness = domain.HarnessHermes
@@ -243,12 +274,113 @@ func TestDispatchOnce_HermesProjectDoesNotBriefStaleNonHermesOrchestrator(t *tes
 	spawner := &dispatchSpawner{}
 	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
 
-	_, err := dispatcher.DispatchOnce(context.Background(), "p1")
-	if err == nil || len(spawner.orchestratorPrompts) != 0 {
-		t.Fatalf("err=%v prompts=%q", err, spawner.orchestratorPrompts)
+	claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
+	if err != nil || len(claimed) != 0 || len(spawner.orchestratorPrompts) != 0 || len(spawner.configs) != 0 {
+		t.Fatalf("claimed=%v err=%v prompts=%q worker spawns=%v", claimed, err, spawner.orchestratorPrompts, spawner.configs)
 	}
-	if card := store.cards["card"]; card.Status != domain.CardStatusReady || card.SessionID != "" {
-		t.Fatalf("card = %#v, want ready and unlinked", card)
+	if card := store.cards["card"]; card.Status != domain.CardStatusTodo || card.SessionID != "" {
+		t.Fatalf("card = %#v, want todo and unlinked", card)
+	}
+	events := store.events["card"]
+	if len(events) != 1 || !strings.Contains(events[0].Payload, dispatchFailedReasonNonHermesOrchestrator) {
+		t.Fatalf("dispatch events = %+v, want non-Hermes orchestrator event", events)
+	}
+}
+
+func TestDispatchOnce_FiveTodoCardsClaimsFourAndLeavesFifthInTodo(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
+	store := newDispatchStore(4, []domain.WorkCard{
+		todoCard("c1", domain.CardPriorityUrgent, now),
+		todoCard("c2", domain.CardPriorityHigh, now),
+		todoCard("c3", domain.CardPriorityNormal, now),
+		todoCard("c4", domain.CardPriorityLow, now),
+		todoCard("c5", domain.CardPriorityNormal, now),
+	})
+	spawner := &dispatchSpawner{}
+	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
+
+	claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("DispatchOnce: %v", err)
+	}
+	wantClaimed := []string{"c1", "c2", "c3", "c5"}
+	if !reflect.DeepEqual(claimed, wantClaimed) {
+		t.Fatalf("claimed = %v, want %v", claimed, wantClaimed)
+	}
+	if got := spawner.cardIDs(); !reflect.DeepEqual(got, wantClaimed) {
+		t.Fatalf("spawned cards = %v, want %v", got, wantClaimed)
+	}
+	for _, id := range claimed {
+		card := store.cards[id]
+		if card.Status != domain.CardStatusRunning || card.SessionID == "" {
+			t.Fatalf("claimed card %s = %#v, want running and linked", id, card)
+		}
+	}
+	if card := store.cards["c4"]; card.Status != domain.CardStatusTodo {
+		t.Fatalf("fifth card status = %q, want Todo", card.Status)
+	}
+}
+
+func TestDispatchOnce_HighestPrioritySpawnFailureReturnsTodoAndContinues(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
+	store := newDispatchStore(4, []domain.WorkCard{
+		todoCard("fail", domain.CardPriorityUrgent, now),
+		todoCard("a", domain.CardPriorityHigh, now),
+		todoCard("b", domain.CardPriorityNormal, now),
+		todoCard("c", domain.CardPriorityLow, now),
+		todoCard("d", domain.CardPriorityLow, now.Add(-time.Minute)),
+	})
+	spawner := &dispatchSpawner{failCardIDs: map[string]error{"fail": errors.New("spawn failed")}}
+	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
+
+	claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("DispatchOnce: %v", err)
+	}
+	wantClaimed := []string{"a", "b", "c", "d"}
+	if !reflect.DeepEqual(claimed, wantClaimed) {
+		t.Fatalf("claimed = %v, want %v", claimed, wantClaimed)
+	}
+	wantSpawns := []string{"fail", "a", "b", "c", "d"}
+	if got := spawner.cardIDs(); !reflect.DeepEqual(got, wantSpawns) {
+		t.Fatalf("spawned cards = %v, want %v", got, wantSpawns)
+	}
+	for _, id := range claimed {
+		card := store.cards[id]
+		if card.Status != domain.CardStatusRunning || card.SessionID == "" {
+			t.Fatalf("claimed card %s = %#v, want running and linked", id, card)
+		}
+	}
+	if card := store.cards["fail"]; card.Status != domain.CardStatusTodo || card.SessionID != "" {
+		t.Fatalf("failed card = %#v, want todo and unlinked", card)
+	}
+	events := store.events["fail"]
+	if len(events) != 1 || !strings.Contains(events[0].Payload, dispatchFailedReasonSpawnFailed) {
+		t.Fatalf("dispatch events = %+v, want one spawn_failed event", events)
+	}
+}
+
+func TestDispatchOnce_RunningCardsAlwaysHaveLinkedSessionID(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
+	store := newDispatchStore(2, []domain.WorkCard{
+		readyCard("first", domain.CardPriorityHigh, now.Add(-time.Hour)),
+		readyCard("second", domain.CardPriorityNormal, now.Add(-2*time.Hour)),
+	})
+	spawner := &dispatchSpawner{}
+	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
+
+	claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("DispatchOnce: %v", err)
+	}
+	if len(claimed) != 2 {
+		t.Fatalf("claimed = %v, want 2", claimed)
+	}
+	for _, id := range claimed {
+		card := store.cards[id]
+		if card.Status != domain.CardStatusRunning || card.SessionID == "" {
+			t.Fatalf("claimed card %s = %#v, want running with linked session", id, card)
+		}
 	}
 }
 
@@ -412,6 +544,7 @@ func TestDispatchOnceDurablyClaimsCardWhenSessionLinkAndRollbackFail(t *testing.
 type dispatchStore struct {
 	project      domain.ProjectRecord
 	cards        map[string]domain.WorkCard
+	events       map[string][]domain.WorkCardEvent
 	sessions     []domain.SessionRecord
 	failClaimErr error
 	failLinkErr  error
@@ -419,7 +552,11 @@ type dispatchStore struct {
 }
 
 func newDispatchStore(wipLimit int, cards []domain.WorkCard) *dispatchStore {
-	s := &dispatchStore{project: domain.ProjectRecord{ID: "p1", Config: domain.ProjectConfig{Workboard: domain.WorkboardConfig{WIPLimit: wipLimit}}}, cards: make(map[string]domain.WorkCard, len(cards))}
+	s := &dispatchStore{
+		project: domain.ProjectRecord{ID: "p1", Config: domain.ProjectConfig{Workboard: domain.WorkboardConfig{WIPLimit: wipLimit}}},
+		cards:   make(map[string]domain.WorkCard, len(cards)),
+		events:  make(map[string][]domain.WorkCardEvent),
+	}
 	for _, card := range cards {
 		s.cards[card.ID] = card
 	}
@@ -457,6 +594,13 @@ func (s *dispatchStore) UpdateWorkCard(_ context.Context, card domain.WorkCard) 
 		return s.failLinkErr
 	}
 	s.cards[card.ID] = card
+	return nil
+}
+
+func (s *dispatchStore) AppendWorkCardEvent(_ context.Context, event domain.WorkCardEvent) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.events[event.CardID] = append(s.events[event.CardID], event)
 	return nil
 }
 
@@ -503,21 +647,27 @@ func (s *listBarrierStore) ListWorkCards(ctx context.Context, projectID, boardID
 }
 
 type dispatchSpawner struct {
-	err                 error
-	orchestratorErr     error
-	rollbackErr         error
-	sessionStore        *sqlite.Store
-	configs             []ports.SpawnConfig
-	orchestratorPrompts []string
-	orchestratorSession domain.Session
-	rollbackIDs         []domain.SessionID
-	mu                  sync.Mutex
+	err                     error
+	failCardIDs             map[string]error
+	orchestratorErr         error
+	failOrchestratorCardIDs map[string]error
+	rollbackErr             error
+	sessionStore            *sqlite.Store
+	configs                 []ports.SpawnConfig
+	orchestratorPrompts     []string
+	orchestratorSession     domain.Session
+	rollbackIDs             []domain.SessionID
+	mu                      sync.Mutex
 }
 
 func (s *dispatchSpawner) Spawn(_ context.Context, cfg ports.SpawnConfig) (domain.Session, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.configs = append(s.configs, cfg)
+	title, _, _ := strings.Cut(cfg.Prompt, "\n\n")
+	if err, ok := s.failCardIDs[strings.TrimSuffix(title, " title")]; ok {
+		return domain.Session{}, err
+	}
 	if s.err != nil {
 		return domain.Session{}, s.err
 	}
@@ -550,10 +700,26 @@ func (s *dispatchSpawner) SpawnOrchestrator(_ context.Context, _ domain.ProjectI
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.orchestratorPrompts = append(s.orchestratorPrompts, prompt)
+	cardID := extractCardIDFromBriefing(prompt)
+	if err, ok := s.failOrchestratorCardIDs[cardID]; ok {
+		return domain.Session{}, err
+	}
 	if s.orchestratorErr != nil {
 		return domain.Session{}, s.orchestratorErr
 	}
 	return s.orchestratorSession, nil
+}
+
+func extractCardIDFromBriefing(prompt string) string {
+	idx := strings.Index(prompt, `"cardId":"`)
+	if idx == -1 {
+		return ""
+	}
+	rest := prompt[idx+len(`"cardId":"`):]
+	if end := strings.Index(rest, `"`); end != -1 {
+		return rest[:end]
+	}
+	return rest
 }
 
 func (s *dispatchSpawner) cardIDs() []string {
@@ -572,6 +738,14 @@ func readyCard(id string, priority domain.CardPriority, readyAt time.Time) domai
 		ID: id, ProjectID: "p1", BoardID: defaultBoardID, Title: id + " title", Notes: id + " notes",
 		Priority: priority, Status: domain.CardStatusReady, ReadyAt: ptrTime(readyAt), Agent: string(domain.HarnessCodex),
 	}
+}
+
+func todoCard(id string, priority domain.CardPriority, createdAt time.Time) domain.WorkCard {
+	card := readyCard(id, priority, createdAt)
+	card.Status = domain.CardStatusTodo
+	card.ReadyAt = nil
+	card.CreatedAt = createdAt
+	return card
 }
 
 func ptrTime(t time.Time) *time.Time { return &t }

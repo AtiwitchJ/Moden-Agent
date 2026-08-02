@@ -422,6 +422,18 @@ func workboardOperations() []operation {
 			},
 		},
 		{
+			method: http.MethodPost, path: "/api/v1/projects/{projectId}/workboard/dispatch", id: "dispatchWorkboard", tag: "workboard",
+			summary:    "Ask the daemon to retry dispatching Todo cards for a project",
+			pathParams: []any{controllers.WorkboardProjectIDParam{}},
+			resps: []respUnit{
+				{http.StatusAccepted, controllers.DispatchWorkboardResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
 			method: http.MethodPatch, path: "/api/v1/projects/{id}/workboard/autonomous", id: "updateWorkboardAutonomous", tag: "workboard",
 			summary:    "Update a project's autonomous workboard settings",
 			pathParams: []any{controllers.ProjectIDParam{}},

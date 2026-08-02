@@ -18,6 +18,7 @@ import (
 	prsvc "github.com/modernagent/modern-agent/backend/internal/service/pr"
 	projectsvc "github.com/modernagent/modern-agent/backend/internal/service/project"
 	reviewsvc "github.com/modernagent/modern-agent/backend/internal/service/review"
+	workboardsvc "github.com/modernagent/modern-agent/backend/internal/service/workboard"
 )
 
 // APIDeps bundles every service the API layer's controllers depend on.
@@ -36,6 +37,7 @@ type APIDeps struct {
 	NotificationStream controllers.NotificationStream
 	Import             controllers.ImportService
 	Workboard          controllers.WorkboardService
+	DispatchTrigger    workboardsvc.DispatchKicker
 	CDC                cdc.Source
 	Events             cdcSubscriber
 	Telemetry          ports.EventSink
@@ -88,7 +90,7 @@ func NewAPI(cfg config.Config, deps APIDeps) *API {
 		policy:        &controllers.PolicyController{Projects: deps.Projects, Engine: deps.Policy},
 		notifications: &controllers.NotificationsController{Svc: deps.Notifications, Stream: deps.NotificationStream},
 		imports:       &controllers.ImportController{Svc: deps.Import},
-		workboard:     &controllers.WorkboardController{Svc: deps.Workboard, Projects: deps.Projects},
+		workboard:     &controllers.WorkboardController{Svc: deps.Workboard, Projects: deps.Projects, DispatchKicker: deps.DispatchTrigger},
 		events:        &EventsController{Source: deps.CDC, Live: deps.Events},
 	}
 }

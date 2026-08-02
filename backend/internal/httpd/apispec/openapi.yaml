@@ -1381,6 +1381,51 @@ paths:
       summary: Create a durable work card on a project board
       tags:
       - workboard
+  /api/v1/projects/{projectId}/workboard/dispatch:
+    post:
+      operationId: dispatchWorkboard
+      parameters:
+      - description: Project identifier.
+        in: path
+        name: projectId
+        required: true
+        schema:
+          description: Project identifier.
+          type: string
+      responses:
+        "202":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ControllersDispatchWorkboardResponse'
+          description: Accepted
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Ask the daemon to retry dispatching Todo cards for a project
+      tags:
+      - workboard
   /api/v1/prs/{id}/merge:
     post:
       operationId: mergePR
@@ -2990,6 +3035,16 @@ components:
       required:
       - ok
       - sessionId
+      type: object
+    ControllersDispatchWorkboardResponse:
+      properties:
+        dispatched:
+          type: boolean
+        projectId:
+          type: string
+      required:
+      - projectId
+      - dispatched
       type: object
     ControllersSessionView:
       properties:

@@ -325,6 +325,8 @@ func (s *Service) Split(ctx context.Context, id string, in SplitInput) (SplitRes
 	}); err != nil {
 		return SplitResult{}, apierr.Internal("WORK_CARD_EVENT_FAILED", "Failed to record split event")
 	}
+	s.kickDispatchIfTodo(card.ProjectID, card.Status)
+	s.kickDispatchIfTodo(newCard.ProjectID, newCard.Status)
 	return SplitResult{OldCard: card, NewCard: newCard}, nil
 }
 

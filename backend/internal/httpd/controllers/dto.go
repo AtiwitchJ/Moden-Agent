@@ -306,6 +306,13 @@ type WorkboardAutonomousResponse struct {
 	Autonomous domain.WorkboardAutonomousConfig `json:"autonomous"`
 }
 
+// DispatchWorkboardResponse confirms that a retry dispatch request was accepted
+// by the daemon-owned trigger. The actual claim and spawn happen asynchronously.
+type DispatchWorkboardResponse struct {
+	ProjectID  string `json:"projectId"`
+	Dispatched bool   `json:"dispatched"`
+}
+
 func newWorkCardResponse(card domain.WorkCard) WorkCardResponse {
 	return WorkCardResponse{
 		ID: card.ID, ProjectID: card.ProjectID, ProjectName: card.ProjectName, BoardID: card.BoardID, Title: card.Title, Notes: card.Notes,

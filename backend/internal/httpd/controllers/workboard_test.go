@@ -101,6 +101,22 @@ func newWorkboardTestServer(t *testing.T, svc *fakeWorkboardService) *httptest.S
 	return srv
 }
 
+type fakeDispatchKicker struct {
+	kicked []string
+}
+
+func (f *fakeDispatchKicker) Kick(projectID string) {
+	f.kicked = append(f.kicked, projectID)
+}
+
+func newWorkboardDispatchTestServer(t *testing.T, svc *fakeWorkboardService, kicker *fakeDispatchKicker) *httptest.Server {
+	t.Helper()
+	log := slog.New(slog.NewTextHandler(io.Discard, nil))
+	srv := httptest.NewServer(httpd.NewRouterWithControl(config.Config{}, log, nil, httpd.APIDeps{Workboard: svc, DispatchTrigger: kicker}, httpd.ControlDeps{}))
+	t.Cleanup(srv.Close)
+	return srv
+}
+
 type fakeWorkboardProjectManager struct {
 	projectsvc.Manager
 	project       projectsvc.Project
@@ -333,4 +349,18 @@ func TestWorkboardAPI_NilServiceReturnsNotImplemented(t *testing.T) {
 
 	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/projects/proj/workboard/cards", "")
 	assertErrorCode(t, body, status, http.StatusNotImplemented, "NOT_IMPLEMENTED")
+}
+
+func TestDispatchWorkboardEndpoint_KicksTrigger(t *testing.T) {
+	svc := &fakeWorkboardService{}
+	kicker := &fakeDispatchKicker{}
+	srv := newWorkboardDispatchTestServer(t, svc, kicker)
+
+	body, status, _ := doRequest(t, srv, http.MethodPost, "/api/v1/projects/proj/workboard/dispatch", "")
+	if status != http.StatusAccepted {
+		t.Fatalf("dispatch status = %d, want 202; body=%s", status, body)
+	}
+	if len(kicker.kicked) != 1 || kicker.kicked[0] != "proj" {
+		t.Fatalf("kicked = %v, want [proj]", kicker.kicked)
+	}
 }

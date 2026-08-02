@@ -231,7 +231,7 @@ func TestStartWorkboardDispatcher_RunsWithoutProjects(t *testing.T) {
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
-	done := startWorkboardDispatcher(ctx, store, svc, rt, log)
+	_, done := startWorkboardDispatcher(ctx, store, svc, rt, log)
 
 	select {
 	case <-done:

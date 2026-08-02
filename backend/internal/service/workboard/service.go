@@ -81,22 +81,31 @@ type OptionalTime struct {
 
 // Service owns work-card validation and orchestration-free CRUD.
 type Service struct {
-	store   Store
-	sender  SessionMessenger
-	spawner WorkerSpawner
-	killer  SessionKiller
-	clock   func() time.Time
-	newID   func() string
+	store          Store
+	sender         SessionMessenger
+	spawner        WorkerSpawner
+	killer         SessionKiller
+	dispatchKicker DispatchKicker
+	clock          func() time.Time
+	newID          func() string
+}
+
+// DispatchKicker wakes the daemon's per-project dispatch trigger. It is
+// implemented by the daemon's DispatchTrigger and kept as an interface here so
+// the service can ask for dispatch without depending on the daemon package.
+type DispatchKicker interface {
+	Kick(projectID string)
 }
 
 // Deps configures optional collaborators for Service.
 type Deps struct {
-	Store   Store
-	Sender  SessionMessenger
-	Spawner WorkerSpawner
-	Killer  SessionKiller
-	Clock   func() time.Time
-	NewID   func() string
+	Store          Store
+	Sender         SessionMessenger
+	Spawner        WorkerSpawner
+	Killer         SessionKiller
+	DispatchKicker DispatchKicker
+	Clock          func() time.Time
+	NewID          func() string
 }
 
 // New creates a workboard service backed by store.
@@ -108,7 +117,7 @@ func New(store Store) *Service {
 func NewWithDeps(d Deps) *Service {
 	s := &Service{
 		store: d.Store, sender: d.Sender, spawner: d.Spawner, killer: d.Killer,
-		clock: d.Clock, newID: d.NewID,
+		dispatchKicker: d.DispatchKicker, clock: d.Clock, newID: d.NewID,
 	}
 	if s.clock == nil {
 		s.clock = time.Now
@@ -215,6 +224,7 @@ func (s *Service) Create(ctx context.Context, in CreateInput) (domain.WorkCard, 
 	if err := s.store.CreateWorkCard(ctx, card); err != nil {
 		return domain.WorkCard{}, apierr.Internal("WORK_CARD_CREATE_FAILED", "Failed to create work card")
 	}
+	s.kickDispatchIfTodo(projectID, card.Status)
 	return card, nil
 }
 
@@ -316,6 +326,7 @@ func (s *Service) Move(ctx context.Context, id string, status domain.CardStatus,
 	if err := s.store.UpdateWorkCard(ctx, card); err != nil {
 		return domain.WorkCard{}, apierr.Internal("WORK_CARD_UPDATE_FAILED", "Failed to update work card")
 	}
+	s.kickDispatchIfTodo(card.ProjectID, card.Status)
 	return card, nil
 }
 
@@ -390,7 +401,20 @@ func (s *Service) Update(ctx context.Context, id string, in UpdateInput) (domain
 	if err := s.store.UpdateWorkCard(ctx, card); err != nil {
 		return domain.WorkCard{}, apierr.Internal("WORK_CARD_UPDATE_FAILED", "Failed to update work card")
 	}
+	s.kickDispatchIfTodo(card.ProjectID, card.Status)
 	return card, nil
+}
+
+// kickDispatchIfTodo wakes the per-project dispatcher when a durable change may
+// have added eligible work to the Todo/Ready queue.
+func (s *Service) kickDispatchIfTodo(projectID string, status domain.CardStatus) {
+	if status != domain.CardStatusTodo && status != domain.CardStatusReady {
+		return
+	}
+	if s.dispatchKicker == nil {
+		return
+	}
+	s.dispatchKicker.Kick(projectID)
 }
 
 func (s *Service) validateTargetPath(ctx context.Context, projectID, targetPath string) (string, error) {

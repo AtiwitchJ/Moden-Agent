@@ -41,10 +41,10 @@
 - `backend/internal/httpd/controllers/workboard.go` (only if a retry endpoint is required)
 - relevant service/controller tests
 
-- [ ] Extract the existing per-project `DispatchOnce` call behind a small daemon-owned trigger with two entry points: the existing periodic poll and an in-process `Kick(projectID)`.
-- [ ] After a card is durably created or moved/returned to `todo`, call `Kick(projectID)` asynchronously. The database claim remains the only concurrency guard.
-- [ ] Add `POST /api/v1/projects/{projectId}/workboard/dispatch` as an explicit **Retry dispatch** action. It invokes the same trigger and returns the normal API error envelope; it must not spawn a worker directly from the controller.
-- [ ] Keep the immediate boot poll and the one-minute reconciliation tick as recovery mechanisms for missed events or a daemon restart.
+- [x] Extract the existing per-project `DispatchOnce` call behind a small daemon-owned trigger with two entry points: the existing periodic poll and an in-process `Kick(projectID)`.
+- [x] After a card is durably created or moved/returned to `todo`, call `Kick(projectID)` asynchronously. The database claim remains the only concurrency guard.
+- [x] Add `POST /api/v1/projects/{projectId}/workboard/dispatch` as an explicit **Retry dispatch** action. It invokes the same trigger and returns the normal API error envelope; it must not spawn a worker directly from the controller.
+- [x] Keep the immediate boot poll and the one-minute reconciliation tick as recovery mechanisms for missed events or a daemon restart.
 
 **Acceptance:** creating a Todo card (or resolving a Redo back to Todo) attempts dispatch without waiting a minute. Repeated clicks, CDC delivery, and two app windows cannot exceed four because `ClaimReadyWorkCard` remains atomic.
 
@@ -56,10 +56,10 @@
 - `backend/internal/service/workboard/dispatch_test.go`
 - `backend/internal/storage/sqlite/store/workboard_store.go` if its existing event append capability needs exposing through the dispatch store interface
 
-- [ ] Replace the “return on first spawn error” loop behavior with per-card failure handling: release that card’s durable claim, append a `dispatch_failed` event with a safe reason and timestamp, then continue considering the remaining candidates.
-- [ ] Preserve fatal failures for project reads, card-list reads, or database claim/update failures; only an individual card’s inability to spawn is recoverable.
-- [ ] For a Hermes project, do not terminate or replace Hermes when dispatching a card fails. Return the card to Todo and record whether Hermes was unavailable, a non-Hermes orchestrator blocked it, or briefing/spawn failed.
-- [ ] If the WIP limit is reached, stop attempting additional candidates normally; this is queue pressure, not an error event.
+- [x] Replace the “return on first spawn error” loop behavior with per-card failure handling: release that card’s durable claim, append a `dispatch_failed` event with a safe reason and timestamp, then continue considering the remaining candidates.
+- [x] Preserve fatal failures for project reads, card-list reads, or database claim/update failures; only an individual card’s inability to spawn is recoverable.
+- [x] For a Hermes project, do not terminate or replace Hermes when dispatching a card fails. Return the card to Todo and record whether Hermes was unavailable, a non-Hermes orchestrator blocked it, or briefing/spawn failed.
+- [x] If the WIP limit is reached, stop attempting additional candidates normally; this is queue pressure, not an error event.
 
 **Tests:**
 
