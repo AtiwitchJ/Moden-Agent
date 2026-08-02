@@ -529,6 +529,38 @@ func TestManager_ListIncludesOnlySummarySafeProjectConfig(t *testing.T) {
 	}
 }
 
+func TestManager_AddPersistsWorkboardHermesProjectConfig(t *testing.T) {
+	ctx := context.Background()
+	m := newManager(t)
+	repo := gitRepo(t)
+
+	cfg := domain.ProjectConfig{
+		Worker:       domain.RoleOverride{Harness: domain.HarnessHermes},
+		Orchestrator: domain.RoleOverride{Harness: domain.HarnessHermes},
+		Workboard:    domain.WorkboardConfig{WIPLimit: 4},
+	}
+	if _, err := m.Add(ctx, project.AddInput{Path: repo, ProjectID: ptr("hermes-project"), Config: &cfg}); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	got, err := m.Get(ctx, "hermes-project")
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Project == nil || got.Project.Config == nil {
+		t.Fatalf("Get returned no project config: %#v", got)
+	}
+	if got.Project.Config.Worker.Harness != domain.HarnessHermes {
+		t.Fatalf("worker harness = %q, want hermes", got.Project.Config.Worker.Harness)
+	}
+	if got.Project.Config.Orchestrator.Harness != domain.HarnessHermes {
+		t.Fatalf("orchestrator harness = %q, want hermes", got.Project.Config.Orchestrator.Harness)
+	}
+	if got.Project.Config.Workboard.WIPLimit != 4 {
+		t.Fatalf("workboard wip limit = %d, want 4", got.Project.Config.Workboard.WIPLimit)
+	}
+}
+
 func TestManager_ReaddAfterRemove(t *testing.T) {
 	ctx := context.Background()
 	m := newManager(t)
