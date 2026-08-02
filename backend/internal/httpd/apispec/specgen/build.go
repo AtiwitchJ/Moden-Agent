@@ -161,6 +161,7 @@ var schemaNames = map[string]string{
 	"ControllersSplitWorkCardResponse":            "SplitWorkCardResponse",
 	"ControllersListWorkCardsResponse":            "ListWorkCardsResponse",
 	"ControllersListRedoCyclesResponse":           "ListRedoCyclesResponse",
+	"ControllersDispatchFailureResponse":          "DispatchFailureResponse",
 	"ControllersRedoCycleResponse":                "RedoCycleResponse",
 	"ControllersRedoFindingResponse":              "RedoFindingResponse",
 	"DomainFileRef":                               "FileRef",
@@ -392,6 +393,17 @@ func workboardOperations() []operation {
 			pathParams: []any{controllers.WorkCardIDParam{}},
 			resps: []respUnit{
 				{http.StatusOK, controllers.ListRedoCyclesResponse{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodGet, path: "/api/v1/workboard/cards/{cardId}/dispatch-failure", id: "getWorkCardDispatchFailure", tag: "workboard",
+			summary:    "Get the latest safe automatic dispatch failure for a work card",
+			pathParams: []any{controllers.WorkCardIDParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.DispatchFailureResponse{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},
 				{http.StatusNotImplemented, envelope.APIError{}},

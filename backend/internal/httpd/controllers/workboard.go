@@ -27,6 +27,7 @@ type WorkboardService interface {
 	Retarget(ctx context.Context, id string, in workboardsvc.RetargetInput) (domain.WorkCard, error)
 	Split(ctx context.Context, id string, in workboardsvc.SplitInput) (workboardsvc.SplitResult, error)
 	ListRedo(ctx context.Context, cardID string) ([]domain.RedoCycle, error)
+	LatestDispatchFailure(ctx context.Context, cardID string) (workboardsvc.DispatchFailure, error)
 }
 
 // WorkboardController owns the project-scoped work-card routes.
@@ -41,6 +42,7 @@ func (c *WorkboardController) Register(r chi.Router) {
 	r.Get("/workboard/cards", c.listGlobal)
 	r.Post("/workboard/cards", c.createGlobal)
 	r.Get("/workboard/cards/{cardId}/redo", c.listRedo)
+	r.Get("/workboard/cards/{cardId}/dispatch-failure", c.dispatchFailure)
 	r.Get("/projects/{projectId}/workboard/cards", c.list)
 	r.Post("/projects/{projectId}/workboard/cards", c.create)
 	r.Post("/projects/{projectId}/workboard/dispatch", c.dispatch)
@@ -52,6 +54,21 @@ func (c *WorkboardController) Register(r chi.Router) {
 	r.Post("/workboard/cards/{cardId}/nudge", c.nudge)
 	r.Post("/workboard/cards/{cardId}/retarget", c.retarget)
 	r.Post("/workboard/cards/{cardId}/split", c.split)
+}
+
+func (c *WorkboardController) dispatchFailure(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodGet, "/api/v1/workboard/cards/{cardId}/dispatch-failure")
+		return
+	}
+	failure, err := c.Svc.LatestDispatchFailure(r.Context(), chi.URLParam(r, "cardId"))
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, DispatchFailureResponse{
+		CardID: failure.CardID, Reason: failure.Reason, AttemptedAt: failure.AttemptedAt,
+	})
 }
 
 func (c *WorkboardController) updateAutonomous(w http.ResponseWriter, r *http.Request) {

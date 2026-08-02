@@ -313,6 +313,14 @@ type DispatchWorkboardResponse struct {
 	Dispatched bool   `json:"dispatched"`
 }
 
+// DispatchFailureResponse is the safe reason for the latest failed automatic
+// dispatch of a card. It never contains a raw daemon or agent error.
+type DispatchFailureResponse struct {
+	CardID      string    `json:"cardId"`
+	Reason      string    `json:"reason" enum:"hermes_unavailable,non_hermes_orchestrator,spawn_failed"`
+	AttemptedAt time.Time `json:"attemptedAt" format:"date-time"`
+}
+
 func newWorkCardResponse(card domain.WorkCard) WorkCardResponse {
 	return WorkCardResponse{
 		ID: card.ID, ProjectID: card.ProjectID, ProjectName: card.ProjectName, BoardID: card.BoardID, Title: card.Title, Notes: card.Notes,

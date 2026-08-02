@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -32,6 +33,7 @@ type fakeWorkboardService struct {
 	retargetIn workboardsvc.RetargetInput
 	splitID    string
 	splitIn    workboardsvc.SplitInput
+	failure    workboardsvc.DispatchFailure
 }
 
 func (f *fakeWorkboardService) Create(_ context.Context, in workboardsvc.CreateInput) (domain.WorkCard, error) {
@@ -52,6 +54,14 @@ func (f *fakeWorkboardService) ListAll(context.Context) ([]domain.WorkCard, erro
 
 func (f *fakeWorkboardService) ListRedo(context.Context, string) ([]domain.RedoCycle, error) {
 	return nil, nil
+}
+
+func (f *fakeWorkboardService) LatestDispatchFailure(_ context.Context, cardID string) (workboardsvc.DispatchFailure, error) {
+	if f.failure.Reason == "" {
+		return workboardsvc.DispatchFailure{}, apierr.NotFound("WORK_CARD_DISPATCH_FAILURE_NOT_FOUND", "No dispatch failure found for this work card")
+	}
+	f.failure.CardID = cardID
+	return f.failure, nil
 }
 
 func (f *fakeWorkboardService) Get(_ context.Context, id string) (domain.WorkCard, error) {
@@ -362,5 +372,23 @@ func TestDispatchWorkboardEndpoint_KicksTrigger(t *testing.T) {
 	}
 	if len(kicker.kicked) != 1 || kicker.kicked[0] != "proj" {
 		t.Fatalf("kicked = %v, want [proj]", kicker.kicked)
+	}
+}
+
+func TestDispatchFailureEndpoint_ReturnsSafeReason(t *testing.T) {
+	svc := &fakeWorkboardService{failure: workboardsvc.DispatchFailure{
+		Reason: "hermes_unavailable", AttemptedAt: time.Date(2026, 8, 2, 12, 0, 0, 0, time.UTC),
+	}}
+	srv := newWorkboardTestServer(t, svc)
+
+	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/workboard/cards/card_1/dispatch-failure", "")
+	if status != http.StatusOK {
+		t.Fatalf("status = %d, want 200; body=%s", status, body)
+	}
+	if svc.failure.CardID != "card_1" {
+		t.Fatalf("card ID = %q, want card_1", svc.failure.CardID)
+	}
+	if !strings.Contains(body, `"reason":"hermes_unavailable"`) || strings.Contains(body, "raw daemon error") {
+		t.Fatalf("body = %s", body)
 	}
 }

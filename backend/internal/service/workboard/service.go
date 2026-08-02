@@ -3,6 +3,7 @@ package workboard
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"time"
@@ -37,6 +38,18 @@ type Store interface {
 
 type cardDeleter interface {
 	DeleteWorkCard(ctx context.Context, id string) error
+}
+
+type workCardEventLister interface {
+	ListWorkCardEvents(ctx context.Context, cardID string) ([]domain.WorkCardEvent, error)
+}
+
+// DispatchFailure is the safe, user-facing explanation of the latest failed
+// automatic dispatch attempt for a card.
+type DispatchFailure struct {
+	CardID      string
+	Reason      string
+	AttemptedAt time.Time
 }
 
 // CreateInput is the required content and placement of a new work card.
@@ -126,6 +139,43 @@ func NewWithDeps(d Deps) *Service {
 		s.newID = func() string { return "card_" + uuid.NewString() }
 	}
 	return s
+}
+
+// LatestDispatchFailure returns the newest dispatch_failed audit event. It
+// deliberately exposes only the stable reason code, never a daemon or agent
+// error string that could contain implementation details.
+func (s *Service) LatestDispatchFailure(ctx context.Context, cardID string) (DispatchFailure, error) {
+	card, err := s.Get(ctx, cardID)
+	if err != nil {
+		return DispatchFailure{}, err
+	}
+	lister, ok := s.store.(workCardEventLister)
+	if !ok {
+		return DispatchFailure{}, apierr.Internal("WORK_CARD_EVENTS_UNAVAILABLE", "Work card events are unavailable")
+	}
+	events, err := lister.ListWorkCardEvents(ctx, card.ID)
+	if err != nil {
+		return DispatchFailure{}, apierr.Internal("WORK_CARD_EVENTS_LOAD_FAILED", "Failed to load work card events")
+	}
+	for i := len(events) - 1; i >= 0; i-- {
+		event := events[i]
+		if event.Kind != workCardEventDispatchFailed {
+			continue
+		}
+		var payload struct {
+			Reason      string `json:"reason"`
+			AttemptedAt string `json:"attemptedAt"`
+		}
+		if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil || strings.TrimSpace(payload.Reason) == "" {
+			continue
+		}
+		attemptedAt := event.CreatedAt
+		if parsed, err := time.Parse(time.RFC3339, payload.AttemptedAt); err == nil {
+			attemptedAt = parsed
+		}
+		return DispatchFailure{CardID: card.ID, Reason: payload.Reason, AttemptedAt: attemptedAt}, nil
+	}
+	return DispatchFailure{}, apierr.NotFound("WORK_CARD_DISPATCH_FAILURE_NOT_FOUND", "No dispatch failure found for this work card")
 }
 
 // Create validates and persists a new work card.
