@@ -167,6 +167,8 @@ var schemaNames = map[string]string{
 	"DomainFileRef":                               "FileRef",
 	"ControllersUpdateWorkboardAutonomousRequest": "UpdateWorkboardAutonomousRequest",
 	"ControllersWorkboardAutonomousResponse":      "WorkboardAutonomousResponse",
+	"ControllersDirectorStatusResponse":           "DirectorStatusResponse",
+	"ControllersDispatchAttemptResponse":          "DispatchAttemptResponse",
 	"ControllersProjectResponse":                  "ProjectResponse",
 	"ControllersGetProjectResponse":               "ProjectGetResponse",
 	"ControllersProjectOrDegraded":                "ProjectOrDegraded",
@@ -439,6 +441,18 @@ func workboardOperations() []operation {
 			pathParams: []any{controllers.WorkboardProjectIDParam{}},
 			resps: []respUnit{
 				{http.StatusAccepted, controllers.DispatchWorkboardResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodGet, path: "/api/v1/projects/{projectId}/workboard/director-status", id: "getWorkboardDirectorStatus", tag: "workboard",
+			summary:    "Return the daemon's auto-dispatch status for a project",
+			pathParams: []any{controllers.WorkboardProjectIDParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.DirectorStatusResponse{}},
 				{http.StatusBadRequest, envelope.APIError{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},

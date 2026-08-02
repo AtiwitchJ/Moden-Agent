@@ -28,6 +28,7 @@ type WorkboardService interface {
 	Split(ctx context.Context, id string, in workboardsvc.SplitInput) (workboardsvc.SplitResult, error)
 	ListRedo(ctx context.Context, cardID string) ([]domain.RedoCycle, error)
 	LatestDispatchFailure(ctx context.Context, cardID string) (workboardsvc.DispatchFailure, error)
+	DirectorStatus(ctx context.Context, projectID string) (workboardsvc.DirectorStatus, error)
 }
 
 // WorkboardController owns the project-scoped work-card routes.
@@ -35,6 +36,7 @@ type WorkboardController struct {
 	Svc            WorkboardService
 	Projects       projectsvc.Manager
 	DispatchKicker workboardsvc.DispatchKicker
+	StatusProvider workboardsvc.DirectorStatusProvider
 }
 
 // Register mounts the workboard routes on the supplied router.
@@ -46,6 +48,7 @@ func (c *WorkboardController) Register(r chi.Router) {
 	r.Get("/projects/{projectId}/workboard/cards", c.list)
 	r.Post("/projects/{projectId}/workboard/cards", c.create)
 	r.Post("/projects/{projectId}/workboard/dispatch", c.dispatch)
+	r.Get("/projects/{projectId}/workboard/director-status", c.directorStatus)
 	r.Patch("/projects/{id}/workboard/autonomous", c.updateAutonomous)
 	r.Get("/workboard/cards/{cardId}", c.get)
 	r.Delete("/workboard/cards/{cardId}", c.delete)
@@ -140,6 +143,33 @@ func (c *WorkboardController) dispatch(w http.ResponseWriter, r *http.Request) {
 	}
 	c.DispatchKicker.Kick(projectID)
 	envelope.WriteJSON(w, http.StatusAccepted, DispatchWorkboardResponse{ProjectID: projectID, Dispatched: true})
+}
+
+func (c *WorkboardController) directorStatus(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodGet, "/api/v1/projects/{projectId}/workboard/director-status")
+		return
+	}
+	status, err := c.Svc.DirectorStatus(r.Context(), chi.URLParam(r, "projectId"))
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	resp := DirectorStatusResponse{
+		ProjectID:    status.ProjectID,
+		DaemonReady:  status.DaemonReady,
+		RunningCount: status.RunningCount,
+		WIPLimit:     status.WIPLimit,
+		TodoCount:    status.TodoCount,
+	}
+	if !status.LastDispatchAttempt.AttemptedAt.IsZero() {
+		resp.LastDispatchAttempt = DispatchAttemptResponse{
+			AttemptedAt: status.LastDispatchAttempt.AttemptedAt,
+			Result:      status.LastDispatchAttempt.Result,
+			Error:       status.LastDispatchAttempt.Error,
+		}
+	}
+	envelope.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (c *WorkboardController) get(w http.ResponseWriter, r *http.Request) {

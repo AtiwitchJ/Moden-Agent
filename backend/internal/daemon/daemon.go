@@ -145,7 +145,7 @@ func Run() error {
 	workboardTrigger, workboardDone := startWorkboardDispatcher(ctx, store, sessionSvc, runtimeAdapter, log)
 	workboardSvc := workboardsvc.NewWithDeps(workboardsvc.Deps{
 		Store: store, Sender: sessionSvc, Spawner: sessionSvc, Killer: sessionSvc,
-		DispatchKicker: workboardTrigger,
+		DispatchKicker: workboardTrigger, StatusProvider: workboardTrigger,
 	})
 	lcStack.trackerDone = startTrackerIntake(ctx, store, sessionSvc, workboardSvc, log)
 	previewDone := preview.NewPoller(store, sessionSvc, "http://"+cfg.Addr(), preview.PollerConfig{Logger: log}).Start(ctx)
@@ -196,6 +196,7 @@ func Run() error {
 		Import:             importsvc.New(importsvc.Deps{Store: store}),
 		Workboard:          workboardSvc,
 		DispatchTrigger:    workboardTrigger,
+		DirectorStatusProvider: workboardTrigger,
 		CDC:                store,
 		Events:             cdcPipe.Broadcaster,
 		Activity:           lcStack.LCM,

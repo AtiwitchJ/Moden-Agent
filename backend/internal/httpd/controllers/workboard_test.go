@@ -19,21 +19,22 @@ import (
 )
 
 type fakeWorkboardService struct {
-	cards      []domain.WorkCard
-	createIn   workboardsvc.CreateInput
-	updateID   string
-	updateIn   workboardsvc.UpdateInput
-	deleteID   string
-	moveID     string
-	moveStatus domain.CardStatus
-	movePos    int64
-	nudgeID    string
-	nudgeIn    workboardsvc.NudgeInput
-	retargetID string
-	retargetIn workboardsvc.RetargetInput
-	splitID    string
-	splitIn    workboardsvc.SplitInput
-	failure    workboardsvc.DispatchFailure
+	cards         []domain.WorkCard
+	createIn      workboardsvc.CreateInput
+	updateID      string
+	updateIn      workboardsvc.UpdateInput
+	deleteID      string
+	moveID        string
+	moveStatus    domain.CardStatus
+	movePos       int64
+	nudgeID       string
+	nudgeIn       workboardsvc.NudgeInput
+	retargetID    string
+	retargetIn    workboardsvc.RetargetInput
+	splitID       string
+	splitIn       workboardsvc.SplitInput
+	failure       workboardsvc.DispatchFailure
+	directorStatus workboardsvc.DirectorStatus
 }
 
 func (f *fakeWorkboardService) Create(_ context.Context, in workboardsvc.CreateInput) (domain.WorkCard, error) {
@@ -62,6 +63,11 @@ func (f *fakeWorkboardService) LatestDispatchFailure(_ context.Context, cardID s
 	}
 	f.failure.CardID = cardID
 	return f.failure, nil
+}
+
+func (f *fakeWorkboardService) DirectorStatus(_ context.Context, projectID string) (workboardsvc.DirectorStatus, error) {
+	f.directorStatus.ProjectID = projectID
+	return f.directorStatus, nil
 }
 
 func (f *fakeWorkboardService) Get(_ context.Context, id string) (domain.WorkCard, error) {
@@ -388,7 +394,7 @@ func TestDispatchFailureEndpoint_ReturnsSafeReason(t *testing.T) {
 	if svc.failure.CardID != "card_1" {
 		t.Fatalf("card ID = %q, want card_1", svc.failure.CardID)
 	}
-	if !strings.Contains(body, `"reason":"hermes_unavailable"`) || strings.Contains(body, "raw daemon error") {
+	if !strings.Contains(string(body), `"reason":"hermes_unavailable"`) || strings.Contains(string(body), "raw daemon error") {
 		t.Fatalf("body = %s", body)
 	}
 }

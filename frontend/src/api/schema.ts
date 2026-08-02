@@ -488,6 +488,23 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/v1/projects/{projectId}/workboard/director-status": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Return the daemon's auto-dispatch status for a project */
+        get: operations["getWorkboardDirectorStatus"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/projects/{projectId}/workboard/dispatch": {
         parameters: {
             query?: never;
@@ -836,6 +853,23 @@ export interface paths {
         patch: operations["updateWorkCard"];
         trace?: never;
     };
+    "/api/v1/workboard/cards/{cardId}/dispatch-failure": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /** Get the latest safe automatic dispatch failure for a work card */
+        get: operations["getWorkCardDispatchFailure"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/v1/workboard/cards/{cardId}/move": {
         parameters: {
             query?: never;
@@ -1077,6 +1111,28 @@ export interface components {
         DeleteWorkCardResponse: {
             cardId: string;
             ok: boolean;
+        };
+        DirectorStatusResponse: {
+            daemonReady: boolean;
+            lastDispatchAttempt?: components["schemas"]["DispatchAttemptResponse"];
+            projectId: string;
+            runningCount: number;
+            todoCount: number;
+            wipLimit: number;
+        };
+        DispatchAttemptResponse: {
+            /** Format: date-time */
+            attemptedAt: string;
+            error?: string;
+            /** @enum {string} */
+            result: "success" | "wip_full" | "error";
+        };
+        DispatchFailureResponse: {
+            /** Format: date-time */
+            attemptedAt: string;
+            cardId: string;
+            /** @enum {string} */
+            reason: "hermes_unavailable" | "non_hermes_orchestrator" | "spawn_failed";
         };
         DomainActivity: {
             /** Format: date-time */
@@ -3587,6 +3643,65 @@ export interface operations {
             };
         };
     };
+    getWorkboardDirectorStatus: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Project identifier. */
+                projectId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DirectorStatusResponse"];
+                };
+            };
+            /** @description Bad Request */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
     dispatchWorkboard: {
         parameters: {
             query?: never;
@@ -5052,6 +5167,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    getWorkCardDispatchFailure: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Work card identifier. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DispatchFailureResponse"];
                 };
             };
             /** @description Not Found */

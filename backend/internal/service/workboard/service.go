@@ -52,6 +52,18 @@ type DispatchFailure struct {
 	AttemptedAt time.Time
 }
 
+// DirectorStatus is the project-scoped auto-dispatch snapshot returned by the
+// service. It combines durable card counts with the daemon process's readiness
+// and most recent dispatch attempt.
+type DirectorStatus struct {
+	ProjectID           string
+	DaemonReady         bool
+	RunningCount        int
+	WIPLimit            int
+	TodoCount           int
+	LastDispatchAttempt DispatchResult
+}
+
 // CreateInput is the required content and placement of a new work card.
 type CreateInput struct {
 	ProjectID     string
@@ -94,13 +106,14 @@ type OptionalTime struct {
 
 // Service owns work-card validation and orchestration-free CRUD.
 type Service struct {
-	store          Store
-	sender         SessionMessenger
-	spawner        WorkerSpawner
-	killer         SessionKiller
-	dispatchKicker DispatchKicker
-	clock          func() time.Time
-	newID          func() string
+	store           Store
+	sender          SessionMessenger
+	spawner         WorkerSpawner
+	killer          SessionKiller
+	dispatchKicker  DispatchKicker
+	statusProvider  DirectorStatusProvider
+	clock           func() time.Time
+	newID           func() string
 }
 
 // DispatchKicker wakes the daemon's per-project dispatch trigger. It is
@@ -112,13 +125,14 @@ type DispatchKicker interface {
 
 // Deps configures optional collaborators for Service.
 type Deps struct {
-	Store          Store
-	Sender         SessionMessenger
-	Spawner        WorkerSpawner
-	Killer         SessionKiller
-	DispatchKicker DispatchKicker
-	Clock          func() time.Time
-	NewID          func() string
+	Store           Store
+	Sender          SessionMessenger
+	Spawner         WorkerSpawner
+	Killer          SessionKiller
+	DispatchKicker  DispatchKicker
+	StatusProvider  DirectorStatusProvider
+	Clock           func() time.Time
+	NewID           func() string
 }
 
 // New creates a workboard service backed by store.
@@ -130,7 +144,7 @@ func New(store Store) *Service {
 func NewWithDeps(d Deps) *Service {
 	s := &Service{
 		store: d.Store, sender: d.Sender, spawner: d.Spawner, killer: d.Killer,
-		dispatchKicker: d.DispatchKicker, clock: d.Clock, newID: d.NewID,
+		dispatchKicker: d.DispatchKicker, statusProvider: d.StatusProvider, clock: d.Clock, newID: d.NewID,
 	}
 	if s.clock == nil {
 		s.clock = time.Now
@@ -176,6 +190,49 @@ func (s *Service) LatestDispatchFailure(ctx context.Context, cardID string) (Dis
 		return DispatchFailure{CardID: card.ID, Reason: payload.Reason, AttemptedAt: attemptedAt}, nil
 	}
 	return DispatchFailure{}, apierr.NotFound("WORK_CARD_DISPATCH_FAILURE_NOT_FOUND", "No dispatch failure found for this work card")
+}
+
+// DirectorStatus returns a project-scoped auto-dispatch snapshot: daemon
+// readiness, how many cards are running, the resolved WIP limit, how many
+// Todo cards are queued, and the most recent dispatch attempt held by the
+// daemon process.
+func (s *Service) DirectorStatus(ctx context.Context, projectID string) (DirectorStatus, error) {
+	projectID = strings.TrimSpace(projectID)
+	if projectID == "" {
+		return DirectorStatus{}, apierr.Invalid("WORK_CARD_PROJECT_REQUIRED", "Project is required", nil)
+	}
+	project, ok, err := s.store.GetProject(ctx, projectID)
+	if err != nil {
+		return DirectorStatus{}, apierr.Internal("PROJECT_LOAD_FAILED", "Failed to load project")
+	}
+	if !ok || !project.ArchivedAt.IsZero() {
+		return DirectorStatus{}, apierr.NotFound("PROJECT_NOT_FOUND", "Unknown project")
+	}
+	cards, err := s.store.ListWorkCards(ctx, projectID, defaultBoardID)
+	if err != nil {
+		return DirectorStatus{}, apierr.Internal("WORK_CARDS_LIST_FAILED", "Failed to load work cards")
+	}
+	wipLimit := project.Config.Workboard.WIPLimit
+	if wipLimit <= 0 {
+		wipLimit = domain.DefaultWorkboardConfig().WIPLimit
+	}
+	status := DirectorStatus{
+		ProjectID:   projectID,
+		WIPLimit:    wipLimit,
+		DaemonReady: s.statusProvider != nil && s.statusProvider.Ready(),
+	}
+	if s.statusProvider != nil {
+		status.LastDispatchAttempt = s.statusProvider.LastDispatchAttempt(projectID)
+	}
+	for _, card := range cards {
+		switch card.Status {
+		case domain.CardStatusRunning:
+			status.RunningCount++
+		case domain.CardStatusTodo:
+			status.TodoCount++
+		}
+	}
+	return status, nil
 }
 
 // Create validates and persists a new work card.

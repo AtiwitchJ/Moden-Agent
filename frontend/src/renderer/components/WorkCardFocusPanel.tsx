@@ -2,7 +2,13 @@ import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { MoreHorizontal, Split, Target, Trash2, Zap } from "lucide-react";
 import { type FormEvent, useEffect, useId, useState } from "react";
 import type { components } from "../../api/schema";
-import { useWorkCardRedo, workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
+import {
+	useDispatchProject,
+	useWorkCardDispatchFailure,
+	useWorkCardRedo,
+	workboardQueryKey,
+	type WorkCard as WorkboardCard,
+} from "../hooks/useWorkboardQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { formatDatetimeLocalValue, formatScheduledAtDisplay, parseDatetimeLocalValue } from "../lib/workboard-schedule";
 import type { Theme } from "../stores/ui-store";
@@ -162,6 +168,8 @@ export function WorkCardFocusPanel({
 	};
 
 	const redoQuery = useWorkCardRedo(card.id, (card.redoCount ?? 0) > 0 || card.status === "redo");
+	const failureQuery = useWorkCardDispatchFailure(card.id, card.status === "todo");
+	const dispatchMutation = useDispatchProject(projectId);
 
 	return (
 		<aside aria-label={`Focus panel for ${card.title}`} className="flex h-full w-[400px] shrink-0 flex-col border-l border-border bg-surface">
@@ -216,6 +224,39 @@ export function WorkCardFocusPanel({
 							</div>
 						) : <p className="mt-3 border-t border-border pt-3 text-[11px] leading-[1.45] text-passive">No session is linked to this card yet.</p>}
 					</section>
+
+					{failureQuery.data ? (
+						<section className="rounded-md border border-destructive/40 bg-destructive/5 p-3" aria-label="Dispatch failure">
+							<div className="flex items-start justify-between gap-2">
+								<div>
+									<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-destructive">Failed to start</p>
+									<p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground">
+										{failureQuery.data.reason === "hermes_unavailable"
+											? "Hermes commander unavailable"
+											: failureQuery.data.reason === "non_hermes_orchestrator"
+											? "A non-Hermes orchestrator is active"
+											: "Worker spawn failed"}
+									</p>
+									<p className="mt-0.5 text-[10px] text-passive">
+										Attempted {new Date(failureQuery.data.attemptedAt).toLocaleTimeString()}
+									</p>
+								</div>
+								<Button
+									className="shrink-0"
+									disabled={dispatchMutation.isPending || !daemonReady}
+									onClick={() => dispatchMutation.mutate()}
+									size="sm"
+									title={daemonReady ? "Retry dispatch for this project" : "Daemon offline — reconnect to retry"}
+									variant="outline"
+								>
+									{dispatchMutation.isPending ? "Retrying…" : "Retry dispatch"}
+								</Button>
+							</div>
+							{!daemonReady ? (
+								<p className="mt-2 text-[10px] text-destructive">Daemon offline — reconnect Modern Agent to resume.</p>
+							) : null}
+						</section>
+					) : null}
 
 					<section className="space-y-2">
 						<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">Task details</p>

@@ -321,6 +321,26 @@ type DispatchFailureResponse struct {
 	AttemptedAt time.Time `json:"attemptedAt" format:"date-time"`
 }
 
+// DirectorStatusResponse is the project-scoped auto-dispatch snapshot returned
+// by the API. It combines durable card counts with the daemon process's
+// readiness and most recent dispatch attempt.
+type DirectorStatusResponse struct {
+	ProjectID           string              `json:"projectId"`
+	DaemonReady         bool                `json:"daemonReady"`
+	RunningCount        int                 `json:"runningCount"`
+	WIPLimit            int                 `json:"wipLimit"`
+	TodoCount           int                 `json:"todoCount"`
+	LastDispatchAttempt DispatchAttemptResponse `json:"lastDispatchAttempt,omitempty"`
+}
+
+// DispatchAttemptResponse is the display-safe result of the daemon's most
+// recent dispatch attempt for a project.
+type DispatchAttemptResponse struct {
+	AttemptedAt time.Time `json:"attemptedAt" format:"date-time"`
+	Result      string    `json:"result" enum:"success,wip_full,error"`
+	Error       string    `json:"error,omitempty"`
+}
+
 func newWorkCardResponse(card domain.WorkCard) WorkCardResponse {
 	return WorkCardResponse{
 		ID: card.ID, ProjectID: card.ProjectID, ProjectName: card.ProjectName, BoardID: card.BoardID, Title: card.Title, Notes: card.Notes,

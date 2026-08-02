@@ -18,10 +18,26 @@ import (
 const (
 	workCardEventDispatchFailed = "dispatch_failed"
 
-	dispatchFailedReasonHermesUnavailable      = "hermes_unavailable"
+	dispatchFailedReasonHermesUnavailable     = "hermes_unavailable"
 	dispatchFailedReasonNonHermesOrchestrator = "non_hermes_orchestrator"
-	dispatchFailedReasonSpawnFailed          = "spawn_failed"
+	dispatchFailedReasonSpawnFailed           = "spawn_failed"
 )
+
+// DispatchResult is the display-safe outcome of a single dispatch attempt.
+// Result is one of "success", "wip_full", or "error". Error is a stable,
+// non-secret code such as "PROJECT_NOT_FOUND" or "DISPATCH_FAILED".
+type DispatchResult struct {
+	AttemptedAt time.Time `json:"attemptedAt"`
+	Result      string    `json:"result"`
+	Error       string    `json:"error,omitempty"`
+}
+
+// DirectorStatusProvider exposes the daemon process's current view of a
+// project's auto-dispatch health without revealing raw errors or internals.
+type DirectorStatusProvider interface {
+	Ready() bool
+	LastDispatchAttempt(projectID string) DispatchResult
+}
 
 // ErrHermesUnavailable is returned by an OrchestratorSpawner when the project's
 // Hermes commander is not currently reachable. Dispatch records this reason so

@@ -1,8 +1,8 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, SlidersHorizontal } from "lucide-react";
+import { Plus, SlidersHorizontal, Wifi, WifiOff } from "lucide-react";
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { components } from "../../api/schema";
-import { useWorkboardCards, workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
+import { useDirectorStatus, useWorkboardCards, workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { cn } from "../lib/utils";
 import { CreateWorkCardDialog } from "./CreateWorkCardDialog";
@@ -60,6 +60,7 @@ const mapStatusToColumn = (status: string): CardStatus => {
 export function Workboard({ projectId, onShowSessions }: { projectId?: string; onShowSessions?: () => void }) {
 	const queryClient = useQueryClient();
 	const cardsQuery = useWorkboardCards(projectId);
+	const directorStatusQuery = useDirectorStatus(projectId);
 	const workspaceQuery = useWorkspaceQuery();
 	const { daemonStatus } = useShell();
 	const theme = useUiStore((state) => state.theme);
@@ -117,12 +118,32 @@ export function Workboard({ projectId, onShowSessions }: { projectId?: string; o
 
 	return (
 		<div className="flex h-full min-h-0 flex-col bg-background text-foreground">
-			<DashboardSubhead
-				title="Director"
-				subtitle="Direct each task from queue to review, with its commander, worker, and live session in one place."
-				actions={<>{projectId ? <Button onClick={() => setIsAutonomousOpen(true)} size="sm" variant="ghost"><SlidersHorizontal className="size-3.5" aria-hidden="true" />Autonomous</Button> : null}<Button onClick={() => setIsCreateOpen(true)} size="sm"><Plus className="size-3.5" aria-hidden="true" />Create card</Button>{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">Sessions</Button> : null}</>}
-			/>
-			<p className="sr-only" id="workboard-keyboard-help">Press Left or Right Arrow to move the focused card between columns.</p>
+		<DashboardSubhead
+			title="Director"
+			subtitle="Direct each task from queue to review, with its commander, worker, and live session in one place."
+			actions={<>{projectId ? <Button onClick={() => setIsAutonomousOpen(true)} size="sm" variant="ghost"><SlidersHorizontal className="size-3.5" aria-hidden="true" />Autonomous</Button> : null}<Button onClick={() => setIsCreateOpen(true)} size="sm"><Plus className="size-3.5" aria-hidden="true" />Create card</Button>{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">Sessions</Button> : null}</>}
+		/>
+		{projectId && directorStatusQuery.data ? (
+			<div className="flex items-center gap-2 px-[18px]">
+				{directorStatusQuery.data.daemonReady ? (
+					<span className="flex items-center gap-1 text-[11px] text-muted-foreground"><Wifi className="size-3" aria-hidden="true" />Auto-dispatch online</span>
+				) : (
+					<span className="flex items-center gap-1 text-[11px] text-destructive"><WifiOff className="size-3" aria-hidden="true" />Daemon offline — reconnect to resume</span>
+				)}
+				<span className="text-[11px] text-passive">
+					{directorStatusQuery.data.runningCount}/{directorStatusQuery.data.wipLimit} running
+					{directorStatusQuery.data.todoCount > 0 ? (
+						<> · {directorStatusQuery.data.todoCount} queued</>
+					) : null}
+				</span>
+				{directorStatusQuery.data.lastDispatchAttempt?.result === "error" ? (
+					<span className="text-[11px] text-destructive"> · Last dispatch failed</span>
+				) : directorStatusQuery.data.lastDispatchAttempt?.result === "wip_full" ? (
+					<span className="text-[11px] text-passive"> · Queue full</span>
+				) : null}
+			</div>
+		) : null}
+		<p className="sr-only" id="workboard-keyboard-help">Press Left or Right Arrow to move the focused card between columns.</p>
 			<div className="flex min-h-0 flex-1">
 				<div className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden p-[18px]">
 					{cardsQuery.isError ? <p className="py-10 text-center text-[12px] text-passive">Could not load workboard.</p> : (

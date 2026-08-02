@@ -337,6 +337,52 @@ func newTestService(t *testing.T) (*workboard.Service, *store.Store, string) {
 	return newTestServiceWithClock(t, func() time.Time { return testNow })
 }
 
+func TestDirectorStatus_ResolvesCountsAndWIPLimit(t *testing.T) {
+	svc, sqliteStore, root := newTestService(t)
+	ctx := context.Background()
+
+	sqliteStore.UpsertProject(ctx, domain.ProjectRecord{
+		ID: "p2", Path: root, DisplayName: "Project Two", RegisteredAt: testNow,
+		Config: domain.ProjectConfig{Workboard: domain.WorkboardConfig{WIPLimit: 2}},
+	})
+
+	for i, status := range []domain.CardStatus{domain.CardStatusRunning, domain.CardStatusRunning, domain.CardStatusTodo, domain.CardStatusTodo, domain.CardStatusDone} {
+		_, err := svc.Create(ctx, workboard.CreateInput{
+			ProjectID: "p2", Title: "card", Notes: "notes", Priority: domain.CardPriorityNormal,
+			TargetPath: root, Agent: "codex", Status: status,
+		})
+		if err != nil {
+			t.Fatalf("create card %d: %v", i, err)
+		}
+	}
+
+	statusProvider := &fakeDirectorStatusProvider{ready: true, last: workboard.DispatchResult{
+		AttemptedAt: testNow.Add(-time.Minute), Result: "wip_full", Error: "DISPATCH_FAILED",
+	}}
+	svc = workboard.NewWithDeps(workboard.Deps{Store: sqliteStore, Clock: func() time.Time { return testNow }, StatusProvider: statusProvider})
+
+	got, err := svc.DirectorStatus(ctx, "p2")
+	if err != nil {
+		t.Fatalf("DirectorStatus: %v", err)
+	}
+	if got.ProjectID != "p2" || !got.DaemonReady || got.RunningCount != 2 || got.TodoCount != 2 || got.WIPLimit != 2 {
+		t.Fatalf("status = %+v", got)
+	}
+	if got.LastDispatchAttempt.Result != "wip_full" || got.LastDispatchAttempt.Error != "DISPATCH_FAILED" {
+		t.Fatalf("last attempt = %+v", got.LastDispatchAttempt)
+	}
+}
+
+type fakeDirectorStatusProvider struct {
+	ready bool
+	last  workboard.DispatchResult
+}
+
+func (f *fakeDirectorStatusProvider) Ready() bool { return f.ready }
+func (f *fakeDirectorStatusProvider) LastDispatchAttempt(string) workboard.DispatchResult {
+	return f.last
+}
+
 func newTestServiceWithClock(t *testing.T, clock func() time.Time) (*workboard.Service, *store.Store, string) {
 	t.Helper()
 	root := t.TempDir()

@@ -1381,6 +1381,51 @@ paths:
       summary: Create a durable work card on a project board
       tags:
       - workboard
+  /api/v1/projects/{projectId}/workboard/director-status:
+    get:
+      operationId: getWorkboardDirectorStatus
+      parameters:
+      - description: Project identifier.
+        in: path
+        name: projectId
+        required: true
+        schema:
+          description: Project identifier.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DirectorStatusResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Return the daemon's auto-dispatch status for a project
+      tags:
+      - workboard
   /api/v1/projects/{projectId}/workboard/dispatch:
     post:
       operationId: dispatchWorkboard
@@ -2564,6 +2609,45 @@ paths:
       summary: Update mutable work-card fields
       tags:
       - workboard
+  /api/v1/workboard/cards/{cardId}/dispatch-failure:
+    get:
+      operationId: getWorkCardDispatchFailure
+      parameters:
+      - description: Work card identifier.
+        in: path
+        name: cardId
+        required: true
+        schema:
+          description: Work card identifier.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DispatchFailureResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Get the latest safe automatic dispatch failure for a work card
+      tags:
+      - workboard
   /api/v1/workboard/cards/{cardId}/move:
     post:
       operationId: moveWorkCard
@@ -3216,6 +3300,62 @@ components:
       required:
       - ok
       - cardId
+      type: object
+    DirectorStatusResponse:
+      properties:
+        daemonReady:
+          type: boolean
+        lastDispatchAttempt:
+          $ref: '#/components/schemas/DispatchAttemptResponse'
+        projectId:
+          type: string
+        runningCount:
+          type: integer
+        todoCount:
+          type: integer
+        wipLimit:
+          type: integer
+      required:
+      - projectId
+      - daemonReady
+      - runningCount
+      - wipLimit
+      - todoCount
+      type: object
+    DispatchAttemptResponse:
+      properties:
+        attemptedAt:
+          format: date-time
+          type: string
+        error:
+          type: string
+        result:
+          enum:
+          - success
+          - wip_full
+          - error
+          type: string
+      required:
+      - attemptedAt
+      - result
+      type: object
+    DispatchFailureResponse:
+      properties:
+        attemptedAt:
+          format: date-time
+          type: string
+        cardId:
+          type: string
+        reason:
+          enum:
+          - hermes_unavailable
+          - non_hermes_orchestrator
+          - spawn_failed
+          type: string
+      required:
+      - cardId
+      - reason
+      - attemptedAt
       type: object
     DomainActivity:
       properties:

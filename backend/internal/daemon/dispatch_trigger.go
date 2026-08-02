@@ -3,6 +3,7 @@ package daemon
 import (
 	"context"
 	"log/slog"
+	"strings"
 	"sync"
 	"time"
 
@@ -34,6 +35,7 @@ type DispatchTrigger struct {
 type dispatchProject struct {
 	pending bool
 	running bool
+	last    workboardsvc.DispatchResult
 }
 
 // NewDispatchTrigger wires a dispatcher and starts the periodic poll loop.
@@ -110,11 +112,25 @@ func (t *DispatchTrigger) dispatchProject(projectID string) {
 		t.mu.Unlock()
 
 		attemptCtx, cancel := context.WithTimeout(t.ctx, 30*time.Second)
-		_, err := t.dispatcher.DispatchOnce(attemptCtx, projectID)
+		claimed, err := t.dispatcher.DispatchOnce(attemptCtx, projectID)
 		cancel()
-		if err != nil && t.ctx.Err() == nil {
-			t.logger.Warn("workboard dispatch trigger: project dispatch failed", "project", projectID, "err", err)
+		now := time.Now().UTC()
+		result := workboardsvc.DispatchResult{AttemptedAt: now, Result: "success"}
+		if err != nil {
+			result.Result = "error"
+			result.Error = safeDispatchError(err)
+			if t.ctx.Err() == nil {
+				t.logger.Warn("workboard dispatch trigger: project dispatch failed", "project", projectID, "err", err)
+			}
+		} else if len(claimed) == 0 {
+			result.Result = "wip_full"
 		}
+		t.mu.Lock()
+		project = t.projects[projectID]
+		if project != nil {
+			project.last = result
+		}
+		t.mu.Unlock()
 
 		t.mu.Lock()
 		project = t.projects[projectID]
@@ -145,4 +161,48 @@ func (t *DispatchTrigger) Done() <-chan struct{} {
 		return closed
 	}
 	return t.done
+}
+
+// Ready reports whether the trigger is currently accepting kicks. It answers
+// false once the daemon context is cancelled or the periodic poll loop exits.
+func (t *DispatchTrigger) Ready() bool {
+	if t == nil {
+		return false
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return !t.closing && t.ctx.Err() == nil
+}
+
+// LastDispatchAttempt returns the most recent result held by the daemon process
+// for the project, or an empty result when the project has not been dispatched
+// yet.
+func (t *DispatchTrigger) LastDispatchAttempt(projectID string) workboardsvc.DispatchResult {
+	if t == nil || projectID == "" {
+		return workboardsvc.DispatchResult{}
+	}
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	if project, ok := t.projects[projectID]; ok {
+		return project.last
+	}
+	return workboardsvc.DispatchResult{}
+}
+
+// safeDispatchError maps internal errors to a stable, non-secret code for the UI.
+func safeDispatchError(err error) string {
+	if err == nil {
+		return ""
+	}
+	s := err.Error()
+	switch {
+	case strings.Contains(s, "not found"):
+		return "PROJECT_NOT_FOUND"
+	case strings.Contains(s, "requires spawn rollback support"):
+		return "ROLLBACK_UNAVAILABLE"
+	case strings.Contains(s, "requires orchestrator spawn support"):
+		return "ORCHESTRATOR_UNAVAILABLE"
+	default:
+		return "DISPATCH_FAILED"
+	}
 }
