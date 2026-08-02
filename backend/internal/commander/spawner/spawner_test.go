@@ -3,8 +3,10 @@ package spawner_test
 import (
 	"context"
 	"errors"
+	"fmt"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
@@ -16,14 +18,40 @@ import (
 
 // fakeLauncher stores every Spawn call and returns configured handles.
 type fakeLauncher struct {
-	Calls   []spawner.SpawnSpec // specs observed by the launcher
-	Handle  spawner.SessionHandle
+	mu       sync.Mutex
+	Calls    []spawner.SpawnSpec // specs observed by the launcher
+	Handle   spawner.SessionHandle
 	SpawnErr error
+	Started  chan<- struct{}
+	Block    <-chan struct{}
 }
 
 func (f *fakeLauncher) Spawn(ctx context.Context, spec spawner.SpawnSpec) (spawner.SessionHandle, error) {
+	f.mu.Lock()
 	f.Calls = append(f.Calls, spec)
-	return f.Handle, f.SpawnErr
+	handle, spawnErr := f.Handle, f.SpawnErr
+	started, block := f.Started, f.Block
+	f.mu.Unlock()
+	if started != nil {
+		select {
+		case started <- struct{}{}:
+		default:
+		}
+	}
+	if block != nil {
+		select {
+		case <-block:
+		case <-ctx.Done():
+			return spawner.SessionHandle{}, ctx.Err()
+		}
+	}
+	return handle, spawnErr
+}
+
+func (f *fakeLauncher) callCount() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.Calls)
 }
 
 // fakeStore records InsertActiveSession calls in memory.
@@ -36,22 +64,6 @@ func (f *fakeStore) InsertActiveSession(ctx context.Context, s spawner.InsertAct
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.Inserts = append(f.Inserts, s)
-	return nil
-}
-
-// concurrentStore is a thread-safe store that rejects duplicate card IDs.
-type concurrentStore struct {
-	mu      sync.Mutex
-	active  map[string]struct{}
-}
-
-func (c *concurrentStore) InsertActiveSession(ctx context.Context, s spawner.InsertActiveSession) error {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if _, exists := c.active[s.CardID]; exists {
-		return errors.New("active_session for this card already exists")
-	}
-	c.active[s.CardID] = struct{}{}
 	return nil
 }
 
@@ -77,7 +89,7 @@ func TestSpawn_Hermes(t *testing.T) {
 	spec := spawner.SpawnSpec{
 		CardID: "card-1", ProjectID: "proj-1",
 		Phase: spawner.PhaseCoding, Agent: "hermes",
-		Briefing: "hello hermes",
+		Briefing:   "hello hermes",
 		ParentCard: card,
 	}
 
@@ -110,7 +122,7 @@ func TestSpawn_ClaudeCode(t *testing.T) {
 	spec := spawner.SpawnSpec{
 		CardID: "card-2", ProjectID: "proj-1",
 		Phase: spawner.PhaseReview, Agent: "claude-code",
-		Briefing: "review the PR",
+		Briefing:   "review the PR",
 		ParentCard: card,
 	}
 
@@ -135,7 +147,7 @@ func TestSpawn_UnknownAgent(t *testing.T) {
 	spec := spawner.SpawnSpec{
 		CardID: "card-3", ProjectID: "proj-1",
 		Phase: spawner.PhaseCoding, Agent: "nonexistent-agent",
-		Briefing: "oops",
+		Briefing:   "oops",
 		ParentCard: makeCard("card-3", "proj-1", "", "", ""),
 	}
 
@@ -149,36 +161,90 @@ func TestSpawn_ConcurrentSameCard(t *testing.T) {
 	reg, err := registry.Build()
 	require.NoError(t, err)
 
-	// concurrentStore rejects a second insert for the same card — this
-	// simulates the DB unique-constraint enforcement described in the plan.
-	store := &concurrentStore{active: make(map[string]struct{})}
-	fl := &fakeLauncher{Handle: spawner.SessionHandle{ID: "sess-x"}}
+	store := &fakeStore{}
+	started := make(chan struct{}, 1)
+	unblock := make(chan struct{})
+	fl := &fakeLauncher{
+		Handle:  spawner.SessionHandle{ID: "sess-x"},
+		Started: started,
+		Block:   unblock,
+	}
 	s := spawner.New(fl, store, reg, func() int64 { return 1234567890 }, func() string { return "id-x" })
 
 	ctx := context.Background()
 	card := makeCard("card-concurrent", "proj-1", "Concurrent", "", "/repo")
-
-	// First spawn succeeds.
-	spec1 := spawner.SpawnSpec{
+	spec := spawner.SpawnSpec{
 		CardID: "card-concurrent", ProjectID: "proj-1",
 		Phase: spawner.PhaseCoding, Agent: "hermes",
-		Briefing: "first",
+		Briefing:   "concurrent",
 		ParentCard: card,
 	}
-	h1, err := s.Spawn(ctx, spec1)
+
+	firstResult := make(chan error, 1)
+	go func() {
+		_, err := s.Spawn(ctx, spec)
+		firstResult <- err
+	}()
+	require.Eventually(t, func() bool {
+		select {
+		case <-started:
+			return true
+		default:
+			return false
+		}
+	}, time.Second, time.Millisecond)
+
+	_, err = s.Spawn(ctx, spec)
+	require.ErrorIs(t, err, spawner.ErrCardSpawnInProgress)
+	assert.Equal(t, 1, fl.callCount(), "the rejected spawn must not reach the launcher")
+
+	close(unblock)
+	require.NoError(t, <-firstResult)
+	require.Len(t, store.Inserts, 1)
+}
+
+func TestSpawn_ConcurrentDifferentCards(t *testing.T) {
+	t.Parallel()
+	reg, err := registry.Build()
 	require.NoError(t, err)
-	assert.NotEmpty(t, h1.ID)
 
-	// Second concurrent spawn for same card fails — concurrentStore rejects duplicate.
-	spec2 := spawner.SpawnSpec{
-		CardID: "card-concurrent", ProjectID: "proj-1",
-		Phase: spawner.PhaseCoding, Agent: "hermes",
-		Briefing: "second",
-		ParentCard: card,
+	const cardCount = 8
+	store := &fakeStore{}
+	fl := &fakeLauncher{Handle: spawner.SessionHandle{ID: "sess-parallel"}}
+	s := spawner.New(fl, store, reg, func() int64 { return 1234567890 }, func() string { return "id-parallel" })
+
+	start := make(chan struct{})
+	errs := make(chan error, cardCount)
+	var wg sync.WaitGroup
+	for i := 0; i < cardCount; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			<-start
+			_, err := s.Spawn(context.Background(), spawner.SpawnSpec{
+				CardID:     fmt.Sprintf("card-%d", i),
+				ProjectID:  "proj-1",
+				Phase:      spawner.PhaseCoding,
+				Agent:      "hermes",
+				ParentCard: makeCard(fmt.Sprintf("card-%d", i), "proj-1", "Parallel", "", "/repo"),
+			})
+			errs <- err
+		}(i)
 	}
-	_, err = s.Spawn(ctx, spec2)
-	assert.Error(t, err)
-	assert.Contains(t, err.Error(), "already exists")
+	close(start)
+	wg.Wait()
+	close(errs)
+
+	for err := range errs {
+		require.NoError(t, err)
+	}
+	assert.Equal(t, cardCount, fl.callCount())
+	require.Len(t, store.Inserts, cardCount)
+	seen := make(map[string]struct{}, cardCount)
+	for _, insert := range store.Inserts {
+		seen[insert.CardID] = struct{}{}
+	}
+	assert.Len(t, seen, cardCount)
 }
 
 func TestSpawn_LancherError(t *testing.T) {
@@ -187,7 +253,7 @@ func TestSpawn_LancherError(t *testing.T) {
 	require.NoError(t, err)
 
 	fl := &fakeLauncher{
-		Handle:  spawner.SessionHandle{ID: "sess-e"},
+		Handle:   spawner.SessionHandle{ID: "sess-e"},
 		SpawnErr: errors.New("binary not found"),
 	}
 	store := &fakeStore{}
@@ -197,7 +263,7 @@ func TestSpawn_LancherError(t *testing.T) {
 	spec := spawner.SpawnSpec{
 		CardID: "card-e", ProjectID: "proj-1",
 		Phase: spawner.PhaseCoding, Agent: "hermes",
-		Briefing: "will fail",
+		Briefing:   "will fail",
 		ParentCard: makeCard("card-e", "proj-1", "", "", ""),
 	}
 

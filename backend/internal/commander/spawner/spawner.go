@@ -27,9 +27,9 @@ const (
 // SessionHandle identifies a spawned session and carries the agent's native session ID
 // (e.g. the hermes resume token) for future Inject or Stop calls.
 type SessionHandle struct {
-	ID             string // AO-internal session ID
-	NativeID       string // agent-native ID (e.g. hermes session token)
-	WorkspacePath  string
+	ID            string // AO-internal session ID
+	NativeID      string // agent-native ID (e.g. hermes session token)
+	WorkspacePath string
 }
 
 // SpawnSpec describes the session to launch.
@@ -67,30 +67,36 @@ type AgentLauncher interface {
 	Spawn(ctx context.Context, spec SpawnSpec) (SessionHandle, error)
 }
 
+// ErrCardSpawnInProgress is returned when another goroutine is already launching
+// a session for the same card. The caller can retry after that launch completes.
+var ErrCardSpawnInProgress = errors.New("card spawn already in progress")
+
 // cardLock prevents concurrent Spawn calls for the same card from racing on
 // the active_session insert. It is per-card, not global — two different
 // cards can spawn concurrently without blocking each other.
 type cardLock struct {
 	mu     sync.Mutex
-	active map[string]struct{}
+	active bool
 }
 
 func newCardLock() *cardLock {
-	return &cardLock{active: make(map[string]struct{})}
+	return &cardLock{}
 }
 
-func (l *cardLock) Acquire(cardID string) func() {
+// TryAcquire reports whether this caller owns the lock. A caller that did not
+// acquire it must not launch a second process for the same card.
+func (l *cardLock) TryAcquire() (release func(), ok bool) {
 	l.mu.Lock()
 	defer l.mu.Unlock()
-	if _, busy := l.active[cardID]; busy {
-		return func() {}
+	if l.active {
+		return nil, false
 	}
-	l.active[cardID] = struct{}{}
+	l.active = true
 	return func() {
 		l.mu.Lock()
-		delete(l.active, cardID)
+		l.active = false
 		l.mu.Unlock()
-	}
+	}, true
 }
 
 // Deps is the dependency set for a Spawner.
@@ -149,8 +155,9 @@ func (s *Spawner) lockFor(cardID string) *cardLock {
 }
 
 // Spawn launches a session for the given spec. It is safe for concurrent calls
-// for different cards; calls for the same card are serialized via per-card mutex.
-// On success the card is recorded in active_session so the orchestrator can track it.
+// for different cards. A second concurrent call for the same card fails before
+// it can launch another process. On success the card is recorded in
+// active_session so the orchestrator can track it.
 func (s *Spawner) Spawn(ctx context.Context, spec SpawnSpec) (SessionHandle, error) {
 	if s.reg != nil {
 		if _, ok := s.reg.Get(string(domain.AgentHarness(spec.Agent))); !ok {
@@ -159,7 +166,10 @@ func (s *Spawner) Spawn(ctx context.Context, spec SpawnSpec) (SessionHandle, err
 	}
 
 	cardLock := s.lockFor(spec.CardID)
-	release := cardLock.Acquire(spec.CardID)
+	release, ok := cardLock.TryAcquire()
+	if !ok {
+		return SessionHandle{}, fmt.Errorf("%w: %s", ErrCardSpawnInProgress, spec.CardID)
+	}
 	defer release()
 
 	handle, err := s.launcher.Spawn(ctx, spec)
@@ -192,6 +202,8 @@ type RegistryLauncher struct {
 // launch argv via GetLaunchCommand, and returns a handle with the session ID.
 // The actual process start is handled by the session runtime (tmux/pty) which
 // is owned by the session service — RegistryLauncher only produces the argv.
+// TODO(Task 6): replace the CardID placeholder with the real session-service
+// handle once the orchestrator is wired to session creation.
 func (l *RegistryLauncher) Spawn(ctx context.Context, spec SpawnSpec) (SessionHandle, error) {
 	if spec.Agent == "" {
 		return SessionHandle{}, errors.New("agent harness is required")
@@ -221,7 +233,7 @@ func (l *RegistryLauncher) Spawn(ctx context.Context, spec SpawnSpec) (SessionHa
 
 	_ = argv // argv is produced but the actual process spawn is handled by the session runtime
 	return SessionHandle{
-		ID:      spec.CardID,
+		ID:       spec.CardID,
 		NativeID: "",
 	}, nil
 }
