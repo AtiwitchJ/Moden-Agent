@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/google/uuid"
@@ -368,36 +369,32 @@ func dispatchRole(commanding bool) string {
 	return "worker"
 }
 
-// hermesCardBriefing is intentionally a complete, machine-readable snapshot.
-// It includes the auto-commanding policy in the task message because
-// interactive harnesses must receive their operational policy in-band, not
-// only through a launch-time system prompt.
+// hermesCardBriefing is intentionally short: Hermes's system prompt
+// (hermesWorkboardPrompt, session_manager/manager.go) already carries the
+// full automation policy once per session, and `ao workboard get` returns
+// the live card on demand. Repeating the full card JSON and the policy
+// paragraph on every dispatch — including every later card sent to an
+// already-running commander via SpawnOrchestrator's reuse path — was pure
+// waste. This keeps only what Hermes needs before it can even run that
+// command: which card, which goal version, and enough identity to act if
+// the read fails.
 func hermesCardBriefing(card domain.WorkCard) (string, error) {
-	payload, err := json.Marshal(struct {
-		CardID        string              `json:"cardId"`
-		ProjectID     string              `json:"projectId"`
-		Title         string              `json:"title"`
-		Notes         string              `json:"notes"`
-		Priority      domain.CardPriority `json:"priority"`
-		Labels        []string            `json:"labels"`
-		TargetPath    string              `json:"targetPath"`
-		CodingAgent   string              `json:"codingAgent"`
-		ReviewerMode  string              `json:"reviewerMode"`
-		ReviewerAgent string              `json:"reviewerAgent"`
-		TestingAgent  string              `json:"testingAgent"`
-		GoalVersion   int                 `json:"goalVersion"`
-	}{
-		CardID: card.ID, ProjectID: card.ProjectID, Title: card.Title, Notes: card.Notes,
-		Priority: card.Priority, Labels: card.Labels, TargetPath: card.TargetPath,
-		CodingAgent: firstNonEmpty(card.CodingAgent, card.Agent), ReviewerMode: card.ReviewerMode,
-		ReviewerAgent: card.ReviewerAgent, TestingAgent: card.TestingAgent, GoalVersion: card.GoalVersion,
-	})
-	if err != nil {
-		return "", fmt.Errorf("marshal Hermes briefing for card %s: %w", card.ID, err)
+	var b strings.Builder
+	fmt.Fprintf(&b, "New work card: %s\n", card.ID)
+	fmt.Fprintf(&b, "Goal version: %d\n", card.GoalVersion)
+	fmt.Fprintf(&b, "Title: %s\n", card.Title)
+	if card.TargetPath != "" {
+		fmt.Fprintf(&b, "Target: %s\n", card.TargetPath)
 	}
-	return "AO work-card command briefing. You own this card. Refresh it with `ao workboard get " + card.ID + " --json` before acting.\n\n" +
-		"Automation policy: delegate at most one implementation worker at a time. Then command the selected reviewer and testing agents, one phase at a time, with `ao spawn --agent <selected-agent>`; include the card id, goal version, phase, and exact task. Those sessions are child workers and must never replace or terminate this Hermes commander. If the selected agent is Hermes, perform that phase here. Inspect the result and advance the card automatically through review, testing, and done only after the checks pass; otherwise move it to blocked with the exact reason.\n\n" +
-		string(payload), nil
+	fmt.Fprintf(&b, "Coding: %s\n", firstNonEmpty(card.CodingAgent, card.Agent))
+	if card.ReviewerAgent != "" {
+		fmt.Fprintf(&b, "Review: %s\n", card.ReviewerAgent)
+	}
+	if card.TestingAgent != "" {
+		fmt.Fprintf(&b, "Testing: %s\n", card.TestingAgent)
+	}
+	fmt.Fprintf(&b, "\nRead the latest source of truth first:\nao workboard get %s --json\n\nThen plan, delegate, and drive the card through its configured workflow.", card.ID)
+	return b.String(), nil
 }
 
 func cardReadyAt(card domain.WorkCard) time.Time {

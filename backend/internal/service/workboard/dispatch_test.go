@@ -241,8 +241,36 @@ func TestDispatchOnce_HermesProjectBriefsCommanderInsteadOfSpawningWorker(t *tes
 	if got := store.cards["card"].SessionID; got != "hermes-1" {
 		t.Fatalf("card session = %q, want Hermes", got)
 	}
-	if len(spawner.orchestratorPrompts) != 1 || !strings.Contains(spawner.orchestratorPrompts[0], `"cardId":"card"`) || !strings.Contains(spawner.orchestratorPrompts[0], `"codingAgent":"claude-code"`) || !strings.Contains(spawner.orchestratorPrompts[0], "command the selected reviewer and testing agents") || !strings.Contains(spawner.orchestratorPrompts[0], "Those sessions are child workers") {
-		t.Fatalf("briefing = %q", spawner.orchestratorPrompts)
+	prompt := spawner.orchestratorPrompts
+	if len(prompt) != 1 {
+		t.Fatalf("orchestrator prompts = %v, want exactly 1", prompt)
+	}
+	got := prompt[0]
+	wantLines := []string{
+		"New work card: card",
+		"Goal version: 0",
+		"Title: card title",
+		"Coding: claude-code",
+		"ao workboard get card --json",
+	}
+	for _, want := range wantLines {
+		if !strings.Contains(got, want) {
+			t.Fatalf("briefing = %q, want it to contain %q", got, want)
+		}
+	}
+	// The full card JSON and the repeated automation-policy paragraph must be
+	// gone — that policy already lives once in the Hermes system prompt
+	// (hermesWorkboardPrompt), repeating it per card was pure waste.
+	if strings.Contains(got, `"cardId"`) {
+		t.Fatalf("briefing = %q, want no JSON blob (policy now lives only in the system prompt)", got)
+	}
+	if strings.Contains(got, "command the selected reviewer and testing agents") {
+		t.Fatalf("briefing = %q, want no repeated automation-policy paragraph", got)
+	}
+	// card has no TargetPath/ReviewerAgent/TestingAgent set in this fixture,
+	// so those optional lines must not appear at all.
+	if strings.Contains(got, "Target:") || strings.Contains(got, "Review:") || strings.Contains(got, "Testing:") {
+		t.Fatalf("briefing = %q, want optional lines omitted when unset", got)
 	}
 }
 
@@ -711,15 +739,16 @@ func (s *dispatchSpawner) SpawnOrchestrator(_ context.Context, _ domain.ProjectI
 }
 
 func extractCardIDFromBriefing(prompt string) string {
-	idx := strings.Index(prompt, `"cardId":"`)
+	const marker = "New work card: "
+	idx := strings.Index(prompt, marker)
 	if idx == -1 {
 		return ""
 	}
-	rest := prompt[idx+len(`"cardId":"`):]
-	if end := strings.Index(rest, `"`); end != -1 {
-		return rest[:end]
+	rest := prompt[idx+len(marker):]
+	if end := strings.IndexByte(rest, '\n'); end != -1 {
+		return strings.TrimSpace(rest[:end])
 	}
-	return rest
+	return strings.TrimSpace(rest)
 }
 
 func (s *dispatchSpawner) cardIDs() []string {
