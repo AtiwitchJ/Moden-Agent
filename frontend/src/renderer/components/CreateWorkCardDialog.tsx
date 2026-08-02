@@ -3,12 +3,14 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { FolderOpen, Loader2, Plus, X } from "lucide-react";
 import { type FormEvent, type KeyboardEvent, useEffect, useId, useState } from "react";
 import type { components } from "../../api/schema";
+import { agentsQueryOptions } from "../hooks/useAgentsQuery";
 import { workboardQueryKey, type WorkCard } from "../hooks/useWorkboardQuery";
 import { workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { aoBridge } from "../lib/bridge";
 import { DEFAULT_WORKBOARD_CONFIG, WORKBOARD_ORCHESTRATOR_AGENT } from "../lib/workboard-config";
 import { defaultScheduleValue, parseDatetimeLocalValue } from "../lib/workboard-schedule";
+import { RequiredAgentField } from "./CreateProjectAgentSheet";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
 import { Label } from "./ui/label";
@@ -45,6 +47,8 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 	const folderId = useId();
 	const labelsId = useId();
 	const priorityId = useId();
+	const reviewerAgentId = useId();
+	const testingAgentId = useId();
 	const scheduleToggleId = useId();
 	const scheduleLabelId = useId();
 	const scheduledAtId = useId();
@@ -56,6 +60,8 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 	const [labels, setLabels] = useState<string[]>([]);
 	const [labelInput, setLabelInput] = useState("");
 	const [priority, setPriority] = useState<CreateWorkCardRequest["priority"]>("normal");
+	const [reviewerAgent, setReviewerAgent] = useState(WORKBOARD_ORCHESTRATOR_AGENT);
+	const [testingAgent, setTestingAgent] = useState(WORKBOARD_ORCHESTRATOR_AGENT);
 	const [scheduleEnabled, setScheduleEnabled] = useState(false);
 	const [scheduledAtLocal, setScheduledAtLocal] = useState(defaultScheduleValue);
 	const [error, setError] = useState<string>();
@@ -69,6 +75,7 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 			return data?.projects ?? [];
 		},
 	});
+	const agentsQuery = useQuery({ ...agentsQueryOptions, enabled: open });
 
 	const effectiveProjectId = selectedProjectId || projectIdProp || "";
 
@@ -129,6 +136,8 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 			setLabels([]);
 			setLabelInput("");
 			setPriority("normal");
+			setReviewerAgent(WORKBOARD_ORCHESTRATOR_AGENT);
+			setTestingAgent(WORKBOARD_ORCHESTRATOR_AGENT);
 			setScheduleEnabled(false);
 			setScheduledAtLocal(defaultScheduleValue());
 			setError(undefined);
@@ -215,9 +224,9 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 				priority,
 				agent: WORKBOARD_ORCHESTRATOR_AGENT,
 				codingAgent: WORKBOARD_ORCHESTRATOR_AGENT,
-				reviewerMode: "same",
-				reviewerAgent: WORKBOARD_ORCHESTRATOR_AGENT,
-				testingAgent: WORKBOARD_ORCHESTRATOR_AGENT,
+				reviewerMode: reviewerAgent === WORKBOARD_ORCHESTRATOR_AGENT ? "same" : "separate",
+				reviewerAgent,
+				testingAgent,
 				...(scheduleEnabled ? { status: "scheduled" as const, scheduledAt } : {}),
 			},
 		});
@@ -231,7 +240,7 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 					<div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
 						<div className="min-w-0">
 							<Dialog.Title className="text-[15px] font-semibold text-foreground">Create work card</Dialog.Title>
-							<Dialog.Description className="mt-1 text-[12px] text-muted-foreground">Set the goal and folder. Hermes commands implementation, then reviews and tests automatically in the same session.</Dialog.Description>
+							<Dialog.Description className="mt-1 text-[12px] text-muted-foreground">Set the goal and folder. Hermes remains commander and automatically commands the selected review and testing agents.</Dialog.Description>
 						</div>
 						<Dialog.Close asChild>
 							<button aria-label="Close create work card dialog" className="grid size-7 shrink-0 place-items-center rounded-md text-muted-foreground transition hover:bg-surface hover:text-foreground motion-reduce:transition-none" type="button">
@@ -281,15 +290,13 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 									<div aria-label="Coding Agent: Hermes" className="flex h-8 items-center rounded-md border border-input bg-muted/30 px-3 font-mono text-[13px] text-foreground">hermes</div>
 								</div>
 								<div className="space-y-1.5">
-									<Label>Review</Label>
-									<div aria-label="Review: Hermes automatic" className="flex h-8 items-center rounded-md border border-input bg-muted/30 px-3 font-mono text-[13px] text-foreground">hermes · auto</div>
+									<RequiredAgentField authorized={agentsQuery.data?.authorized} disabled={agentsQuery.isFetching && !agentsQuery.data} id={reviewerAgentId} installed={agentsQuery.data?.installed} label="Review agent" onChange={setReviewerAgent} placeholder="Select review agent" supported={agentsQuery.data?.supported} value={reviewerAgent} />
 								</div>
 								<div className="space-y-1.5">
-									<Label>Testing</Label>
-									<div aria-label="Testing: Hermes automatic" className="flex h-8 items-center rounded-md border border-input bg-muted/30 px-3 font-mono text-[13px] text-foreground">hermes · auto</div>
+									<RequiredAgentField authorized={agentsQuery.data?.authorized} disabled={agentsQuery.isFetching && !agentsQuery.data} id={testingAgentId} installed={agentsQuery.data?.installed} label="Testing agent" onChange={setTestingAgent} placeholder="Select testing agent" supported={agentsQuery.data?.supported} value={testingAgent} />
 								</div>
 							</div>
-							<p className="text-[11px] leading-[1.45] text-muted-foreground">No separate reviewer or tester terminal is created. Hermes runs the review and checks, then advances the card automatically.</p>
+							<p className="text-[11px] leading-[1.45] text-muted-foreground">Hermes commands these agents automatically and keeps ownership of the card. Their work runs as child sessions and never replaces the Hermes terminal.</p>
 						</div>
 						<div className="space-y-2 rounded-md border border-border px-3 py-3">
 							<label className="flex items-start gap-3 text-[13px]" htmlFor={scheduleToggleId}>

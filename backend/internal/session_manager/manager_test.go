@@ -2508,10 +2508,10 @@ func TestReconcileReap_TerminatedAndDeadTmuxLeftAlone(t *testing.T) {
 func TestHermesWorkboardPromptKeepsReviewAndTestingInCommander(t *testing.T) {
 	prompt := hermesWorkboardPrompt()
 	for _, want := range []string{
-		"personally perform the review and testing from this Hermes commander session",
-		"Do not spawn a separate reviewer or testing session",
-		"even to older cards whose reviewer or testing field names another agent",
-		"Advance the card automatically through review, testing, and done",
+		"command the selected reviewer and testing agents",
+		"Their sessions are child workers",
+		"If the selected agent is Hermes, perform that phase yourself",
+		"advance the card automatically through review, testing, and done",
 	} {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("Hermes workboard prompt missing %q:\n%s", want, prompt)

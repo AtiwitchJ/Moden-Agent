@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -39,9 +39,9 @@ function renderDialog() {
 beforeEach(() => {
 	getMock.mockReset().mockResolvedValue({
 		data: {
-			supported: [{ id: "codex", label: "Codex" }],
-			installed: [{ id: "codex", label: "Codex", authStatus: "authorized" }],
-			authorized: [{ id: "codex", label: "Codex", authStatus: "authorized" }],
+			supported: [{ id: "hermes", label: "Hermes" }, { id: "codex", label: "Codex" }, { id: "claude-code", label: "Claude Code" }],
+			installed: [{ id: "hermes", label: "Hermes", authStatus: "authorized" }, { id: "codex", label: "Codex", authStatus: "authorized" }, { id: "claude-code", label: "Claude Code", authStatus: "authorized" }],
+			authorized: [{ id: "hermes", label: "Hermes", authStatus: "authorized" }, { id: "codex", label: "Codex", authStatus: "authorized" }, { id: "claude-code", label: "Claude Code", authStatus: "authorized" }],
 		},
 		error: undefined,
 	});
@@ -80,15 +80,13 @@ describe("CreateWorkCardDialog", () => {
 		});
 	});
 
-	it("uses Hermes automatically for coding, review, and testing", () => {
+	it("keeps Hermes as commander while allowing review and testing delegates", async () => {
 		renderDialog();
 
 		expect(screen.getByLabelText("Coding Agent: Hermes")).toHaveTextContent("hermes");
-		expect(screen.getByLabelText("Review: Hermes automatic")).toHaveTextContent("hermes · auto");
-		expect(screen.getByLabelText("Testing: Hermes automatic")).toHaveTextContent("hermes · auto");
+		await waitFor(() => expect(screen.getByRole("combobox", { name: "Review agent" })).toHaveTextContent("Hermes"));
+		expect(screen.getByRole("combobox", { name: "Testing agent" })).toHaveTextContent("Hermes");
 		expect(screen.queryByRole("combobox", { name: "Coding Agent" })).not.toBeInTheDocument();
-		expect(screen.queryByRole("combobox", { name: "Reviewer Mode" })).not.toBeInTheDocument();
-		expect(screen.queryByRole("combobox", { name: "Testing Agent (Optional)" })).not.toBeInTheDocument();
 	});
 
 	it("creates a scheduled card when schedule for later is enabled", async () => {
@@ -121,6 +119,10 @@ describe("CreateWorkCardDialog", () => {
 		await user.type(screen.getByLabelText("Notes"), "Keep compiler errors actionable.");
 		await user.type(screen.getByLabelText("Folder *"), "/repo/project");
 		await user.type(screen.getByLabelText("Labels"), "frontend{Enter}");
+		await user.click(screen.getByRole("combobox", { name: "Review agent" }));
+		await user.click(screen.getByRole("option", { name: "Claude Code" }));
+		await user.click(screen.getByRole("combobox", { name: "Testing agent" }));
+		await user.click(screen.getByRole("option", { name: "Codex" }));
 		await user.click(screen.getByRole("checkbox", { name: /Schedule for later/i }));
 		await user.click(screen.getByRole("button", { name: "Create card" }));
 
@@ -135,9 +137,9 @@ describe("CreateWorkCardDialog", () => {
 				priority: "normal",
 				agent: "hermes",
 				codingAgent: "hermes",
-				reviewerMode: "same",
-				reviewerAgent: "hermes",
-				testingAgent: "hermes",
+				reviewerMode: "separate",
+				reviewerAgent: "claude-code",
+				testingAgent: "codex",
 				status: "scheduled",
 				scheduledAt: "2026-07-17T15:30:00.000Z",
 			},
