@@ -722,24 +722,52 @@ git commit -m "refactor(ui): extract SessionDot into its own component"
 ### Task 6: `CodeSidebar` — New / Recents / More
 
 **Files:**
+- Modify: `frontend/src/renderer/stores/ui-store.ts`
 - Create: `frontend/src/renderer/components/CodeSidebar.tsx`
 - Test: `frontend/src/renderer/components/CodeSidebar.test.tsx`
 
 **Interfaces:**
-- Consumes: `recentSessions` (Task 1), `formatRelativeTime` (Task 2), `SessionDot` (Task 5), shadcn `Sidebar`/`DropdownMenu` primitives, `useUiStore` (theme).
-- Produces: `CodeSidebar({ workspaces: WorkspaceSummary[] })` and `export const CODE_HOME_COMPOSER_INPUT_ID = "code-home-composer-input"`. Task 7 (`CodeHomeComposer`) imports the id constant to tag its prompt input. Task 9 mounts `CodeSidebar` in `_shell.tsx`.
+- Consumes: `recentSessions` (Task 1), `formatRelativeTime` (Task 2), `SessionDot` (Task 5), shadcn `Sidebar`/`DropdownMenu` primitives, `useUiStore` (theme, and the new `requestComposerFocus` signal below).
+- Produces: `CodeSidebar({ workspaces: WorkspaceSummary[] })`. Task 9 mounts it in `_shell.tsx`.
 
-- [ ] **Step 1: Write the failing test**
+CodeSidebar's New button lives in a different part of the tree than the composer (sidebar vs. route outlet — not parent/child), so it can't just call a ref. Rather than reach across via a DOM id (fragile: depends on a global id string staying in sync between two unrelated files, and a bare `document.getElementById` + `requestAnimationFrame` poke), this uses the same mechanism the codebase already uses for cross-component UI signals: a counter in `useUiStore` (see `restartingProjectIds`/`setProjectRestarting` for the existing pattern this follows). CodeSidebar bumps it; CodeHomeComposer's focus effect (Task 7) depends on it, so it re-fires on every bump — including the very first render, which is what gives the composer its focus-on-mount behavior too, with no separate effect needed for that case.
+
+- [ ] **Step 1: Extend `ui-store.ts`**
+
+In `frontend/src/renderer/stores/ui-store.ts`, add to `UiState`:
+
+```ts
+	focusComposerSignal: number;
+	requestComposerFocus: () => void;
+```
+
+Add to the store's initial state (alongside `restartingProjectIds: new Set<string>()`):
+
+```ts
+	focusComposerSignal: 0,
+```
+
+Add the action (alongside `setProjectRestarting`):
+
+```ts
+	requestComposerFocus: () => set((state) => ({ focusComposerSignal: state.focusComposerSignal + 1 })),
+```
+
+- [ ] **Step 2: Write the failing test**
 
 ```tsx
 // frontend/src/renderer/components/CodeSidebar.test.tsx
 import { QueryClientProvider, QueryClient } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceSummary } from "../types/workspace";
 
-const { navigateMock, pathnameMock } = vi.hoisted(() => ({ navigateMock: vi.fn(), pathnameMock: vi.fn(() => "/") }));
+const { navigateMock, pathnameMock, requestComposerFocusMock } = vi.hoisted(() => ({
+	navigateMock: vi.fn(),
+	pathnameMock: vi.fn(() => "/"),
+	requestComposerFocusMock: vi.fn(),
+}));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@tanstack/react-router")>();
@@ -750,15 +778,23 @@ vi.mock("@tanstack/react-router", async (importOriginal) => {
 	};
 });
 
+vi.mock("../stores/ui-store", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("../stores/ui-store")>();
+	return {
+		...actual,
+		useUiStore: (selector: (s: { theme: string; toggleTheme: () => void; requestComposerFocus: () => void }) => unknown) =>
+			selector({ theme: "dark", toggleTheme: vi.fn(), requestComposerFocus: requestComposerFocusMock }),
+	};
+});
+
 import { SidebarProvider } from "./ui/sidebar";
-import { CodeSidebar, CODE_HOME_COMPOSER_INPUT_ID } from "./CodeSidebar";
+import { CodeSidebar } from "./CodeSidebar";
 
 function renderSidebar(workspaces: WorkspaceSummary[]) {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	return render(
 		<QueryClientProvider client={queryClient}>
 			<SidebarProvider>
-				<input id={CODE_HOME_COMPOSER_INPUT_ID} aria-label="composer stand-in" />
 				<CodeSidebar workspaces={workspaces} />
 			</SidebarProvider>
 		</QueryClientProvider>,
@@ -766,7 +802,7 @@ function renderSidebar(workspaces: WorkspaceSummary[]) {
 }
 
 describe("CodeSidebar", () => {
-	it("clicking New navigates home when on another route, and focuses the composer input", async () => {
+	it("clicking New navigates home when on another route, and requests composer focus", async () => {
 		const user = userEvent.setup();
 		pathnameMock.mockReturnValue("/prs");
 		renderSidebar([]);
@@ -774,10 +810,10 @@ describe("CodeSidebar", () => {
 		await user.click(screen.getByRole("button", { name: "New" }));
 
 		expect(navigateMock).toHaveBeenCalledWith({ to: "/" });
-		await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("composer stand-in")));
+		expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
 	});
 
-	it("clicking New while already home skips navigate and just focuses the composer input", async () => {
+	it("clicking New while already home skips navigate but still requests composer focus", async () => {
 		const user = userEvent.setup();
 		pathnameMock.mockReturnValue("/");
 		renderSidebar([]);
@@ -785,7 +821,7 @@ describe("CodeSidebar", () => {
 		await user.click(screen.getByRole("button", { name: "New" }));
 
 		expect(navigateMock).not.toHaveBeenCalled();
-		await waitFor(() => expect(document.activeElement).toBe(screen.getByLabelText("composer stand-in")));
+		expect(requestComposerFocusMock).toHaveBeenCalledTimes(1);
 	});
 
 	it("lists recent sessions across workspaces and navigates to the clicked one", async () => {
@@ -880,10 +916,6 @@ import {
 const RECENTS_LIMIT = 20;
 const isMac = typeof navigator !== "undefined" && /Mac|iPod|iPhone|iPad/.test(navigator.userAgent);
 
-/** DOM id CodeHomeComposer tags its prompt input with, so New (below) can
- * focus it without any shared state — just navigate home, then focus. */
-export const CODE_HOME_COMPOSER_INPUT_ID = "code-home-composer-input";
-
 export type CodeSidebarProps = {
 	workspaces: WorkspaceSummary[];
 };
@@ -897,11 +929,16 @@ export function CodeSidebar({ workspaces }: CodeSidebarProps) {
 	const pathname = useRouterState({ select: (state) => state.location.pathname });
 	const theme = useUiStore((s) => s.theme);
 	const toggleTheme = useUiStore((s) => s.toggleTheme);
+	const requestComposerFocus = useUiStore((s) => s.requestComposerFocus);
 	const recents = recentSessions(workspaces, RECENTS_LIMIT);
 
+	// New only ever focuses the composer — never a separate dialog. The
+	// composer isn't a child of this sidebar (it lives in the route outlet),
+	// so "focus it" is a ui-store signal, not a ref: navigate home first if
+	// elsewhere, then bump the signal CodeHomeComposer's effect watches.
 	const goNew = () => {
 		if (pathname !== "/") void navigate({ to: "/" });
-		requestAnimationFrame(() => document.getElementById(CODE_HOME_COMPOSER_INPUT_ID)?.focus());
+		requestComposerFocus();
 	};
 
 	return (
@@ -1020,7 +1057,7 @@ export function CodeSidebar({ workspaces }: CodeSidebarProps) {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npx vitest run --config vite.renderer.config.ts src/renderer/components/CodeSidebar.test.tsx`
-Expected: PASS (4/4).
+Expected: PASS (5/5).
 
 - [ ] **Step 5: Run typecheck**
 
@@ -1030,7 +1067,7 @@ Expected: clean.
 - [ ] **Step 6: Commit**
 
 ```bash
-git add frontend/src/renderer/components/CodeSidebar.tsx frontend/src/renderer/components/CodeSidebar.test.tsx
+git add frontend/src/renderer/stores/ui-store.ts frontend/src/renderer/components/CodeSidebar.tsx frontend/src/renderer/components/CodeSidebar.test.tsx
 git commit -m "feat(ui): add CodeSidebar (New / Recents / More)"
 ```
 
@@ -1043,7 +1080,7 @@ git commit -m "feat(ui): add CodeSidebar (New / Recents / More)"
 - Test: `frontend/src/renderer/components/CodeHomeComposer.test.tsx`
 
 **Interfaces:**
-- Consumes: `useShell().createProject` (Task 4's widened return type), `spawnOrchestrator`, `CreateProjectFlow` + `type CreateProjectAgentSelection` (existing), `CODE_HOME_COMPOSER_INPUT_ID` (Task 6).
+- Consumes: `useShell().createProject` (Task 4's widened return type), `spawnOrchestrator`, `CreateProjectFlow` + `type CreateProjectAgentSelection` (existing), `useUiStore`'s `focusComposerSignal` (Task 6).
 - Produces: `CodeHomeComposer()` — no props. Consumed by Task 8 (`CodeHome`).
 
 - [ ] **Step 1: Write the failing test**
@@ -1055,11 +1092,12 @@ import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 
-const { navigateMock, postMock, spawnOrchestratorMock, createProjectMock } = vi.hoisted(() => ({
+const { navigateMock, postMock, spawnOrchestratorMock, createProjectMock, focusSignalMock } = vi.hoisted(() => ({
 	navigateMock: vi.fn(),
 	postMock: vi.fn(),
 	spawnOrchestratorMock: vi.fn(),
 	createProjectMock: vi.fn(),
+	focusSignalMock: vi.fn(() => 0),
 }));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
@@ -1079,22 +1117,46 @@ vi.mock("../hooks/useWorkspaceQuery", () => ({
 		data: [{ id: "proj1", name: "Proj One", path: "/proj1", sessions: [] }],
 	}),
 }));
+vi.mock("../stores/ui-store", () => ({
+	useUiStore: (selector: (s: { focusComposerSignal: number }) => unknown) => selector({ focusComposerSignal: focusSignalMock() }),
+}));
 
 import { CodeHomeComposer } from "./CodeHomeComposer";
 
 function renderComposer() {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-	return render(
+	const view = render(
 		<QueryClientProvider client={queryClient}>
 			<CodeHomeComposer />
 		</QueryClientProvider>,
 	);
+	return {
+		...view,
+		rerenderComposer: () =>
+			view.rerender(
+				<QueryClientProvider client={queryClient}>
+					<CodeHomeComposer />
+				</QueryClientProvider>,
+			),
+	};
 }
 
 describe("CodeHomeComposer", () => {
 	it("focuses the prompt input on mount", () => {
 		renderComposer();
 		expect(screen.getByLabelText("Prompt")).toHaveFocus();
+	});
+
+	it("re-focuses the prompt input whenever focusComposerSignal bumps (New clicked while already home)", () => {
+		const { rerenderComposer } = renderComposer();
+		const input = screen.getByLabelText("Prompt");
+		input.blur();
+		expect(input).not.toHaveFocus();
+
+		focusSignalMock.mockReturnValue(1);
+		rerenderComposer();
+
+		expect(input).toHaveFocus();
 	});
 
 	it("existing project: spawns a session, sends the prompt, and navigates", async () => {
@@ -1138,8 +1200,8 @@ import { useWorkspaceQuery } from "../hooks/useWorkspaceQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { useShell } from "../lib/shell-context";
 import { spawnOrchestrator } from "../lib/spawn-orchestrator";
+import { useUiStore } from "../stores/ui-store";
 import type { CreateProjectAgentSelection } from "./CreateProjectAgentSheet";
-import { CODE_HOME_COMPOSER_INPUT_ID } from "./CodeSidebar";
 import { CreateProjectFlow } from "./Sidebar";
 import { Button } from "./ui/button";
 import { Input } from "./ui/input";
@@ -1161,10 +1223,14 @@ export function CodeHomeComposer() {
 	const [error, setError] = useState<string | null>(null);
 	const [isSubmitting, setIsSubmitting] = useState(false);
 	const inputRef = useRef<HTMLInputElement>(null);
+	const focusComposerSignal = useUiStore((s) => s.focusComposerSignal);
 
+	// Fires on mount (giving the composer its default focus-on-load) and again
+	// every time CodeSidebar's New button bumps the signal — the one shared
+	// path for "focus the composer," instead of a separate mount-only effect.
 	useEffect(() => {
 		inputRef.current?.focus();
-	}, []);
+	}, [focusComposerSignal]);
 
 	const sendFirstMessage = async (sessionId: string) => {
 		const message = draft.trim();
@@ -1247,7 +1313,6 @@ export function CodeHomeComposer() {
 						aria-label="Prompt"
 						className="h-9 flex-1"
 						disabled={isSubmitting || pickerBusy}
-						id={CODE_HOME_COMPOSER_INPUT_ID}
 						onChange={(event) => setDraft(event.target.value)}
 						placeholder="Describe what to work on…"
 						ref={inputRef}
@@ -1267,7 +1332,7 @@ export function CodeHomeComposer() {
 - [ ] **Step 4: Run test to verify it passes**
 
 Run: `cd frontend && npx vitest run --config vite.renderer.config.ts src/renderer/components/CodeHomeComposer.test.tsx`
-Expected: PASS (2/2).
+Expected: PASS (3/3).
 
 - [ ] **Step 5: Run typecheck**
 
