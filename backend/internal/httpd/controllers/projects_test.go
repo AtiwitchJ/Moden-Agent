@@ -216,8 +216,6 @@ func TestProjectsAPI_AddValidationAndConflicts(t *testing.T) {
 		{name: "invalid json", body: `{`, wantStatus: 400, wantCode: "INVALID_JSON"},
 
 		{name: "missing path", body: `{}`, wantStatus: 400, wantCode: "PATH_REQUIRED"},
-
-		{name: "not git", body: `{"path":` + quote(notRepo) + `}`, wantStatus: 400, wantCode: "NOT_A_GIT_REPO"},
 	}
 
 	for _, tc := range cases {
@@ -232,7 +230,16 @@ func TestProjectsAPI_AddValidationAndConflicts(t *testing.T) {
 
 	}
 
-	body, status, _ := doRequest(t, srv, "POST", "/api/v1/projects", `{"path":`+quote(repoA)+`,"projectId":"shared"}`)
+	// A non-git folder is no longer an error: the daemon auto-inits it.
+	body, status, _ := doRequest(t, srv, "POST", "/api/v1/projects", `{"path":`+quote(notRepo)+`,"projectId":"auto-init"}`)
+
+	if status != http.StatusCreated {
+
+		t.Fatalf("auto-init create = %d, want 201; body=%s", status, body)
+
+	}
+
+	body, status, _ = doRequest(t, srv, "POST", "/api/v1/projects", `{"path":`+quote(repoA)+`,"projectId":"shared"}`)
 
 	if status != http.StatusCreated {
 

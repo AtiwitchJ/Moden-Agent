@@ -560,9 +560,6 @@ func TestManager_AddValidationAndConflicts(t *testing.T) {
 	_, err := m.Add(ctx, project.AddInput{Path: ""})
 	wantCode(t, err, "PATH_REQUIRED")
 
-	_, err = m.Add(ctx, project.AddInput{Path: t.TempDir()}) // exists but not a git repo
-	wantCode(t, err, "NOT_A_GIT_REPO")
-
 	// An embedded ".." passes the id pattern but would yield an invalid git
 	// branch (ao/a..b-1) at spawn time; reject it up front as a clear 400.
 	_, err = m.Add(ctx, project.AddInput{Path: gitRepo(t), ProjectID: ptr("a..b")})
@@ -577,6 +574,86 @@ func TestManager_AddValidationAndConflicts(t *testing.T) {
 
 	_, err = m.Add(ctx, project.AddInput{Path: repoB, ProjectID: ptr("shared")})
 	wantCode(t, err, "ID_ALREADY_REGISTERED")
+}
+
+// Non-git folders are auto-initialized instead of rejected: the daemon runs
+// `git init` + an initial commit itself so users can open any folder without
+// knowing git exists (Claude Code-style). Git stays load-bearing internally
+// (worktree-per-session), so the init must leave a resolvable HEAD behind.
+func TestManager_AddAutoInitsNonGitFolder(t *testing.T) {
+	ctx := context.Background()
+	m := newManager(t)
+
+	t.Run("empty folder", func(t *testing.T) {
+		dir := t.TempDir()
+		p, err := m.Add(ctx, project.AddInput{Path: dir, ProjectID: ptr("auto-empty")})
+		if err != nil {
+			t.Fatalf("Add empty non-git folder: %v", err)
+		}
+		assertInitializedRepo(t, dir)
+		if p.Path != dir {
+			t.Fatalf("project path = %q, want %q", p.Path, dir)
+		}
+	})
+
+	t.Run("folder with files commits them", func(t *testing.T) {
+		dir := t.TempDir()
+		if err := os.WriteFile(filepath.Join(dir, "notes.txt"), []byte("hello"), 0o600); err != nil {
+			t.Fatalf("write file: %v", err)
+		}
+		if _, err := m.Add(ctx, project.AddInput{Path: dir, ProjectID: ptr("auto-files")}); err != nil {
+			t.Fatalf("Add non-git folder with files: %v", err)
+		}
+		assertInitializedRepo(t, dir)
+		// The pre-existing file must be part of the initial commit, so session
+		// worktrees branched from HEAD actually contain the user's files.
+		out, err := exec.Command("git", "-C", dir, "ls-tree", "--name-only", "HEAD").CombinedOutput()
+		if err != nil {
+			t.Fatalf("git ls-tree: %v (%s)", err, out)
+		}
+		if !strings.Contains(string(out), "notes.txt") {
+			t.Fatalf("initial commit missing notes.txt, got: %s", out)
+		}
+	})
+
+	t.Run("existing repo is not re-initialized", func(t *testing.T) {
+		dir := gitRepoOnBranch(t, "trunk")
+		if err := os.WriteFile(filepath.Join(dir, "README.md"), []byte("hi\n"), 0o600); err != nil {
+			t.Fatalf("write readme: %v", err)
+		}
+		for _, args := range [][]string{{"add", "-A"}, {"commit", "-m", "initial"}} {
+			if out, err := exec.Command("git", append([]string{"-C", dir}, args...)...).CombinedOutput(); err != nil {
+				t.Fatalf("git %v: %v (%s)", args, err, out)
+			}
+		}
+		if _, err := m.Add(ctx, project.AddInput{Path: dir, ProjectID: ptr("auto-existing")}); err != nil {
+			t.Fatalf("Add existing repo: %v", err)
+		}
+		// Still on its own branch — init -b main did not run over it.
+		out, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").CombinedOutput()
+		if err != nil {
+			t.Fatalf("git rev-parse: %v (%s)", err, out)
+		}
+		if got := strings.TrimSpace(string(out)); got != "trunk" {
+			t.Fatalf("existing repo branch = %q, want trunk", got)
+		}
+	})
+}
+
+// assertInitializedRepo verifies the auto-init left a usable repo behind: a
+// git dir on branch main with a resolvable HEAD (worktree spawn needs HEAD).
+func assertInitializedRepo(t *testing.T, dir string) {
+	t.Helper()
+	out, err := exec.Command("git", "-C", dir, "rev-parse", "--abbrev-ref", "HEAD").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse --abbrev-ref HEAD: %v (%s)", err, out)
+	}
+	if got := strings.TrimSpace(string(out)); got != "main" {
+		t.Fatalf("branch = %q, want main", got)
+	}
+	if out, err := exec.Command("git", "-C", dir, "rev-parse", "HEAD").CombinedOutput(); err != nil {
+		t.Fatalf("HEAD not resolvable after auto-init: %v (%s)", err, out)
+	}
 }
 
 // gitRepoWithOrigin creates a real git repo with an `origin` remote pointing

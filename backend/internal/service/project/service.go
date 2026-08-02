@@ -232,7 +232,13 @@ func (m *Service) Add(ctx context.Context, in AddInput) (Project, error) {
 		return p, nil
 	}
 	if !isGitRepo(path) {
-		return Project{}, apierr.Invalid("NOT_A_GIT_REPO", "Repository path must point to a git repository", nil)
+		// Auto-initialize instead of rejecting: users open any folder without
+		// knowing git exists (Claude Code-style). Git stays load-bearing
+		// internally — worktree-per-session needs a repo with a resolvable
+		// HEAD — so init must leave an initial commit behind.
+		if err := initSingleRepoProject(ctx, path); err != nil {
+			return Project{}, err
+		}
 	}
 	row.RepoOriginURL = resolveGitOriginURL(path)
 	if in.AsDocsRepo {
@@ -485,6 +491,30 @@ func normalizePath(raw string) (string, error) {
 		return "", apierr.Invalid("INVALID_PATH", "Repository path is invalid", nil)
 	}
 	return filepath.Clean(abs), nil
+}
+
+// initSingleRepoProject turns a non-git folder into a usable project repo:
+// `git init -b main`, stage everything, and create the initial commit
+// (--allow-empty so an empty folder still gets a resolvable HEAD, which
+// session worktree spawn requires). On failure the fresh .git dir is removed
+// so the user's folder is left untouched — mirrors initWorkspaceParent's
+// rollback contract for workspace parents.
+func initSingleRepoProject(ctx context.Context, path string) (retErr error) {
+	if _, err := gitOutput(ctx, path, "init", "-b", domain.DefaultBranchName); err != nil {
+		return apierr.Invalid("PROJECT_INIT_FAILED", "Failed to initialize git repository for project", map[string]any{"error": err.Error()})
+	}
+	defer func() {
+		if retErr != nil {
+			_ = os.RemoveAll(filepath.Join(path, ".git"))
+		}
+	}()
+	if _, err := gitOutput(ctx, path, "add", "-A"); err != nil {
+		return apierr.Invalid("PROJECT_INIT_FAILED", "Failed to stage project files", map[string]any{"error": err.Error()})
+	}
+	if _, err := gitOutput(ctx, path, "commit", "--allow-empty", "-m", "chore: initialize AO project"); err != nil {
+		return apierr.Invalid("PROJECT_INIT_FAILED", "Failed to create project initial commit", map[string]any{"error": err.Error()})
+	}
+	return nil
 }
 
 func isGitRepo(path string) bool {
