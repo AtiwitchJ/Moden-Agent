@@ -77,7 +77,7 @@ export function CodeHomeComposer() {
 	};
 
 	return (
-		<CreateProjectFlow onCreateProject={onCreateProject}>
+		<CreateProjectFlow onCreateProject={onCreateProject} simple>
 			{({ choosePath, disabled: pickerBusy }) => (
 				<form
 					className="sticky bottom-0 flex shrink-0 items-center gap-2 border-t border-border bg-background p-3"

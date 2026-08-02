@@ -8,6 +8,7 @@ import { CreateProjectAgentSheet } from "./CreateProjectAgentSheet";
 function renderSheet(
 	onSubmit = vi.fn().mockResolvedValue(undefined),
 	workspaceDetection?: { looksLikeWorkspace: boolean; detectedChildNames: string[] } | null,
+	simple = false,
 ) {
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 	queryClient.setQueryData(agentsQueryKey, {
@@ -32,6 +33,7 @@ function renderSheet(
 				onSubmit={onSubmit}
 				open={true}
 				path="/repo/new-project"
+				simple={simple}
 				workspaceDetection={workspaceDetection}
 			/>
 		</QueryClientProvider>,
@@ -130,5 +132,30 @@ describe("CreateProjectAgentSheet", () => {
 
 		expect(screen.getByLabelText("Multi-repo workspace")).not.toBeChecked();
 		expect(screen.queryByText(/Detected repos:/)).not.toBeInTheDocument();
+	});
+
+	describe("simple mode (Code mode: hermes only, no config surface)", () => {
+		it("hides the agent pickers, workspace toggle, and issue intake", () => {
+			renderSheet(vi.fn().mockResolvedValue(undefined), null, true);
+
+			expect(screen.queryByLabelText("Worker agent")).not.toBeInTheDocument();
+			expect(screen.queryByLabelText("Orchestrator agent")).not.toBeInTheDocument();
+			expect(screen.queryByLabelText("Multi-repo workspace")).not.toBeInTheDocument();
+			expect(screen.queryByLabelText("Enable issue intake")).not.toBeInTheDocument();
+		});
+
+		it("submits with an auto-picked worker agent and hermes, no workspace/intake, once agents are loaded", async () => {
+			const onSubmit = renderSheet(vi.fn().mockResolvedValue(undefined), null, true);
+
+			await waitFor(() => expect(screen.getByRole("button", { name: "Create and start" })).toBeEnabled());
+			await userEvent.click(screen.getByRole("button", { name: "Create and start" }));
+
+			await waitFor(() => expect(onSubmit).toHaveBeenCalledTimes(1));
+			expect(onSubmit).toHaveBeenCalledWith({
+				workerAgent: "claude-code",
+				orchestratorAgent: "hermes",
+				trackerIntake: undefined,
+			});
+		});
 	});
 });

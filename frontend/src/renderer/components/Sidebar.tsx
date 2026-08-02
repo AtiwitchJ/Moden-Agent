@@ -852,8 +852,11 @@ function SessionRow({ session, active, onOpen }: { session: WorkspaceSession; ac
 export function CreateProjectFlow({
 	children,
 	onCreateProject,
+	simple = false,
 }: Pick<SidebarProps, "onCreateProject"> & {
 	children: (state: { choosePath: () => void; disabled: boolean; label: string }) => ReactNode;
+	/** Threaded straight to CreateProjectAgentSheet — see its own prop doc. */
+	simple?: boolean;
 }) {
 	const [error, setError] = useState<string | null>(null);
 	const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -913,6 +916,7 @@ export function CreateProjectFlow({
 				onSubmit={createProject}
 				open={selectedPath !== null}
 				path={selectedPath}
+				simple={simple}
 				workspaceDetection={workspaceDetection}
 			/>
 			{error && (

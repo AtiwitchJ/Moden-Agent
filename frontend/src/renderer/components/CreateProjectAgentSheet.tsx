@@ -34,6 +34,12 @@ type CreateProjectAgentSheetProps = {
 	onSubmit: (selection: CreateProjectAgentSelection) => Promise<void>;
 	open: boolean;
 	path: string | null;
+	/** Code mode: hermes runs every project, so there's nothing to configure —
+	 * no worker/orchestrator pickers, no workspace toggle, no issue intake.
+	 * The worker agent is still required by the daemon, so it's auto-picked
+	 * (first authorized agent, falling back to the catalog's first entry)
+	 * instead of asked for. */
+	simple?: boolean;
 	targetCompanyId?: string;
 	workspaceDetection?: WorkspaceDetectionResult | null;
 };
@@ -45,6 +51,7 @@ export function CreateProjectAgentSheet({
 	onSubmit,
 	open,
 	path,
+	simple = false,
 	targetCompanyId,
 	workspaceDetection,
 }: CreateProjectAgentSheetProps) {
@@ -71,7 +78,12 @@ export function CreateProjectAgentSheet({
 	const [intake, setIntake] = useState<IntakeForm>(EMPTY_INTAKE);
 	const [asWorkspace, setAsWorkspace] = useState(false);
 	const intakeIncomplete = intakeNeedsRule(intake);
-	const canSubmit = workerAgent !== "" && !intakeIncomplete && !isCreating && !isLoadingAgents;
+	// Simple mode has no picker to set workerAgent from, so it's derived
+	// instead: first authorized agent, falling back down the catalog, down to
+	// the static option list if the catalog hasn't loaded yet.
+	const defaultWorkerAgent = agentOptions[0]?.id ?? installedAgents[0]?.id ?? supportedAgents[0]?.id ?? AGENT_OPTIONS[0];
+	const effectiveWorkerAgent = simple ? defaultWorkerAgent : workerAgent;
+	const canSubmit = effectiveWorkerAgent !== "" && !intakeIncomplete && !isCreating && !isLoadingAgents;
 
 	useEffect(() => {
 		if (open) {
@@ -112,44 +124,48 @@ export function CreateProjectAgentSheet({
 							event.preventDefault();
 							if (!canSubmit) return;
 							void onSubmit({
-								workerAgent,
+								workerAgent: effectiveWorkerAgent,
 								orchestratorAgent: WORKBOARD_ORCHESTRATOR_AGENT,
-								trackerIntake: buildIntake(intake),
+								trackerIntake: simple ? undefined : buildIntake(intake),
 								companyId: targetCompanyId,
-								asWorkspace: asWorkspace || undefined,
+								asWorkspace: simple ? undefined : asWorkspace || undefined,
 							});
 						}}
 					>
-						<div className="grid gap-3 sm:grid-cols-2">
-							<RequiredAgentField
-								id="newProjectWorkerAgent"
-								label="Worker agent"
-								placeholder="Select worker agent"
-								value={workerAgent}
-								authorized={agentOptions}
-								installed={installedAgents}
-								supported={supportedAgents}
-								disabled={isLoadingAgents}
-								onChange={setWorkerAgent}
-							/>
-							<ReadonlyAgentField id="newProjectOrchestratorAgent" label="Orchestrator agent" value={WORKBOARD_ORCHESTRATOR_AGENT} />
-						</div>
+						{!simple && (
+							<div className="grid gap-3 sm:grid-cols-2">
+								<RequiredAgentField
+									id="newProjectWorkerAgent"
+									label="Worker agent"
+									placeholder="Select worker agent"
+									value={workerAgent}
+									authorized={agentOptions}
+									installed={installedAgents}
+									supported={supportedAgents}
+									disabled={isLoadingAgents}
+									onChange={setWorkerAgent}
+								/>
+								<ReadonlyAgentField id="newProjectOrchestratorAgent" label="Orchestrator agent" value={WORKBOARD_ORCHESTRATOR_AGENT} />
+							</div>
+						)}
 
 						{isLoadingAgents && <p className="text-[12px] leading-5 text-muted-foreground">Loading agents...</p>}
 
-						<div className="flex items-center justify-between gap-3 text-[12px] leading-5 text-muted-foreground">
-							<span>Agent availability is cached.</span>
-							<button
-								type="button"
-								className="shrink-0 rounded text-foreground underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
-								disabled={refreshAgentsMutation.isPending}
-								onClick={() => refreshAgentsMutation.mutate()}
-							>
-								{refreshAgentsMutation.isPending ? "Refreshing..." : "Refresh agents"}
-							</button>
-						</div>
+						{!simple && (
+							<div className="flex items-center justify-between gap-3 text-[12px] leading-5 text-muted-foreground">
+								<span>Agent availability is cached.</span>
+								<button
+									type="button"
+									className="shrink-0 rounded text-foreground underline-offset-2 hover:underline disabled:pointer-events-none disabled:opacity-50"
+									disabled={refreshAgentsMutation.isPending}
+									onClick={() => refreshAgentsMutation.mutate()}
+								>
+									{refreshAgentsMutation.isPending ? "Refreshing..." : "Refresh agents"}
+								</button>
+							</div>
+						)}
 
-						{agentsError && (
+						{!simple && agentsError && (
 							<div className="flex items-center justify-between gap-3 rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive">
 								<span>{agentsError}</span>
 								<button
@@ -162,7 +178,7 @@ export function CreateProjectAgentSheet({
 							</div>
 						)}
 
-						{refreshAgentsMutation.isError && (
+						{!simple && refreshAgentsMutation.isError && (
 							<div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive">
 								{refreshAgentsMutation.error instanceof Error
 									? refreshAgentsMutation.error.message
@@ -170,26 +186,30 @@ export function CreateProjectAgentSheet({
 							</div>
 						)}
 
-						<div className="border-t border-border pt-4">
-							<label className="flex items-center gap-2.5 text-[13px] text-foreground">
-								<input
-									type="checkbox"
-									className="h-4 w-4 accent-accent"
-									checked={asWorkspace}
-									onChange={(e) => setAsWorkspace(e.target.checked)}
-								/>
-								Multi-repo workspace
-							</label>
-							{asWorkspace && (workspaceDetection?.detectedChildNames.length ?? 0) > 0 && (
-								<p className="mt-1.5 text-[12px] leading-5 text-muted-foreground">
-									Detected repos: {workspaceDetection!.detectedChildNames.join(", ")}
-								</p>
-							)}
-						</div>
+						{!simple && (
+							<div className="border-t border-border pt-4">
+								<label className="flex items-center gap-2.5 text-[13px] text-foreground">
+									<input
+										type="checkbox"
+										className="h-4 w-4 accent-accent"
+										checked={asWorkspace}
+										onChange={(e) => setAsWorkspace(e.target.checked)}
+									/>
+									Multi-repo workspace
+								</label>
+								{asWorkspace && (workspaceDetection?.detectedChildNames.length ?? 0) > 0 && (
+									<p className="mt-1.5 text-[12px] leading-5 text-muted-foreground">
+										Detected repos: {workspaceDetection!.detectedChildNames.join(", ")}
+									</p>
+								)}
+							</div>
+						)}
 
-						<div className="border-t border-border pt-4">
-							<IntakeFields form={intake} onChange={(patch) => setIntake((f) => ({ ...f, ...patch }))} compact />
-						</div>
+						{!simple && (
+							<div className="border-t border-border pt-4">
+								<IntakeFields form={intake} onChange={(patch) => setIntake((f) => ({ ...f, ...patch }))} compact />
+							</div>
+						)}
 
 						{error && (
 							<div className="rounded-md border border-destructive/40 bg-destructive/10 px-3 py-2 text-[12px] leading-5 text-destructive">
