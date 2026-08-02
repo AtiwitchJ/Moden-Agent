@@ -64,6 +64,21 @@ func TestDispatchOnce(t *testing.T) {
 			wantSpawns:  []string{"available"},
 		},
 		{
+			name:     "todo card is promoted and claimed when WIP has room",
+			wipLimit: 1,
+			cards: []domain.WorkCard{
+				func() domain.WorkCard {
+					c := readyCard("todo", domain.CardPriorityNormal, now)
+					c.Status = domain.CardStatusTodo
+					c.ReadyAt = nil
+					return c
+				}(),
+			},
+			wantClaimed: []string{"todo"},
+			wantStatus:  map[string]domain.CardStatus{"todo": domain.CardStatusRunning},
+			wantSpawns:  []string{"todo"},
+		},
+		{
 			name:     "due scheduled card is promoted even while WIP is full",
 			wipLimit: 1,
 			cards: []domain.WorkCard{

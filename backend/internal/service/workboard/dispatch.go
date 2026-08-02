@@ -65,8 +65,8 @@ func NewDispatcher(d DispatchDeps) *Dispatcher {
 	return &Dispatcher{store: d.Store, spawner: d.Spawner, rollbacker: rollbacker, clock: clock}
 }
 
-// DispatchOnce promotes due scheduled cards, then claims ready cards in
-// priority/FIFO order. Before starting a worker, it atomically writes a
+// DispatchOnce promotes todo and due scheduled cards, then claims ready cards
+// in priority/FIFO order. Before starting a worker, it atomically writes a
 // durable running claim only if the project is still below its WIP limit, so
 // independent dispatcher instances cannot over-claim the same project.
 func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]string, error) {
@@ -95,7 +95,15 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 	now := d.clock().UTC()
 	for i := range cards {
 		card := &cards[i]
-		if card.Status != domain.CardStatusScheduled || card.ScheduledAt == nil || card.ScheduledAt.After(now) {
+		switch card.Status {
+		case domain.CardStatusTodo:
+			// Todo is the normal auto-start queue: promote it in this same
+			// dispatch pass so it can claim a worker immediately.
+		case domain.CardStatusScheduled:
+			if card.ScheduledAt == nil || card.ScheduledAt.After(now) {
+				continue
+			}
+		default:
 			continue
 		}
 		card.Status = domain.CardStatusReady
