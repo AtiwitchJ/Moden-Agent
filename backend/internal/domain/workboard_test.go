@@ -20,7 +20,7 @@ func TestParseCardStatus(t *testing.T) {
 
 func TestWorkboardConfigDefaults(t *testing.T) {
 	d := domain.DefaultWorkboardConfig()
-	if d.WIPLimit != 3 || d.AnswerTimeoutMinutes != 10 || d.LimitCooldownMinutes != 60 {
+	if d.WIPLimit != 4 || d.AnswerTimeoutMinutes != 10 || d.LimitCooldownMinutes != 60 {
 		t.Fatalf("unexpected defaults: %+v", d)
 	}
 	if d.Autonomous.Enabled {

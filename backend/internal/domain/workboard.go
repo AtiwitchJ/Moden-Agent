@@ -360,7 +360,7 @@ func (c WorkboardConfig) isConfigured() bool {
 
 func DefaultWorkboardConfig() WorkboardConfig {
 	return WorkboardConfig{
-		WIPLimit:             3,
+		WIPLimit:             4,
 		LimitCooldownMinutes: 60,
 		AnswerTimeoutMinutes: 10,
 		Autonomous: WorkboardAutonomousConfig{
