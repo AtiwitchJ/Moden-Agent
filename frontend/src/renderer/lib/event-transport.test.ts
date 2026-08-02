@@ -100,6 +100,82 @@ describe("createEventTransport", () => {
 		expect(queryClient.invalidateQueries).not.toHaveBeenCalledWith({ queryKey: ["workspaces"] });
 	});
 
+	it("work_card_changed with projectId and cardId invalidates global board, director-status, and dispatch-failure", () => {
+		vi.useFakeTimers();
+		try {
+			const queryClient = fakeQueryClient();
+			createEventTransport(queryClient).connect();
+			const source = EventSourceStub.instances[0];
+
+			source.handlers["work_card_changed"]?.({
+				data: JSON.stringify({ payload: { project_id: "project-2", card_id: "card-99" } }),
+			} as MessageEvent<string>);
+
+			// project-scoped board and director-status
+			expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+				queryKey: ["workboard", "project-2"],
+			});
+			expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+				queryKey: ["workboard", "project-2", "director-status"],
+			});
+			// global workboard (no projectId arg)
+			expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+				queryKey: ["workboard", "global"],
+			});
+			// dispatch-failure is debounced, so advance timers
+			vi.advanceTimersByTime(200);
+			expect(queryClient.invalidateQueries).toHaveBeenCalledWith({
+				queryKey: ["workcard", "card-99", "dispatch-failure"],
+			});
+		} finally {
+			vi.useRealTimers();
+		}
+	});
+
+	it("SSE reconnect invalidates the full workboard query prefix", () => {
+		const queryClient = fakeQueryClient();
+		createEventTransport(queryClient).connect();
+		const source = EventSourceStub.instances[0];
+
+		source.readyState = 1; // OPEN
+		source.onopen?.();
+
+		expect(queryClient.invalidateQueries).toHaveBeenCalledWith({ queryKey: ["workboard"] });
+	});
+
+	it("malformed work_card_changed payload is a no-op and does not incorrectly invalidate", () => {
+		const queryClient = fakeQueryClient();
+		createEventTransport(queryClient).connect();
+		const source = EventSourceStub.instances[0];
+
+		expect(() => {
+			source.handlers["work_card_changed"]?.({
+				data: "not valid json at all",
+			} as MessageEvent<string>);
+			source.handlers["work_card_changed"]?.({
+				data: JSON.stringify({ payload: { project_id: 123, card_id: null } }),
+			} as MessageEvent<string>);
+		}).not.toThrow();
+
+		// Both events should be handled without crashing. Since projectId is
+		// undefined for both (non-string ids), only the global board invalidation
+		// fires — exactly once per event.
+		const invalidations = queryClient.invalidateQueries.mock.calls.filter(
+			([arg]) =>
+				Array.isArray(arg.queryKey) &&
+				arg.queryKey[0] === "workboard" &&
+				arg.queryKey[1] === "global",
+		);
+		expect(invalidations).toHaveLength(2);
+		// No project-scoped or card-specific invalidations for malformed payloads.
+		const projectOrCardInvalidations = queryClient.invalidateQueries.mock.calls.filter(
+			([arg]) =>
+				Array.isArray(arg.queryKey) &&
+				(arg.queryKey.length ?? 0) > 2,
+		);
+		expect(projectOrCardInvalidations).toHaveLength(0);
+	});
+
 	it("does not reconnect when a daemon status keeps the same base URL", () => {
 		createEventTransport(fakeQueryClient()).connect();
 		const onStatusHandler = onStatusMock.mock.calls[0][0] as () => void;

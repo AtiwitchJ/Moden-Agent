@@ -23,19 +23,19 @@ type DispatchTrigger struct {
 	ctx        context.Context
 	logger     *slog.Logger
 
-	mu       sync.Mutex
-	projects map[string]*dispatchProject
-	closing  bool
-	workers  sync.WaitGroup
+	mu          sync.Mutex
+	projects    map[string]*dispatchProject
+	lastResults map[string]workboardsvc.DispatchResult
+	closing     bool
+	workers     sync.WaitGroup
 
-	pollDone   <-chan struct{}
-	done       chan struct{}
+	pollDone <-chan struct{}
+	done     chan struct{}
 }
 
 type dispatchProject struct {
 	pending bool
 	running bool
-	last    workboardsvc.DispatchResult
 }
 
 // NewDispatchTrigger wires a dispatcher and starts the periodic poll loop.
@@ -46,11 +46,12 @@ func NewDispatchTrigger(ctx context.Context, dispatcher *workboardsvc.Dispatcher
 		logger = slog.Default()
 	}
 	trigger := &DispatchTrigger{
-		dispatcher: dispatcher,
-		ctx:        ctx,
-		logger:     logger,
-		projects:   make(map[string]*dispatchProject),
-		done:       make(chan struct{}),
+		dispatcher:  dispatcher,
+		ctx:         ctx,
+		logger:      logger,
+		projects:    make(map[string]*dispatchProject),
+		lastResults: make(map[string]workboardsvc.DispatchResult),
+		done:        make(chan struct{}),
 	}
 	trigger.pollDone = observe.StartPollLoop(ctx, workboardDispatchInterval, func(ctx context.Context) error {
 		projects, err := store.ListProjects(ctx)
@@ -126,10 +127,10 @@ func (t *DispatchTrigger) dispatchProject(projectID string) {
 			result.Result = "wip_full"
 		}
 		t.mu.Lock()
-		project = t.projects[projectID]
-		if project != nil {
-			project.last = result
+		if t.lastResults == nil {
+			t.lastResults = make(map[string]workboardsvc.DispatchResult)
 		}
+		t.lastResults[projectID] = result
 		t.mu.Unlock()
 
 		t.mu.Lock()
@@ -183,10 +184,7 @@ func (t *DispatchTrigger) LastDispatchAttempt(projectID string) workboardsvc.Dis
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if project, ok := t.projects[projectID]; ok {
-		return project.last
-	}
-	return workboardsvc.DispatchResult{}
+	return t.lastResults[projectID]
 }
 
 // safeDispatchError maps internal errors to a stable, non-secret code for the UI.

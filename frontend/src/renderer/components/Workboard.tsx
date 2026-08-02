@@ -1,5 +1,5 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { AlertTriangle, Plus, SlidersHorizontal, Wifi, WifiOff } from "lucide-react";
+import { AlertTriangle, Plus, SlidersHorizontal } from "lucide-react";
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { useDirectorStatus, useWorkboardCards, workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";

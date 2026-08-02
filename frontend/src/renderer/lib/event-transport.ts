@@ -69,25 +69,39 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 				void queryClient.invalidateQueries({ queryKey: projectMessagesQueryKey() });
 			};
 
-			const refreshWorkboard = (event: Event) => {
-				try {
-					const data = JSON.parse((event as MessageEvent<string>).data) as {
-						projectId?: unknown;
-						payload?: { project_id?: unknown };
-					};
-					const projectId =
-						typeof data.projectId === "string"
-							? data.projectId
-							: typeof data.payload?.project_id === "string"
-								? data.payload.project_id
-								: undefined;
-					if (projectId) {
-						void queryClient.invalidateQueries({ queryKey: workboardQueryKey(projectId) });
-					}
-				} catch {
-					// Ignore malformed event data; the next valid CDC event will refresh.
+		const refreshWorkcardDetail = () => {
+			void queryClient.invalidateQueries({ queryKey: ["workcard", cardId, "dispatch-failure"] });
+		};
+
+		let cardId: string | undefined;
+		let cardDebounce: ReturnType<typeof setTimeout> | undefined;
+		const refreshWorkboard = (event: Event) => {
+			try {
+				const data = JSON.parse((event as MessageEvent<string>).data) as {
+					projectId?: unknown;
+					payload?: { project_id?: unknown; card_id?: unknown };
+				};
+				const projectId =
+					typeof data.projectId === "string"
+						? data.projectId
+						: typeof data.payload?.project_id === "string"
+							? data.payload.project_id
+							: undefined;
+				cardId =
+					typeof data.payload?.card_id === "string" ? data.payload.card_id : undefined;
+				if (projectId) {
+					void queryClient.invalidateQueries({ queryKey: workboardQueryKey(projectId) });
+					void queryClient.invalidateQueries({ queryKey: ["workboard", projectId, "director-status"] });
 				}
-			};
+				void queryClient.invalidateQueries({ queryKey: workboardQueryKey() });
+				if (cardId) {
+					if (cardDebounce) clearTimeout(cardDebounce);
+					cardDebounce = setTimeout(refreshWorkcardDetail, INVALIDATE_DEBOUNCE_MS);
+				}
+			} catch {
+				// Ignore malformed event data; the next valid CDC event will refresh.
+			}
+		};
 
 			const scheduleRetry = () => {
 				if (retryTimer) return;
@@ -116,11 +130,12 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 				sourceBaseUrl = baseUrl;
 				try {
 					source = new EventSource(`${baseUrl.replace(/\/+$/, "")}/api/v1/events`);
-					source.onopen = () => {
-						setEventsConnectionState("connected");
-						// Events emitted during the gap were lost; refetch once on (re)open.
-						refreshWorkspaces();
-					};
+				source.onopen = () => {
+					setEventsConnectionState("connected");
+					// Events emitted during the gap were lost; refetch once on (re)open.
+					refreshWorkspaces();
+					void queryClient.invalidateQueries({ queryKey: ["workboard"] });
+				};
 					source.onerror = () => {
 						// While readyState is CONNECTING the browser retries on its own;
 						// either way the stream is not delivering, so surface it instead
@@ -152,6 +167,7 @@ export function createEventTransport(queryClient: QueryClient): EventTransport {
 			return () => {
 				if (debounce) clearTimeout(debounce);
 				if (retryTimer) clearTimeout(retryTimer);
+				if (cardDebounce) clearTimeout(cardDebounce);
 				removeDaemonListener();
 				removeBaseUrlListener();
 				source?.close();

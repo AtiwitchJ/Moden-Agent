@@ -172,7 +172,7 @@ export function WorkCardFocusPanel({
 	const dispatchMutation = useDispatchProject(projectId);
 
 	return (
-		<aside aria-label={`Focus panel for ${card.title}`} className="flex h-full w-[400px] shrink-0 flex-col border-l border-border bg-surface">
+		<aside aria-label={`Focus panel for ${card.title}`} className="flex h-full w-[640px] shrink-0 flex-col border-l border-border bg-surface">
 			<div className="flex shrink-0 items-start gap-3 border-b border-border px-4 py-3">
 				<div className="min-w-0 flex-1">
 					<div className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">Focused card</div>

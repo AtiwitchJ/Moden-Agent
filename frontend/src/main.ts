@@ -49,6 +49,7 @@ import { buildTelemetryBootstrap } from "./shared/telemetry";
 import { createBrowserViewHost, type BrowserViewHost } from "./main/browser-view-host";
 import { connectSupervisor, type SupervisorLinkHandle } from "./main/supervisor-link";
 import { shouldLinkOnAttach } from "./main/daemon-owner";
+import { createDaemonLog, type DaemonLog } from "./main/daemon-log";
 import { readMigrationState, updateMigration, writeAppStateMarker, type MigrationState } from "./main/app-state";
 
 // Globals injected at compile time by @electron-forge/plugin-vite.
@@ -84,6 +85,7 @@ let daemonStoppingProcess: ChildProcessWithoutNullStreams | null = null;
 let daemonStartPromise: Promise<DaemonStatus> | null = null;
 let daemonStartEpoch = 0;
 let daemonStatus: DaemonStatus = { state: "stopped" };
+let daemonLog: DaemonLog | null = null;
 let browserViewHost: BrowserViewHost | null = null;
 // Held for the app lifetime. Dropping it (on any exit) triggers daemon self-stop.
 let supervisorLink: SupervisorLinkHandle | null = null;
@@ -643,6 +645,12 @@ async function startDaemonInner(startEpoch: number): Promise<DaemonStatus> {
 	}
 
 	setDaemonStatus({ state: "starting" });
+	try {
+		daemonLog = await createDaemonLog();
+	} catch (err) {
+		console.error("AO: failed to initialize daemon log:", err);
+	}
+	const childLog = daemonLog;
 
 	// Capture the spawned handle locally so the async lifecycle listeners act only
 	// on THIS process. Without this, a stale exit from an already-stopped daemon
@@ -701,12 +709,14 @@ async function startDaemonInner(startEpoch: number): Promise<DaemonStatus> {
 	child.stdout.on("data", (chunk: Buffer) => {
 		const text = chunk.toString("utf8");
 		console.log(text.trimEnd());
+		childLog?.write(text);
 		scanStdout(text);
 	});
 
 	child.stderr.on("data", (chunk: Buffer) => {
 		const text = chunk.toString("utf8");
 		console.error(text.trimEnd());
+		childLog?.write(text);
 		scanStderr(text);
 	});
 
@@ -747,6 +757,7 @@ async function startDaemonInner(startEpoch: number): Promise<DaemonStatus> {
 	});
 
 	child.once("exit", (code, signal) => {
+		void childLog?.close();
 		stopDiscovery();
 		if (daemonProcess !== child) return;
 		daemonProcess = null;
@@ -795,6 +806,10 @@ function stopDaemon(): DaemonStatus {
 ipcMain.handle("daemon:getStatus", () => refreshDaemonStatus());
 ipcMain.handle("daemon:start", () => startDaemon());
 ipcMain.handle("daemon:stop", () => stopDaemon());
+ipcMain.handle("daemon:readLog", async (_event, maxLines?: number) => {
+	const log = daemonLog ?? await createDaemonLog();
+	return log.readTail(maxLines);
+});
 ipcMain.handle("app:getVersion", () => app.getVersion());
 ipcMain.handle("telemetry:getBootstrap", () =>
 	buildTelemetryBootstrap(process.env, app.getVersion(), process.platform),

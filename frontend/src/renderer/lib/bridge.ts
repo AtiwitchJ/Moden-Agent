@@ -23,6 +23,7 @@ export const aoBridge: AoBridge =
 			}),
 			start: async () => ({ state: "starting" }),
 			stop: async () => ({ state: "stopped" }),
+			readLog: async () => [],
 			onStatus: () => () => undefined,
 		},
 		telemetry: {

@@ -25,11 +25,18 @@ async function fetchWorkboardCards(projectId?: string): Promise<WorkCard[]> {
 	return data?.cards ?? [];
 }
 
+// Auto-dispatch transitions a card's status/session in the background (the
+// daemon's async Kick, not a frontend mutation), so this can't rely solely on
+// the CDC/SSE push to learn about it — poll as a fallback for when that
+// stream is down or slow to (re)connect.
+const WORKBOARD_POLL_INTERVAL_MS = 15_000;
+
 export function useWorkboardCards(projectId?: string) {
 	return useQuery({
 		queryKey: workboardQueryKey(projectId),
 		queryFn: () => fetchWorkboardCards(projectId),
 		enabled: true,
+		refetchInterval: WORKBOARD_POLL_INTERVAL_MS,
 	});
 }
 
@@ -80,6 +87,7 @@ export function useDirectorStatus(projectId?: string) {
 			return data as DirectorStatus | undefined;
 		},
 		enabled: Boolean(projectId),
+		refetchInterval: WORKBOARD_POLL_INTERVAL_MS,
 	});
 }
 

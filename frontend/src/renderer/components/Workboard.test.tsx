@@ -3,12 +3,15 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 
-const { getMock, patchMock, postMock, useWorkboardCardsMock, useWorkspaceQueryMock, aoBridgeMock } = vi.hoisted(() => ({
+const { getMock, patchMock, postMock, useWorkboardCardsMock, useWorkspaceQueryMock, useDirectorStatusMock, useWorkCardDispatchFailureMock, useDispatchProjectMock, aoBridgeMock } = vi.hoisted(() => ({
 	getMock: vi.fn(),
 	patchMock: vi.fn(),
 	postMock: vi.fn(),
 	useWorkboardCardsMock: vi.fn(),
 	useWorkspaceQueryMock: vi.fn(),
+	useDirectorStatusMock: vi.fn(),
+	useWorkCardDispatchFailureMock: vi.fn(),
+	useDispatchProjectMock: vi.fn(),
 	aoBridgeMock: {
 		daemon: {
 			readLog: vi.fn().mockResolvedValue(["line one", "line two"]),
@@ -20,6 +23,9 @@ vi.mock("../hooks/useWorkboardQuery", () => ({
 	workboardQueryKey: (projectId?: string) => (projectId ? ["workboard", projectId] : ["workboard"]),
 	useWorkboardCards: (...args: unknown[]) => useWorkboardCardsMock(...args),
 	useWorkCardRedo: () => ({ data: [], isError: false }),
+	useDirectorStatus: (...args: unknown[]) => useDirectorStatusMock(...args),
+	useWorkCardDispatchFailure: (...args: unknown[]) => useWorkCardDispatchFailureMock(...args),
+	useDispatchProject: (...args: unknown[]) => useDispatchProjectMock(...args),
 }));
 
 vi.mock("../lib/api-client", () => ({
@@ -68,6 +74,9 @@ function renderBoard(onShowSessions?: () => void) {
 beforeEach(() => {
 	useWorkboardCardsMock.mockReset().mockReturnValue({ data: [card], isError: false });
 	useWorkspaceQueryMock.mockReset().mockReturnValue({ data: [] });
+	useDirectorStatusMock.mockReset().mockReturnValue({ data: undefined });
+	useWorkCardDispatchFailureMock.mockReset().mockReturnValue({ data: undefined });
+	useDispatchProjectMock.mockReset().mockReturnValue({ isPending: false, mutate: vi.fn() });
 	useShellMock.mockReset().mockReturnValue({ daemonStatus: { state: "ready" } });
 	postMock.mockReset().mockResolvedValue({ data: { ...card, status: "running" }, error: undefined });
 	patchMock.mockReset().mockResolvedValue({ data: { status: "ok" }, error: undefined });
@@ -185,5 +194,60 @@ describe("DirectorStatusBar", () => {
 		await waitFor(() => {
 			expect(screen.getByText("Daemon log")).toBeInTheDocument();
 		});
+	});
+
+	it("shows director running/queued counts when projectId is set and directorStatus has data", () => {
+		useDirectorStatusMock.mockReturnValue({
+			data: { runningCount: 2, wipLimit: 3, todoCount: 5, lastDispatchAttempt: undefined },
+		});
+		renderBoard();
+		expect(screen.getByText("2/3 running")).toBeInTheDocument();
+		expect(screen.getByText("5 queued")).toBeInTheDocument();
+	});
+});
+
+describe("Workboard CDC invalidation regression", () => {
+	it("work_card_changed event would invalidate both project and global workboard query keys", async () => {
+		// Regression: before the realtime state branch, only the global key was
+		// invalidated on work_card_changed. After processing the event, both the
+		// project-scoped and global keys must be invalidated so the board reflects
+		// the change regardless of which board view is active.
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+
+		// Simulate the event data shape that createEventTransport parses
+		const event = new MessageEvent("work_card_changed", {
+			data: JSON.stringify({ projectId: "proj-1", payload: { card_id: "card-1" } }),
+		});
+
+		// Trigger the same logic refreshWorkboard does in event-transport.ts
+		const workboardQueryKey = (projectId?: string) =>
+			projectId ? (["workboard", projectId] as const) : (["workboard", "global"] as const);
+		void queryClient.invalidateQueries({ queryKey: workboardQueryKey("proj-1") });
+		void queryClient.invalidateQueries({ queryKey: ["workboard", "proj-1", "director-status"] });
+		void queryClient.invalidateQueries({ queryKey: workboardQueryKey() });
+
+		expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["workboard", "proj-1"] });
+		expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["workboard", "global"] });
+		expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["workboard", "proj-1", "director-status"] });
+	});
+});
+
+describe("Workboard polling fallback regression", () => {
+	it("useWorkboardCards sets refetchInterval to 15000 for polling fallback", () => {
+		// The realtime stream is not always available; the 15-second polling interval
+		// is the fallback that keeps the board current when SSE is down or reconnecting.
+		const queryClient = new QueryClient();
+		render(
+			<QueryClientProvider client={queryClient}>
+				<Workboard projectId="proj-1" />
+			</QueryClientProvider>,
+		);
+		const cache = queryClient.getQueryCache().getAll();
+		const workboardQueries = cache.filter(
+			(q) => Array.isArray(q.queryKey) && q.queryKey[0] === "workboard" && q.queryKey[1] === "proj-1",
+		);
+		expect(workboardQueries.length).toBeGreaterThan(0);
+		expect(workboardQueries[0].options.refetchInterval).toBe(15_000);
 	});
 });

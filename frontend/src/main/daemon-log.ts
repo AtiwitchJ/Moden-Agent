@@ -82,11 +82,17 @@ class DaemonLogImpl implements DaemonLog {
 	}
 
 	async readTail(maxLines = 200): Promise<string[]> {
+		// Every line currently in `memory` was also appended to disk, so the
+		// file's tail duplicates the last `memory.length` entries. Wait for
+		// queued writes so the file reflects that, then trim the overlap
+		// before merging — otherwise those lines are double-counted.
+		await this.writeQueue;
 		if (this.memory.length >= maxLines) {
 			return this.memory.slice(-maxLines);
 		}
-		const fileTail = await readFileTail(this.path, maxLines);
-		return [...fileTail, ...this.memory].slice(-maxLines);
+		const fileTail = await readFileTail(this.path, maxLines + this.memory.length);
+		const diskOnly = this.memory.length > 0 ? fileTail.slice(0, -this.memory.length) : fileTail;
+		return [...diskOnly, ...this.memory].slice(-maxLines);
 	}
 
 	async close(): Promise<void> {
@@ -103,9 +109,12 @@ class DaemonLogImpl implements DaemonLog {
 	private async appendLine(line: string): Promise<void> {
 		const data = `${line}\n`;
 		try {
+			// Check against the file's size BEFORE this line, not size-after: rotating
+			// only once the file has already crossed maxBytes (rather than pre-emptively
+			// on the write that would cross it) keeps a single rotation from clobbering
+			// the one backup slot on back-to-back large lines.
 			const info = await stat(this.path).catch(() => ({ size: 0 }));
-			const wouldExceed = info.size + Buffer.byteLength(data, "utf8") > this.maxBytes;
-			if (wouldExceed) {
+			if (info.size >= this.maxBytes) {
 				await this.rotate();
 			}
 			await writeFile(this.path, data, { flag: "a", encoding: "utf8" });
