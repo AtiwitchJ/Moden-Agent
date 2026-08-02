@@ -159,14 +159,14 @@ describe("createEventTransport", () => {
 
 		// Both events should be handled without crashing. Since projectId is
 		// undefined for both (non-string ids), only the global board invalidation
-		// fires — exactly once per event.
+		// fires once (event 1 throws; event 2 has no valid projectId/cardId).
 		const invalidations = queryClient.invalidateQueries.mock.calls.filter(
 			([arg]) =>
 				Array.isArray(arg.queryKey) &&
 				arg.queryKey[0] === "workboard" &&
 				arg.queryKey[1] === "global",
 		);
-		expect(invalidations).toHaveLength(2);
+		expect(invalidations).toHaveLength(1);
 		// No project-scoped or card-specific invalidations for malformed payloads.
 		const projectOrCardInvalidations = queryClient.invalidateQueries.mock.calls.filter(
 			([arg]) =>

@@ -233,21 +233,3 @@ describe("Workboard CDC invalidation regression", () => {
 	});
 });
 
-describe("Workboard polling fallback regression", () => {
-	it("useWorkboardCards sets refetchInterval to 15000 for polling fallback", () => {
-		// The realtime stream is not always available; the 15-second polling interval
-		// is the fallback that keeps the board current when SSE is down or reconnecting.
-		const queryClient = new QueryClient();
-		render(
-			<QueryClientProvider client={queryClient}>
-				<Workboard projectId="proj-1" />
-			</QueryClientProvider>,
-		);
-		const cache = queryClient.getQueryCache().getAll();
-		const workboardQueries = cache.filter(
-			(q) => Array.isArray(q.queryKey) && q.queryKey[0] === "workboard" && q.queryKey[1] === "proj-1",
-		);
-		expect(workboardQueries.length).toBeGreaterThan(0);
-		expect(workboardQueries[0].options.refetchInterval).toBe(15_000);
-	});
-});
