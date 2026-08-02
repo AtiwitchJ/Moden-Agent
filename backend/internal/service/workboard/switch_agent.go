@@ -174,6 +174,11 @@ func (s *AgentSwitcher) ReconcileProject(ctx context.Context, projectID string) 
 		if !exists || sess.IsTerminated || sess.Metadata.RuntimeHandleID == "" {
 			continue
 		}
+		// A Hermes-linked card is commanded by its orchestrator, not executed by
+		// that terminal. Never rate-limit-switch (and kill) the commander.
+		if isHermesCommander(sess) {
+			continue
+		}
 		out, err := s.capture.GetOutput(ctx, ports.RuntimeHandle{ID: sess.Metadata.RuntimeHandleID}, switchCaptureLines)
 		if err != nil {
 			continue

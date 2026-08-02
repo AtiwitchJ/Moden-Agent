@@ -99,7 +99,7 @@ func (s *Service) Nudge(ctx context.Context, id string, in NudgeInput) (domain.W
 
 // Retarget pauses WIP, updates the card goal, hands off through Hermes or respawns, then resumes.
 func (s *Service) Retarget(ctx context.Context, id string, in RetargetInput) (domain.WorkCard, error) {
-	if s.sender == nil || s.spawner == nil {
+	if s.sender == nil {
 		return domain.WorkCard{}, apierr.Internal("WORK_CARD_RETARGET_UNAVAILABLE", "Work card retarget is unavailable")
 	}
 	card, err := s.requireRunningCard(ctx, id)
@@ -149,10 +149,13 @@ func (s *Service) Retarget(ctx context.Context, id string, in RetargetInput) (do
 	}
 	workers, hermes := answerSessions(sessions)
 	worker, workerOK := workers[domain.SessionID(card.SessionID)]
+	commander, commanded := hermesCommanderSession(sessions, domain.SessionID(card.SessionID))
 	handoff := retargetHandoffPrompt(card, card.GoalVersion)
 	var handoffSession domain.SessionID
 	var spawnedSession domain.SessionID
 	switch {
+	case commanded:
+		handoffSession = commander.ID
 	case workerOK && !worker.IsTerminated:
 		if hermes.ID != "" {
 			handoffSession = hermes.ID
@@ -160,6 +163,10 @@ func (s *Service) Retarget(ctx context.Context, id string, in RetargetInput) (do
 			handoffSession = worker.ID
 		}
 	case card.SessionID != "":
+		if s.spawner == nil {
+			revertRetarget()
+			return domain.WorkCard{}, apierr.Internal("WORK_CARD_RETARGET_UNAVAILABLE", "Work card retarget is unavailable")
+		}
 		spawned, err := s.spawner.Spawn(ctx, ports.SpawnConfig{
 			ProjectID:   domain.ProjectID(card.ProjectID),
 			Kind:        domain.KindWorker,
@@ -217,9 +224,6 @@ func (s *Service) Retarget(ctx context.Context, id string, in RetargetInput) (do
 
 // Split creates a successor card, archives the running card, and optionally queues the successor.
 func (s *Service) Split(ctx context.Context, id string, in SplitInput) (SplitResult, error) {
-	if s.killer == nil {
-		return SplitResult{}, apierr.Internal("WORK_CARD_SPLIT_UNAVAILABLE", "Work card split is unavailable")
-	}
 	card, err := s.requireRunningCard(ctx, id)
 	if err != nil {
 		return SplitResult{}, err
@@ -267,6 +271,14 @@ func (s *Service) Split(ctx context.Context, id string, in SplitInput) (SplitRes
 	if err != nil {
 		return SplitResult{}, err
 	}
+	sessions, err := store.ListSessions(ctx, domain.ProjectID(card.ProjectID))
+	if err != nil {
+		return SplitResult{}, apierr.Internal("WORK_CARD_SPLIT_FAILED", "Failed to load project sessions")
+	}
+	commander, commanded := hermesCommanderSession(sessions, domain.SessionID(card.SessionID))
+	if !commanded && s.killer == nil {
+		return SplitResult{}, apierr.Internal("WORK_CARD_SPLIT_UNAVAILABLE", "Work card split is unavailable")
+	}
 	if err := store.CreateWorkCard(ctx, newCard); err != nil {
 		return SplitResult{}, apierr.Internal("WORK_CARD_CREATE_FAILED", "Failed to create successor card")
 	}
@@ -278,7 +290,16 @@ func (s *Service) Split(ctx context.Context, id string, in SplitInput) (SplitRes
 		_ = store.UpdateWorkCard(ctx, blocked)
 	}
 
-	if card.SessionID != "" {
+	if commanded {
+		if s.sender == nil {
+			blockSuccessor()
+			return SplitResult{}, apierr.Internal("WORK_CARD_SPLIT_FAILED", "Failed to notify Hermes commander")
+		}
+		if err := s.sender.Send(ctx, commander.ID, splitHandoffPrompt(card, newCard, fate), ""); err != nil {
+			blockSuccessor()
+			return SplitResult{}, apierr.Internal("WORK_CARD_SPLIT_FAILED", "Failed to notify Hermes commander")
+		}
+	} else if card.SessionID != "" {
 		if _, err := s.killer.Kill(ctx, domain.SessionID(card.SessionID)); err != nil {
 			blockSuccessor()
 			return SplitResult{}, apierr.Internal("WORK_CARD_SPLIT_FAILED", "Failed to stop previous worker session")
@@ -305,6 +326,23 @@ func (s *Service) Split(ctx context.Context, id string, in SplitInput) (SplitRes
 		return SplitResult{}, apierr.Internal("WORK_CARD_EVENT_FAILED", "Failed to record split event")
 	}
 	return SplitResult{OldCard: card, NewCard: newCard}, nil
+}
+
+func isHermesCommander(session domain.SessionRecord) bool {
+	return !session.IsTerminated && session.Kind == domain.KindOrchestrator && session.Harness == domain.HarnessHermes
+}
+
+func hermesCommanderSession(sessions []domain.SessionRecord, id domain.SessionID) (domain.SessionRecord, bool) {
+	for _, session := range sessions {
+		if session.ID == id && isHermesCommander(session) {
+			return session, true
+		}
+	}
+	return domain.SessionRecord{}, false
+}
+
+func splitHandoffPrompt(oldCard, newCard domain.WorkCard, fate domain.CardStatus) string {
+	return "AO split work-card " + oldCard.ID + " into " + newCard.ID + ". Stop coordinating the old card; it moved to " + string(fate) + ". The new card will be dispatched separately."
 }
 
 func (s *Service) requireRunningCard(ctx context.Context, id string) (domain.WorkCard, error) {

@@ -52,6 +52,7 @@ export function WorkCardFocusPanel({
 	const showTerminal = card.status === "running" && Boolean(card.sessionId && session);
 	const isRunning = card.status === "running";
 	const isScheduled = card.status === "scheduled";
+	const isHermesCommander = session?.kind === "orchestrator" && session.harness === "hermes";
 
 	useEffect(() => {
 		setScheduledAtLocal(card.scheduledAt ? formatDatetimeLocalValue(new Date(card.scheduledAt)) : "");
@@ -156,7 +157,7 @@ export function WorkCardFocusPanel({
 						<DropdownMenuContent align="end" className="min-w-44">
 							<DropdownMenuItem onSelect={() => setNudgeOpen(true)}>
 								<Zap className="size-3.5" aria-hidden="true" />
-								Nudge agent
+								{isHermesCommander ? "Nudge commander" : "Nudge agent"}
 							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={() => setRetargetOpen(true)}>
 								<Target className="size-3.5" aria-hidden="true" />
@@ -194,7 +195,7 @@ export function WorkCardFocusPanel({
 				) : null}
 				{card.sessionId ? (
 					<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-						<span className="truncate">{session ? `Session ${card.sessionId}` : "Linked session unavailable"}</span>
+						<span className="truncate">{session ? (isHermesCommander ? `Commander: Hermes · ${card.sessionId}` : `Session ${card.sessionId}`) : "Linked session unavailable"}</span>
 					</div>
 				) : <p className="text-[11px] text-passive">No session is linked to this card yet.</p>}
 				{card.sessionId && !showTerminal && onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="outline">Open terminal</Button> : null}
@@ -215,6 +216,7 @@ export function WorkCardFocusPanel({
 				open={nudgeOpen}
 				onOpenChange={setNudgeOpen}
 				pending={nudge.isPending}
+				commander={isHermesCommander}
 				onSubmit={(message) => nudge.mutate({ message })}
 			/>
 			<RetargetSheet
@@ -241,11 +243,13 @@ function NudgeSheet({
 	open,
 	onOpenChange,
 	pending,
+	commander,
 	onSubmit,
 }: {
 	open: boolean;
 	onOpenChange: (open: boolean) => void;
 	pending: boolean;
+	commander: boolean;
 	onSubmit: (message: string) => void;
 }) {
 	const messageId = useId();
@@ -263,7 +267,7 @@ function NudgeSheet({
 				<form onSubmit={submit}>
 					<SheetHeader>
 						<SheetTitle>Nudge agent</SheetTitle>
-						<SheetDescription>Send a message to the linked coding session without changing the card column.</SheetDescription>
+					<SheetDescription>{commander ? "Send an instruction to Hermes without changing the card column." : "Send a message to the linked coding session without changing the card column."}</SheetDescription>
 					</SheetHeader>
 					<div className="px-4 py-4">
 						<Label htmlFor={messageId}>Message</Label>

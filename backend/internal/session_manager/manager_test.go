@@ -488,8 +488,8 @@ func TestSpawn_DeliversPromptAfterOutputSteadiesForAfterStartAgents(t *testing.T
 		t.Fatalf("Spawn: %v", err)
 	}
 
-	if len(msgr.msgs) != 1 || msgr.msgs[0] != "hello hermes" {
-		t.Fatalf("messenger.msgs = %#v, want exactly one delivery of the prompt", msgr.msgs)
+	if len(msgr.msgs) != 1 || !strings.Contains(msgr.msgs[0], "## Orchestrator role") || !strings.HasSuffix(msgr.msgs[0], "hello hermes") {
+		t.Fatalf("messenger.msgs = %#v, want role instructions followed by the prompt", msgr.msgs)
 	}
 }
 
@@ -526,8 +526,8 @@ func TestSpawn_DoesNotDeliverPromptDuringInitialEmptyPane(t *testing.T) {
 		t.Fatalf("Spawn: %v", err)
 	}
 
-	if len(msgr.msgs) != 1 || msgr.msgs[0] != "hello hermes" {
-		t.Fatalf("messenger.msgs = %#v, want exactly one delivery of the prompt", msgr.msgs)
+	if len(msgr.msgs) != 1 || !strings.Contains(msgr.msgs[0], "## Orchestrator role") || !strings.HasSuffix(msgr.msgs[0], "hello hermes") {
+		t.Fatalf("messenger.msgs = %#v, want role instructions followed by the prompt", msgr.msgs)
 	}
 	// rt.outputs[0:5] are the blank entries; index 5 is the first "banner".
 	// Send must not fire until GetOutput has consumed past the blank run.
@@ -555,8 +555,8 @@ func TestSpawn_DeliversPromptEvenIfOutputNeverSteadies(t *testing.T) {
 		t.Fatalf("Spawn: %v", err)
 	}
 
-	if len(msgr.msgs) != 1 || msgr.msgs[0] != "hello hermes" {
-		t.Fatalf("messenger.msgs = %#v, want the prompt delivered once the max wait elapses", msgr.msgs)
+	if len(msgr.msgs) != 1 || !strings.Contains(msgr.msgs[0], "## Orchestrator role") || !strings.HasSuffix(msgr.msgs[0], "hello hermes") {
+		t.Fatalf("messenger.msgs = %#v, want role instructions and prompt once the max wait elapses", msgr.msgs)
 	}
 }
 

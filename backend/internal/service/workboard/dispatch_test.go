@@ -192,6 +192,66 @@ func TestDispatchOnceSpawnsWorkerWithCardHarnessAndPrompt(t *testing.T) {
 	}
 }
 
+func TestDispatchOnce_HermesProjectBriefsCommanderInsteadOfSpawningWorker(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
+	card := readyCard("card", domain.CardPriorityHigh, now)
+	card.CodingAgent = "claude-code"
+	card.Labels = []string{"billing"}
+	store := newDispatchStore(1, []domain.WorkCard{card})
+	store.project.Config.Orchestrator.Harness = domain.HarnessHermes
+	spawner := &dispatchSpawner{orchestratorSession: domain.Session{SessionRecord: domain.SessionRecord{
+		ID: "hermes-1", ProjectID: "p1", Kind: domain.KindOrchestrator, Harness: domain.HarnessHermes,
+	}}}
+	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
+
+	claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("DispatchOnce: %v", err)
+	}
+	if !reflect.DeepEqual(claimed, []string{"card"}) || len(spawner.configs) != 0 {
+		t.Fatalf("claimed=%v worker spawns=%v", claimed, spawner.configs)
+	}
+	if got := store.cards["card"].SessionID; got != "hermes-1" {
+		t.Fatalf("card session = %q, want Hermes", got)
+	}
+	if len(spawner.orchestratorPrompts) != 1 || !strings.Contains(spawner.orchestratorPrompts[0], `"cardId":"card"`) || !strings.Contains(spawner.orchestratorPrompts[0], `"codingAgent":"claude-code"`) {
+		t.Fatalf("briefing = %q", spawner.orchestratorPrompts)
+	}
+}
+
+func TestDispatchOnce_HermesUnavailableReleasesCardWithoutWorker(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
+	store := newDispatchStore(1, []domain.WorkCard{readyCard("card", domain.CardPriorityNormal, now)})
+	store.project.Config.Orchestrator.Harness = domain.HarnessHermes
+	spawner := &dispatchSpawner{orchestratorErr: errors.New("Hermes unavailable")}
+	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
+
+	claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
+	if err == nil || len(claimed) != 0 || len(spawner.configs) != 0 {
+		t.Fatalf("claimed=%v err=%v worker spawns=%v", claimed, err, spawner.configs)
+	}
+	if card := store.cards["card"]; card.Status != domain.CardStatusReady || card.SessionID != "" {
+		t.Fatalf("card = %#v, want ready and unlinked", card)
+	}
+}
+
+func TestDispatchOnce_HermesProjectDoesNotBriefStaleNonHermesOrchestrator(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
+	store := newDispatchStore(1, []domain.WorkCard{readyCard("card", domain.CardPriorityNormal, now)})
+	store.project.Config.Orchestrator.Harness = domain.HarnessHermes
+	store.sessions = []domain.SessionRecord{{ID: "old-1", ProjectID: "p1", Kind: domain.KindOrchestrator, Harness: domain.HarnessClaudeCode}}
+	spawner := &dispatchSpawner{}
+	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
+
+	_, err := dispatcher.DispatchOnce(context.Background(), "p1")
+	if err == nil || len(spawner.orchestratorPrompts) != 0 {
+		t.Fatalf("err=%v prompts=%q", err, spawner.orchestratorPrompts)
+	}
+	if card := store.cards["card"]; card.Status != domain.CardStatusReady || card.SessionID != "" {
+		t.Fatalf("card = %#v, want ready and unlinked", card)
+	}
+}
+
 func TestDispatchOnceDoesNotSpawnWhenDurableClaimFails(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
 	claimErr := errors.New("database unavailable")
@@ -352,6 +412,7 @@ func TestDispatchOnceDurablyClaimsCardWhenSessionLinkAndRollbackFail(t *testing.
 type dispatchStore struct {
 	project      domain.ProjectRecord
 	cards        map[string]domain.WorkCard
+	sessions     []domain.SessionRecord
 	failClaimErr error
 	failLinkErr  error
 	mu           sync.Mutex
@@ -380,6 +441,13 @@ func (s *dispatchStore) ListWorkCards(_ context.Context, projectID, boardID stri
 		cards = append(cards, card)
 	}
 	return cards, nil
+}
+
+func (s *dispatchStore) ListSessions(_ context.Context, projectID domain.ProjectID) ([]domain.SessionRecord, error) {
+	if projectID != domain.ProjectID(s.project.ID) {
+		return nil, nil
+	}
+	return append([]domain.SessionRecord(nil), s.sessions...), nil
 }
 
 func (s *dispatchStore) UpdateWorkCard(_ context.Context, card domain.WorkCard) error {
@@ -435,12 +503,15 @@ func (s *listBarrierStore) ListWorkCards(ctx context.Context, projectID, boardID
 }
 
 type dispatchSpawner struct {
-	err          error
-	rollbackErr  error
-	sessionStore *sqlite.Store
-	configs      []ports.SpawnConfig
-	rollbackIDs  []domain.SessionID
-	mu           sync.Mutex
+	err                 error
+	orchestratorErr     error
+	rollbackErr         error
+	sessionStore        *sqlite.Store
+	configs             []ports.SpawnConfig
+	orchestratorPrompts []string
+	orchestratorSession domain.Session
+	rollbackIDs         []domain.SessionID
+	mu                  sync.Mutex
 }
 
 func (s *dispatchSpawner) Spawn(_ context.Context, cfg ports.SpawnConfig) (domain.Session, error) {
@@ -473,6 +544,16 @@ func (s *dispatchSpawner) RollbackSpawn(_ context.Context, id domain.SessionID) 
 	defer s.mu.Unlock()
 	s.rollbackIDs = append(s.rollbackIDs, id)
 	return sessionsvc.RollbackOutcome{Killed: s.rollbackErr == nil}, s.rollbackErr
+}
+
+func (s *dispatchSpawner) SpawnOrchestrator(_ context.Context, _ domain.ProjectID, _ bool, prompt string) (domain.Session, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.orchestratorPrompts = append(s.orchestratorPrompts, prompt)
+	if s.orchestratorErr != nil {
+		return domain.Session{}, s.orchestratorErr
+	}
+	return s.orchestratorSession, nil
 }
 
 func (s *dispatchSpawner) cardIDs() []string {

@@ -16,6 +16,7 @@ trigger: Using the ao CLI in an AO workspace: spawning workers, managing session
 | `orchestrator` | List orchestrator sessions, or spawn a project's orchestrator | Viewing which sessions are orchestrators, or starting one | [commands/orchestrator.md](commands/orchestrator.md) |
 | `org` | Inspect the holding/company org tree and the heartbeat kill switch | You are a PM/CEO orchestrator reacting to an `[AO heartbeat]` wake-up, or checking overall org status | [commands/org.md](commands/org.md) |
 | `review` | Submit a reviewer result for a worker's PR | Completing a code review loop | [commands/review.md](commands/review.md) |
+| `workboard` | Read a work card or change its lifecycle state | Hermes commanding a work card | [commands/workboard.md](commands/workboard.md) |
 | `send` | Send a message to a running agent session | Correcting or directing a live agent | [commands/send.md](commands/send.md) |
 | `preview` | Open a URL in the desktop browser panel | Demoing a local server or file from inside a session | [commands/preview.md](commands/preview.md) |
 | `start` | Fetch (if needed) and open the AO desktop app | Launching the app | [commands/start.md](commands/start.md) |

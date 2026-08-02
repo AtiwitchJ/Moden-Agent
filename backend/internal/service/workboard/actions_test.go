@@ -77,6 +77,23 @@ func TestRetargetRunningCard_HandsOffThroughHermes(t *testing.T) {
 	}
 }
 
+func TestRetargetHermesLinkedCardDoesNotSpawnOrReplaceCommander(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)
+	card := domain.WorkCard{ID: "card-1", ProjectID: "p1", BoardID: defaultBoardID, Title: "Old", Notes: "Old notes", Status: domain.CardStatusRunning, Agent: "claude-code", SessionID: "hermes-1", GoalVersion: 1}
+	store := &actionsStoreFake{cards: map[string]domain.WorkCard{"card-1": card}, sessions: []domain.SessionRecord{{ID: "hermes-1", ProjectID: "p1", Kind: domain.KindOrchestrator, Harness: domain.HarnessHermes}}}
+	sender := &actionsSenderFake{}
+	svc := NewWithDeps(Deps{Store: store, Sender: sender, Clock: func() time.Time { return now }, NewID: func() string { return "evt-1" }})
+	notes := "Narrow the scope"
+
+	got, err := svc.Retarget(context.Background(), card.ID, RetargetInput{Notes: &notes})
+	if err != nil {
+		t.Fatalf("Retarget: %v", err)
+	}
+	if sender.lastTarget != "hermes-1" || got.SessionID != "hermes-1" || got.PausedRetarget {
+		t.Fatalf("retarget = %#v send=%q", got, sender.lastTarget)
+	}
+}
+
 func TestRetargetRunningCard_SpawnFailureClearsPause(t *testing.T) {
 	now := time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)
 	card := domain.WorkCard{
@@ -181,11 +198,32 @@ func TestSplitRunningCard_CreatesSuccessorAndArchivesOld(t *testing.T) {
 	}
 }
 
+func TestSplitHermesLinkedCardNotifiesCommanderWithoutKillingIt(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)
+	card := domain.WorkCard{ID: "card-1", ProjectID: "p1", BoardID: defaultBoardID, Title: "Old", Notes: "Old notes", Status: domain.CardStatusRunning, Agent: "claude-code", SessionID: "hermes-1"}
+	store := &actionsStoreFake{cards: map[string]domain.WorkCard{"card-1": card}, sessions: []domain.SessionRecord{{ID: "hermes-1", ProjectID: "p1", Kind: domain.KindOrchestrator, Harness: domain.HarnessHermes}}}
+	sender := &actionsSenderFake{}
+	svc := NewWithDeps(Deps{Store: store, Sender: sender, Clock: func() time.Time { return now }, NewID: func() string {
+		if len(store.created) == 0 {
+			return "card-2"
+		}
+		return "evt-1"
+	}})
+
+	result, err := svc.Split(context.Background(), card.ID, SplitInput{Title: "Next", Notes: "Next work"})
+	if err != nil {
+		t.Fatalf("Split: %v", err)
+	}
+	if result.OldCard.SessionID != "" || sender.lastTarget != "hermes-1" || !strings.Contains(sender.lastMessage, "card-2") {
+		t.Fatalf("split = %#v send=%q %q", result, sender.lastTarget, sender.lastMessage)
+	}
+}
+
 type actionsStoreFake struct {
-	cards   map[string]domain.WorkCard
+	cards    map[string]domain.WorkCard
 	sessions []domain.SessionRecord
-	events  []domain.WorkCardEvent
-	created []domain.WorkCard
+	events   []domain.WorkCardEvent
+	created  []domain.WorkCard
 }
 
 func (f *actionsStoreFake) CreateWorkCard(_ context.Context, card domain.WorkCard) error {

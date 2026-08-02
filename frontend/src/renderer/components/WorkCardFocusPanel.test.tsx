@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkCard } from "../hooks/useWorkboardQuery";
+import type { WorkspaceSession } from "../types/workspace";
 
 const { patchMock } = vi.hoisted(() => ({
 	patchMock: vi.fn(),
@@ -73,4 +74,20 @@ describe("WorkCardFocusPanel schedule edit", () => {
 			body: { scheduledAt: "2026-07-17T16:00:00.000Z" },
 		});
 	});
+});
+
+it("identifies a linked Hermes orchestrator as the commander", async () => {
+	const card: WorkCard = { ...scheduledCard, status: "running", sessionId: "hermes-1" };
+	const session: WorkspaceSession = {
+		id: "hermes-1", workspaceId: "proj-1", workspaceName: "Project", title: "Hermes",
+		provider: "codex", harness: "hermes", kind: "orchestrator", branch: "main", status: "working", updatedAt: "2026-07-17T08:00:00.000Z", prs: [],
+	};
+	render(
+		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+			<WorkCardFocusPanel card={card} projectId="proj-1" session={session} theme="dark" daemonReady onClose={vi.fn()} />
+		</QueryClientProvider>,
+	);
+	expect(screen.getByText("Commander: Hermes · hermes-1")).toBeInTheDocument();
+	await userEvent.setup().click(screen.getByRole("button", { name: "Running card actions" }));
+	expect(screen.getByText("Nudge commander")).toBeInTheDocument();
 });

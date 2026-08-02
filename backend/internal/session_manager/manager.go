@@ -363,14 +363,12 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 // deliverPromptAfterStart sends the initial prompt to agents that cannot take
 // it as a launch argument (hermes; ports.PromptDeliveryAfterStart). It waits
 // for the pane's output to steady first — see waitForOutputSteady's doc
-// comment for why sending immediately is unsafe. No-op for InCommand agents
-// (their prompt is already in argv) or an empty prompt. Delivery failure is
-// logged, not returned: the session spawned successfully and the caller
-// should not see a spawn failure over a best-effort follow-up message.
+// comment for why sending immediately is unsafe. After-start agents cannot
+// receive launch-time system prompts either, so their standing instructions
+// are delivered ahead of the initial task. Delivery failure is logged, not
+// returned: the session spawned successfully and the caller should not see a
+// spawn failure over a best-effort follow-up message.
 func (m *Manager) deliverPromptAfterStart(ctx context.Context, id domain.SessionID, handle ports.RuntimeHandle, agent ports.Agent, launchCfg ports.LaunchConfig, prompt string) {
-	if strings.TrimSpace(prompt) == "" {
-		return
-	}
 	strategy, err := agent.GetPromptDeliveryStrategy(ctx, launchCfg)
 	if err != nil {
 		if m.logger != nil {
@@ -381,8 +379,18 @@ func (m *Manager) deliverPromptAfterStart(ctx context.Context, id domain.Session
 	if strategy != ports.PromptDeliveryAfterStart {
 		return
 	}
+	message := strings.TrimSpace(launchCfg.SystemPrompt)
+	if strings.TrimSpace(prompt) != "" {
+		if message != "" {
+			message += "\n\n"
+		}
+		message += prompt
+	}
+	if message == "" {
+		return
+	}
 	m.waitForOutputSteady(ctx, handle)
-	if err := m.messenger.Send(ctx, id, prompt); err != nil && m.logger != nil {
+	if err := m.messenger.Send(ctx, id, message); err != nil && m.logger != nil {
 		m.logger.Warn("spawn: after-start prompt delivery failed", "sessionID", id, "error", err)
 	}
 }
@@ -1279,22 +1287,27 @@ func (m *Manager) orchestratorSystemPrompt(ctx context.Context, projectID domain
 		return orchestratorPrompt(projectID)
 	}
 
+	var prompt string
 	switch project.HQRole {
 	case domain.HQRoleCompany:
 		rows, err := m.companyProjectRows(ctx, project.CompanyID, project.ID)
 		if err != nil {
 			m.logger.Warn("failed to enumerate company projects for PM prompt", "company", project.CompanyID, "error", err)
 		}
-		return pmPrompt(project.CompanyID, rows)
+		prompt = pmPrompt(project.CompanyID, rows)
 	case domain.HQRoleHolding:
 		rows, err := m.companyHQRows(ctx)
 		if err != nil {
 			m.logger.Warn("failed to enumerate companies for CEO prompt", "error", err)
 		}
-		return ceoPrompt(rows)
+		prompt = ceoPrompt(rows)
 	default:
-		return orchestratorPrompt(projectID)
+		prompt = orchestratorPrompt(projectID)
 	}
+	if project.Config.Orchestrator.Harness == domain.HarnessHermes {
+		prompt += "\n\n" + hermesWorkboardPrompt()
+	}
+	return prompt
 }
 
 // hqRow is one line of a PM/CEO prompt's enumeration: a project (for the PM)
@@ -1435,6 +1448,16 @@ Message workers with `+"`ao send`"+`, for example:
 To discover any other AO command, run `+"`ao --help`"+` (and `+"`ao <command> --help`"+` for details on one).
 
 Use workers for focused implementation tasks, track their progress, synthesize their results, and only step into implementation directly for true emergencies or small coordination fixes.`, project, project)
+}
+
+func hermesWorkboardPrompt() string {
+	return `## Hermes work-card commanding
+
+When AO sends a work-card command briefing, you own that card until it reaches a terminal board state. First run ` + "`ao workboard get <card-id> --json`" + ` and use the complete current card, not a stale message.
+
+Read the title, notes, priority, labels, target path, goal version, coding agent, reviewer, and testing agent. Make a concise dependency-aware plan, then delegate focused implementation to workers with ` + "`ao spawn`" + `. Use the card's coding agent (or agent) by default. Change it only when that agent is blocked, and report the reason to the human. Include the card id, goal version, and the exact subtask in every worker prompt.
+
+Keep at most one implementation worker active for a card at a time. Track that worker through AO, then run the configured review and testing work before moving the card through review, testing, and done with ` + "`ao workboard status`" + `. Do not mark done until the configured checks pass. If the card is underspecified or blocked, move it to blocked and state exactly what human input is needed. Do not implement the card yourself except for a small coordination-only fix.`
 }
 
 func workerOrchestratorPrompt(orchestratorID domain.SessionID) string {

@@ -111,6 +111,18 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 			continue
 		}
 		worker, exists := workers[domain.SessionID(card.SessionID)]
+		// Hermes now owns commanded cards directly. It is not the coding worker
+		// whose interactive question autonomous answering is designed to handle.
+		if exists && isHermesCommander(worker) {
+			if card.WaitingForInput {
+				card.WaitingForInput = false
+				card.UpdatedAt = now
+				if err := a.store.UpdateWorkCard(ctx, card); err != nil {
+					return answered, fmt.Errorf("clear commander input state for card %s: %w", card.ID, err)
+				}
+			}
+			continue
+		}
 		question, waitingAt, needsInput := needsInput(worker, exists, questions[worker.ID])
 		if !needsInput {
 			if card.WaitingForInput {

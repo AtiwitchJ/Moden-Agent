@@ -124,6 +124,8 @@ export type WorkspaceSession = {
 	/** Raw issue/task identifier from the daemon. Intake ids are provider-prefixed. */
 	issueId?: string;
 	provider: AgentProvider;
+	/** Raw daemon harness; retained when the display provider falls back. */
+	harness?: string;
 	kind?: SessionKind;
 	branch: string;
 	status: SessionStatus;

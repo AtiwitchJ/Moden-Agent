@@ -124,6 +124,22 @@ func TestAgentSwitcherReconcileProject_SwitchesOnDetectedLimit(t *testing.T) {
 	}
 }
 
+func TestAgentSwitcherReconcileProject_DoesNotKillHermesCommander(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 12, 0, 0, 0, time.UTC)
+	card := domain.WorkCard{ID: "card-1", ProjectID: "p1", BoardID: defaultBoardID, Status: domain.CardStatusRunning, Agent: "claude-code", SessionID: "hermes-1"}
+	store := &switchStoreFake{project: domain.ProjectRecord{ID: "p1", Config: domain.ProjectConfig{Workboard: domain.WorkboardConfig{FallbackAgents: []string{"codex"}}}}, cards: []domain.WorkCard{card}, sessions: []domain.SessionRecord{{ID: "hermes-1", ProjectID: "p1", Kind: domain.KindOrchestrator, Harness: domain.HarnessHermes, Metadata: domain.SessionMetadata{RuntimeHandleID: "rt-hermes"}}}}
+	killer := &switchKillerFake{}
+	switcher := NewAgentSwitcher(SwitchDeps{Store: store, Spawner: &switchSpawnerFake{nextID: "worker-1"}, Killer: killer, Capture: &switchCaptureFake{out: map[string]string{"rt-hermes": "rate limit"}}, Clock: func() time.Time { return now }})
+
+	switched, err := switcher.ReconcileProject(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("ReconcileProject: %v", err)
+	}
+	if len(switched) != 0 || killer.killed != "" {
+		t.Fatalf("switched=%v killed=%q", switched, killer.killed)
+	}
+}
+
 type switchStoreFake struct {
 	project  domain.ProjectRecord
 	cards    []domain.WorkCard
