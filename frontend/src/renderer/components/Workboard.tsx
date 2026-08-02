@@ -244,6 +244,10 @@ export function Workboard({ projectId, onShowSessions }: { projectId?: string; o
 			<div className="px-[18px]">
 				<DirectorStatusBar daemonStatus={daemonStatus} />
 			</div>
+		) : daemonStatus.state !== "ready" ? (
+			<div className="px-[18px]">
+				<DirectorStatusBar daemonStatus={daemonStatus} />
+			</div>
 		) : null}
 		<p className="sr-only" id="workboard-keyboard-help">Press Left or Right Arrow to move the focused card between columns.</p>
 			<div className="flex min-h-0 flex-1">

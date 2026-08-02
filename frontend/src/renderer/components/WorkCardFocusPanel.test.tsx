@@ -93,6 +93,8 @@ it("identifies a linked Hermes orchestrator as the commander", async () => {
 		</QueryClientProvider>,
 	);
 	expect(screen.getByText("Hermes coordinates this task")).toBeInTheDocument();
+	expect(screen.getByText(/stays responsible through review and testing/i)).toBeInTheDocument();
+	expect(screen.getByRole("button", { name: "Show Hermes terminal" })).toBeInTheDocument();
 	await userEvent.setup().click(screen.getByRole("button", { name: "Card actions" }));
 	expect(screen.getByText("Nudge commander")).toBeInTheDocument();
 });
@@ -137,6 +139,6 @@ it("shows the card brief before opening a live terminal", async () => {
 	expect(screen.getByText("Hermes coordinates this task")).toBeInTheDocument();
 	expect(screen.queryByText("live terminal preview")).not.toBeInTheDocument();
 
-	await userEvent.setup().click(screen.getByRole("button", { name: "Show live terminal" }));
+	await userEvent.setup().click(screen.getByRole("button", { name: "Show Hermes terminal" }));
 	expect(screen.getByText("live terminal preview")).toBeInTheDocument();
 });

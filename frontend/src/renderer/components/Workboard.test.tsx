@@ -135,7 +135,7 @@ describe("Workboard", () => {
 		}));
 	});
 
-	it("keeps non-focused cards off the live terminal and offers the fallback sessions action", async () => {
+	it("keeps non-focused cards off the terminal, then keeps it available during review", async () => {
 		const onShowSessions = vi.fn();
 		const linkedCard = { ...card, status: "review" as const, sessionId: "session-1" };
 		useWorkboardCardsMock.mockReturnValue({ data: [linkedCard], isError: false });
@@ -154,6 +154,9 @@ describe("Workboard", () => {
 
 		expect(screen.queryByText("live terminal preview")).not.toBeInTheDocument();
 		await waitFor(() => expect(screen.getByRole("button", { name: "View all sessions" })).toBeInTheDocument());
+		expect(screen.getByRole("button", { name: "Show live terminal" })).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Show live terminal" }));
+		expect(screen.getByText("live terminal preview")).toBeInTheDocument();
 
 		fireEvent.click(screen.getByRole("button", { name: "View all sessions" }));
 		expect(onShowSessions).toHaveBeenCalledTimes(1);
@@ -232,4 +235,3 @@ describe("Workboard CDC invalidation regression", () => {
 		expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["workboard", "proj-1", "director-status"] });
 	});
 });
-
