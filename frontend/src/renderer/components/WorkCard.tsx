@@ -74,7 +74,7 @@ export function WorkCard({
 			) : null}
 
 			<div className="flex min-w-0 flex-wrap gap-1 border-t border-border px-3 py-2">
-				{card.labels.map((label) => (
+				{(card.labels ?? []).map((label) => (
 					<span key={label} className="max-w-full truncate rounded-[3px] bg-raised px-1.5 py-0.5 font-mono text-[9.5px] text-muted-foreground">
 						{label}
 					</span>

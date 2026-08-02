@@ -236,12 +236,16 @@ func TestWorkboardAPI_CardCRUDAndMove(t *testing.T) {
 	}
 	var list struct {
 		Cards []struct {
-			ID string `json:"id"`
+			ID     string   `json:"id"`
+			Labels []string `json:"labels"`
 		} `json:"cards"`
 	}
 	mustJSON(t, body, &list)
 	if len(list.Cards) != 1 || list.Cards[0].ID != "card_1" {
 		t.Fatalf("list = %+v", list)
+	}
+	if list.Cards[0].Labels == nil {
+		t.Fatal("list labels must encode as [] rather than null")
 	}
 
 	body, status, _ = doRequest(t, srv, http.MethodPost, "/api/v1/projects/proj/workboard/cards", `{"title":"Card","notes":"Details","priority":"normal","labels":["api"],"targetPath":"/repo","agent":"codex"}`)

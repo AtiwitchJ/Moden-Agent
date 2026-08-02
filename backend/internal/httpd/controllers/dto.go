@@ -303,7 +303,7 @@ type WorkboardAutonomousResponse struct {
 func newWorkCardResponse(card domain.WorkCard) WorkCardResponse {
 	return WorkCardResponse{
 		ID: card.ID, ProjectID: card.ProjectID, ProjectName: card.ProjectName, BoardID: card.BoardID, Title: card.Title, Notes: card.Notes,
-		Priority: string(card.Priority), Labels: append([]string(nil), card.Labels...), Status: string(card.Status),
+		Priority: string(card.Priority), Labels: append([]string{}, card.Labels...), Status: string(card.Status),
 		ScheduledAt: card.ScheduledAt, ReadyAt: card.ReadyAt, Position: card.Position, TargetPath: card.TargetPath,
 		RepoName: card.RepoName, Agent: card.Agent, CodingAgent: card.CodingAgent, ReviewerMode: card.ReviewerMode,
 		ReviewerAgent: card.ReviewerAgent, TestingAgent: card.TestingAgent, RedoCount: card.RedoCount, LatestRedoSummary: card.LatestRedoSummary,

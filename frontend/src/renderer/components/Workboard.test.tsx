@@ -72,6 +72,14 @@ describe("Workboard", () => {
 		]);
 	});
 
+	it("renders a card when an older daemon returns null labels", () => {
+		useWorkboardCardsMock.mockReturnValue({ data: [{ ...card, labels: null as unknown as string[] }], isError: false });
+
+		renderBoard();
+
+		expect(screen.getByRole("article", { name: /Repair diagnostics/i })).toBeInTheDocument();
+	});
+
 	it("opens a live terminal preview for a selected running card", () => {
 		const runningCard = { ...card, status: "running" as const, sessionId: "session-1" };
 		useWorkboardCardsMock.mockReturnValue({ data: [runningCard], isError: false });
