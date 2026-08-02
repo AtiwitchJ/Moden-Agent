@@ -38,9 +38,12 @@ Labels: free-form strings (required at create — may be empty list only if prod
 
 - User (and Hermes triage) move cards into `ready` (and `scheduled`).
 - Hermes claims `ready` → `running` when `count(running) < wipLimit`.
-- Default `wipLimit` = **3** (per-project setting).
+- Default `wipLimit` = **4** (per-project setting). An explicit project value overrides it; `0` means "use default".
 - Priority order when claiming: `urgent` > `high` > `normal` > `low`, then FIFO by `ready_at`.
-- `scheduled`: when `scheduled_at <= now`, Hermes promotes toward claim (into `ready` if WIP full, else may claim into `running`).
+- `scheduled`: when `scheduled_at <= now`, the dispatcher promotes toward claim (into `ready` if WIP full, else may claim into `running`).
+- Auto-dispatch is triggered asynchronously on every durable change that may add eligible work (card created in Todo, moved/returned to Todo or Ready). The daemon also reconciles every minute and polls immediately on boot.
+- A manual **Retry dispatch** action exists at `POST /api/v1/projects/{projectId}/workboard/dispatch`; it kicks the same trigger and never spawns a worker directly from the controller.
+- One failed card spawn does **not** abort the whole pass. The dispatcher releases that card's claim, appends a `dispatch_failed` event with a safe reason (`hermes_unavailable`, `non_hermes_orchestrator`, or `spawn_failed`), and continues with the next eligible card. Raw errors are never exposed on the card.
 
 ### Card create (required fields)
 
@@ -113,7 +116,7 @@ Autonomous must **not** Retarget for the user.
 ```json
 {
   "workboard": {
-    "wipLimit": 3,
+    "wipLimit": 4,
     "fallbackAgents": ["codex", "claude-code", "kilo"],
     "limitCooldownMinutes": 60,
     "answerTimeoutMinutes": 10,

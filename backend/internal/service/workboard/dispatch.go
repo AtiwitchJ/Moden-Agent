@@ -42,7 +42,7 @@ type DirectorStatusProvider interface {
 // ErrHermesUnavailable is returned by an OrchestratorSpawner when the project's
 // Hermes commander is not currently reachable. Dispatch records this reason so
 // the UI can explain the failure without exposing inner errors.
-var ErrHermesUnavailable = errors.New("Hermes unavailable")
+var ErrHermesUnavailable = errors.New("hermes unavailable")
 
 // DispatchStore is the durable surface required to promote and claim cards.
 // Workboard v1 has one board per project, so ListWorkCards uses defaultBoardID

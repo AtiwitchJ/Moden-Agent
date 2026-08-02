@@ -754,6 +754,58 @@ sequenceDiagram
 
 ---
 
+## Director Workboard
+
+The Director surface (`/manage` in the renderer, `workboard` in the API/domain) is a durable Kanban of project work cards. The daemon is the authority for every automatic transition; the renderer only renders durable facts and requests actions through the API.
+
+### Card State Machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> Todo: Create card
+    Todo --> Running: Dispatcher claims card
+    Running --> Review: User / agent moves card
+    Review --> Testing: User / agent moves card
+    Testing --> Done: User / agent moves card
+    Running --> Redo: Blocked / needs rework
+    Redo --> Running: User sends card back
+    Todo --> [*]: Delete card
+    Done --> [*]: Archive / delete
+```
+
+User-visible columns are: **Todo**, **Running**, **Review**, **Testing**, **Redo**, **Done**. Internal statuses `scheduled`, `ready`, and `triage`/`backlog` are mapped into **Todo** for display.
+
+### Auto-dispatch rules
+
+- **Todo is an auto-start queue.** When a card is created or moved to Todo/Ready, the daemon's per-project dispatch trigger wakes asynchronously.
+- **WIP limit is 4 per project.** `domain.DefaultWorkboardConfig().WIPLimit` is 4. An explicit project `workboard.wipLimit` continues to override the default; `0` means "use default".
+- **Claim order** is priority (`urgent` > `high` > `normal` > `low`), then FIFO by the moment the card entered Ready.
+- The daemon reconciles every minute and polls immediately on boot, but durable writes (card create, move, return to Todo) wake dispatch immediately.
+- A manual **Retry dispatch** action exists at `POST /api/v1/projects/{projectId}/workboard/dispatch`; it kicks the same trigger and never spawns a worker directly from the controller.
+
+### Failure behavior
+
+- A failed individual card spawn is **not** fatal to the rest of the dispatch pass. The dispatcher releases that card's durable claim, appends a `dispatch_failed` event with a safe reason, and continues with the next eligible card.
+- Recorded reasons are: `hermes_unavailable`, `non_hermes_orchestrator`, `spawn_failed`. Raw daemon/agent errors are never exposed on the card event or the API.
+- WIP pressure (`runningCount == wipLimit`) stops further claims normally; it is **not** a dispatch failure event.
+- Project reads, card-list reads, claim/update failures, and session-link failures remain fatal and are logged by the daemon.
+- For Hermes-commanded projects, the single Hermes commander is **not** terminated or replaced when a card fails to start; the card returns to Todo and can retry on the next pass.
+
+### Director health display
+
+The renderer header shows the daemon readiness status from `useShell`/Shell context, not `running.json`:
+
+- `Auto-dispatch online · 2/4 running · 1 queued`
+- `Auto-dispatch is offline. Reconnect Modern Agent to resume Todo cards.`
+
+Retry dispatch is disabled while the daemon is not ready.
+
+### Failure history
+
+A read-only endpoint `GET /api/v1/workboard/cards/{cardId}/dispatch-failure` returns the newest `dispatch_failed` event for a Todo card. The focus panel shows the safe reason, attempted time, and a Retry dispatch button.
+
+---
+
 ## Terminal Multiplexing
 
 ### Terminal Architecture

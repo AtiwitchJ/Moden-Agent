@@ -36,6 +36,10 @@ surface (`npm run sqlc`, `npm run api`).
   rollback, cleanup, send, activity, PR claim/list. Orchestrator routes
   (list/spawn/get) are wired too.
 - Project CRUD plus per-project config (`PUT /projects/{id}/config`).
+- Director workboard auto-dispatch: per-project WIP limit default of 4, Todo →
+  Running auto-start with asynchronous dispatch trigger, individual card spawn
+  failures recorded as `dispatch_failed` events without blocking later eligible
+  cards, and a manual `POST /projects/{id}/workboard/dispatch` retry action.
 - PR action engine wired into the API: `POST /prs/{id}/merge` and
   `/prs/{id}/resolve-comments`.
 - Review routes registered: `GET /reviews`, `POST /reviews/execute`,

@@ -369,7 +369,7 @@ func (s *Service) runningStore() (RunningCardStore, error) {
 func retargetHandoffPrompt(card domain.WorkCard, goalVersion int) string {
 	var b strings.Builder
 	b.WriteString("AO retarget: the Workboard card goal changed. Continue on the same worktree with the updated goal.\n\n")
-	b.WriteString(fmt.Sprintf("Goal version: %d\n", goalVersion))
+	fmt.Fprintf(&b, "Goal version: %d\n", goalVersion)
 	b.WriteString(card.Title)
 	if strings.TrimSpace(card.Notes) != "" {
 		b.WriteString("\n\n")

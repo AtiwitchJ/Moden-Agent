@@ -112,6 +112,7 @@ describe("Workboard", () => {
 		fireEvent.click(screen.getByRole("article", { name: /Repair diagnostics/i }));
 
 		expect(screen.getByRole("complementary", { name: /Focus panel for Repair diagnostics/i })).toBeInTheDocument();
+		fireEvent.click(screen.getByRole("button", { name: "Show live terminal" }));
 		expect(screen.getByText("live terminal preview")).toBeInTheDocument();
 	});
 
@@ -125,10 +126,16 @@ describe("Workboard", () => {
 		}));
 	});
 
-	it("keeps non-focused cards off the live terminal and offers the fallback terminal action", async () => {
+	it("keeps non-focused cards off the live terminal and offers the fallback sessions action", async () => {
 		const onShowSessions = vi.fn();
 		const linkedCard = { ...card, status: "review" as const, sessionId: "session-1" };
 		useWorkboardCardsMock.mockReturnValue({ data: [linkedCard], isError: false });
+		useWorkspaceQueryMock.mockReturnValue({
+			data: [{ id: "proj-1", name: "Project", path: "/repo/project", sessions: [{
+				id: "session-1", workspaceId: "proj-1", workspaceName: "Project", title: "Repair diagnostics",
+				provider: "codex", branch: "session/session-1", status: "working", updatedAt: "2026-01-01T00:00:00Z", prs: [],
+			}] }],
+		});
 
 		renderBoard(onShowSessions);
 
@@ -137,9 +144,9 @@ describe("Workboard", () => {
 		fireEvent.click(screen.getByRole("article", { name: /Repair diagnostics/i }));
 
 		expect(screen.queryByText("live terminal preview")).not.toBeInTheDocument();
-		await waitFor(() => expect(screen.getByRole("button", { name: "Open terminal" })).toBeInTheDocument());
+		await waitFor(() => expect(screen.getByRole("button", { name: "View all sessions" })).toBeInTheDocument());
 
-		fireEvent.click(screen.getByRole("button", { name: "Open terminal" }));
+		fireEvent.click(screen.getByRole("button", { name: "View all sessions" }));
 		expect(onShowSessions).toHaveBeenCalledTimes(1);
 	});
 });
