@@ -68,6 +68,7 @@ if (typeof window !== "undefined") {
 			getStatus: async () => ({ state: "stopped" }),
 			start: async () => ({ state: "starting" }),
 			stop: async () => ({ state: "stopped" }),
+			readLog: async () => [],
 			onStatus: () => () => undefined,
 		},
 		telemetry: {

@@ -1,9 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { Plus, SlidersHorizontal, Wifi, WifiOff } from "lucide-react";
+import { AlertTriangle, Plus, SlidersHorizontal, Wifi, WifiOff } from "lucide-react";
 import { type DragEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { components } from "../../api/schema";
 import { useDirectorStatus, useWorkboardCards, workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
+import { aoBridge } from "../lib/bridge";
 import { cn } from "../lib/utils";
 import { CreateWorkCardDialog } from "./CreateWorkCardDialog";
 import { DashboardSubhead } from "./DashboardSubhead";
@@ -29,6 +30,107 @@ const AUTONOMOUS_MODE_OPTIONS = [
 	{ value: "skip_timeout", label: "Skip timeout" },
 	{ value: "short_timeout", label: "Short timeout" },
 ] as const;
+
+// DirectorStatusBar shows whether auto-dispatch is healthy in the board header.
+// daemonReady drives the display: "running.json" is NOT used as proof of health.
+function DirectorStatusBar({ daemonStatus }: { daemonStatus: { state: string; message?: string; [key: string]: unknown } }) {
+	const isReady = daemonStatus.state === "ready";
+	const isError = daemonStatus.state === "error";
+	const [logOpen, setLogOpen] = useState(false);
+	const [logLines, setLogLines] = useState<string[]>([]);
+	const [logLoading, setLogLoading] = useState(false);
+
+	const openLog = async () => {
+		setLogOpen(true);
+		setLogLoading(true);
+		try {
+			const lines = await aoBridge.daemon.readLog(200);
+			setLogLines(lines);
+		} catch {
+			setLogLines(["Could not read daemon log."]);
+		} finally {
+			setLogLoading(false);
+		}
+	};
+
+	if (isReady) {
+		return (
+			<div className="flex items-center gap-1.5 rounded bg-accent/10 px-2 py-0.5 font-mono text-[11px] text-accent">
+				<span className="size-1.5 rounded-full bg-accent" />
+				<span>Auto-dispatch online</span>
+			</div>
+		);
+	}
+
+	if (isError || daemonStatus.state === "stopped") {
+		return (
+			<div className="flex items-center gap-1.5 rounded bg-destructive/10 px-2 py-0.5 font-mono text-[11px] text-destructive">
+				<AlertTriangle className="size-3" aria-hidden="true" />
+				<span>{daemonStatus.message?.trim() || "Daemon offline"}</span>
+				<button
+					className="ml-1 cursor-pointer underline"
+					onClick={openLog}
+					type="button"
+				>
+					View daemon log
+				</button>
+				<DaemonLogDialog
+					open={logOpen}
+					onOpenChange={setLogOpen}
+					lines={logLines}
+					loading={logLoading}
+				/>
+			</div>
+		);
+	}
+
+	// "starting" or any other transitional state
+	return (
+		<div className="flex items-center gap-1.5 rounded bg-muted/50 px-2 py-0.5 font-mono text-[11px] text-passive">
+			<span className="size-1.5 rounded-full bg-passive animate-pulse" />
+			<span>Starting daemon…</span>
+		</div>
+	);
+}
+
+function DaemonLogDialog({
+	open,
+	onOpenChange,
+	lines,
+	loading,
+}: {
+	open: boolean;
+	onOpenChange: (open: boolean) => void;
+	lines: string[];
+	loading: boolean;
+}) {
+	return (
+		<Sheet open={open} onOpenChange={onOpenChange}>
+			<SheetContent className="border-border bg-background sm:max-w-xl">
+				<SheetHeader className="border-b border-border px-5 py-4">
+					<SheetTitle className="text-base">Daemon log</SheetTitle>
+					<SheetDescription>Recent lines from the daemon stderr log. Read-only.</SheetDescription>
+				</SheetHeader>
+				<div className="flex flex-col gap-4 overflow-y-auto px-5 py-4">
+					{loading ? (
+						<p className="text-[12px] text-muted-foreground">Loading…</p>
+					) : lines.length === 0 ? (
+						<p className="text-[12px] text-muted-foreground">No daemon log lines captured yet.</p>
+					) : (
+						<pre className="max-h-[60vh] overflow-auto whitespace-pre-wrap break-all rounded bg-muted/50 p-3 font-mono text-[11px] leading-relaxed text-passive">
+							{lines.join("\n")}
+						</pre>
+					)}
+				</div>
+				<SheetFooter className="border-t border-border px-5 py-4">
+					<Button onClick={() => onOpenChange(false)} size="sm" variant="outline">
+						Close
+					</Button>
+				</SheetFooter>
+			</SheetContent>
+		</Sheet>
+	);
+}
 
 export const WORKBOARD_COLUMNS: { status: CardStatus; label: string; rail: string }[] = [
 	{ status: "todo", label: "Todo", rail: "var(--accent)" },
@@ -125,11 +227,7 @@ export function Workboard({ projectId, onShowSessions }: { projectId?: string; o
 		/>
 		{projectId && directorStatusQuery.data ? (
 			<div className="flex items-center gap-2 px-[18px]">
-				{directorStatusQuery.data.daemonReady ? (
-					<span className="flex items-center gap-1 text-[11px] text-muted-foreground"><Wifi className="size-3" aria-hidden="true" />Auto-dispatch online</span>
-				) : (
-					<span className="flex items-center gap-1 text-[11px] text-destructive"><WifiOff className="size-3" aria-hidden="true" />Daemon offline — reconnect to resume</span>
-				)}
+				<DirectorStatusBar daemonStatus={daemonStatus} />
 				<span className="text-[11px] text-passive">
 					{directorStatusQuery.data.runningCount}/{directorStatusQuery.data.wipLimit} running
 					{directorStatusQuery.data.todoCount > 0 ? (
@@ -141,6 +239,10 @@ export function Workboard({ projectId, onShowSessions }: { projectId?: string; o
 				) : directorStatusQuery.data.lastDispatchAttempt?.result === "wip_full" ? (
 					<span className="text-[11px] text-passive"> · Queue full</span>
 				) : null}
+			</div>
+		) : projectId ? (
+			<div className="px-[18px]">
+				<DirectorStatusBar daemonStatus={daemonStatus} />
 			</div>
 		) : null}
 		<p className="sr-only" id="workboard-keyboard-help">Press Left or Right Arrow to move the focused card between columns.</p>

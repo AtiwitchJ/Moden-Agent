@@ -3,12 +3,17 @@ import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
 
-const { getMock, patchMock, postMock, useWorkboardCardsMock, useWorkspaceQueryMock } = vi.hoisted(() => ({
+const { getMock, patchMock, postMock, useWorkboardCardsMock, useWorkspaceQueryMock, aoBridgeMock } = vi.hoisted(() => ({
 	getMock: vi.fn(),
 	patchMock: vi.fn(),
 	postMock: vi.fn(),
 	useWorkboardCardsMock: vi.fn(),
 	useWorkspaceQueryMock: vi.fn(),
+	aoBridgeMock: {
+		daemon: {
+			readLog: vi.fn().mockResolvedValue(["line one", "line two"]),
+		},
+	},
 }));
 
 vi.mock("../hooks/useWorkboardQuery", () => ({
@@ -23,7 +28,11 @@ vi.mock("../lib/api-client", () => ({
 }));
 
 vi.mock("../hooks/useWorkspaceQuery", () => ({ useWorkspaceQuery: (...args: unknown[]) => useWorkspaceQueryMock(...args) }));
-vi.mock("../lib/shell-context", () => ({ useShell: () => ({ daemonStatus: { state: "ready" } }) }));
+
+type DaemonStatus = { state: string; message?: string; port?: number };
+const useShellMock = vi.fn<() => { daemonStatus: DaemonStatus }>(() => ({ daemonStatus: { state: "ready" } }));
+vi.mock("../lib/shell-context", () => ({ useShell: () => useShellMock() }));
+vi.mock("../lib/bridge", () => ({ aoBridge: aoBridgeMock }));
 vi.mock("./TerminalPane", () => ({ TerminalPane: () => <div>live terminal preview</div> }));
 
 import { Workboard } from "./Workboard";
@@ -59,9 +68,11 @@ function renderBoard(onShowSessions?: () => void) {
 beforeEach(() => {
 	useWorkboardCardsMock.mockReset().mockReturnValue({ data: [card], isError: false });
 	useWorkspaceQueryMock.mockReset().mockReturnValue({ data: [] });
+	useShellMock.mockReset().mockReturnValue({ daemonStatus: { state: "ready" } });
 	postMock.mockReset().mockResolvedValue({ data: { ...card, status: "running" }, error: undefined });
 	patchMock.mockReset().mockResolvedValue({ data: { status: "ok" }, error: undefined });
 	getMock.mockReset().mockResolvedValue({ data: { status: "ok", project: { id: "proj-1", config: { workboard: { autonomous: { enabled: false, mode: "skip_timeout", shortTimeoutMinutes: 2, sticky: true } } } } }, error: undefined });
+	aoBridgeMock.daemon.readLog.mockReset().mockResolvedValue(["line one", "line two"]);
 });
 
 describe("Workboard", () => {
@@ -130,5 +141,42 @@ describe("Workboard", () => {
 
 		fireEvent.click(screen.getByRole("button", { name: "Open terminal" }));
 		expect(onShowSessions).toHaveBeenCalledTimes(1);
+	});
+});
+
+describe("DirectorStatusBar", () => {
+	it("shows online status when daemon is ready", () => {
+		useShellMock.mockReturnValue({ daemonStatus: { state: "ready" } });
+		renderBoard();
+		expect(screen.getByText("Auto-dispatch online")).toBeInTheDocument();
+	});
+
+	it("shows error state with message when daemon has an error", () => {
+		useShellMock.mockReturnValue({ daemonStatus: { state: "error", message: "Port already in use" } });
+		renderBoard();
+		expect(screen.getByText("Port already in use")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "View daemon log" })).toBeInTheDocument();
+	});
+
+	it("shows offline message when daemon is stopped", () => {
+		useShellMock.mockReturnValue({ daemonStatus: { state: "stopped" } });
+		renderBoard();
+		expect(screen.getByText("Daemon offline")).toBeInTheDocument();
+		expect(screen.getByRole("button", { name: "View daemon log" })).toBeInTheDocument();
+	});
+
+	it("shows starting state when daemon is starting", () => {
+		useShellMock.mockReturnValue({ daemonStatus: { state: "starting" } });
+		renderBoard();
+		expect(screen.getByText("Starting daemon…")).toBeInTheDocument();
+	});
+
+	it("opens daemon log dialog when View daemon log is clicked", async () => {
+		useShellMock.mockReturnValue({ daemonStatus: { state: "stopped" } });
+		renderBoard();
+		fireEvent.click(screen.getByRole("button", { name: "View daemon log" }));
+		await waitFor(() => {
+			expect(screen.getByText("Daemon log")).toBeInTheDocument();
+		});
 	});
 });
