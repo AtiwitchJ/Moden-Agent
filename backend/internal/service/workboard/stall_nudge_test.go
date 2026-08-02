@@ -235,9 +235,9 @@ func TestStallNudge_ExcludesNonCommanderSessions(t *testing.T) {
 	now := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
 	store := &stallNudgeStore{
 		cards: map[string]domain.WorkCard{
-			"c-worker":        stallCard("c-worker", "running", "worker-1"),
-			"c-bad-harness":   stallCard("c-bad-harness", "running", "orch-1"),
-			"c-commander":     stallCard("c-commander", "running", "hermes-1"),
+			"c-worker":      stallCard("c-worker", "running", "worker-1"),
+			"c-bad-harness": stallCard("c-bad-harness", "running", "orch-1"),
+			"c-commander":   stallCard("c-commander", "running", "hermes-1"),
 		},
 		sessions: []domain.SessionRecord{
 			// Plain worker session, idle past threshold
