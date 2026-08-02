@@ -27,6 +27,8 @@ vi.mock("../lib/workboard-schedule", async () => {
 	};
 });
 
+vi.mock("./TerminalPane", () => ({ TerminalPane: () => <div>live terminal preview</div> }));
+
 import { WorkCardFocusPanel } from "./WorkCardFocusPanel";
 
 const scheduledCard: WorkCard = {
@@ -87,7 +89,28 @@ it("identifies a linked Hermes orchestrator as the commander", async () => {
 			<WorkCardFocusPanel card={card} projectId="proj-1" session={session} theme="dark" daemonReady onClose={vi.fn()} />
 		</QueryClientProvider>,
 	);
-	expect(screen.getByText("Commander: Hermes · hermes-1")).toBeInTheDocument();
+	expect(screen.getByText("Hermes coordinates this task")).toBeInTheDocument();
 	await userEvent.setup().click(screen.getByRole("button", { name: "Running card actions" }));
 	expect(screen.getByText("Nudge commander")).toBeInTheDocument();
+});
+
+it("shows the card brief before opening a live terminal", async () => {
+	const card: WorkCard = { ...scheduledCard, status: "running", sessionId: "hermes-1", notes: "Update the palette and verify the contrast." };
+	const session: WorkspaceSession = {
+		id: "hermes-1", workspaceId: "proj-1", workspaceName: "Project", title: "Hermes",
+		provider: "codex", harness: "hermes", kind: "orchestrator", branch: "main", status: "working", updatedAt: "2026-07-17T08:00:00.000Z", prs: [],
+	};
+	render(
+		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+			<WorkCardFocusPanel card={card} projectId="proj-1" session={session} theme="dark" daemonReady onClose={vi.fn()} />
+		</QueryClientProvider>,
+	);
+
+	expect(screen.getByText("Task details")).toBeInTheDocument();
+	expect(screen.getByText("Update the palette and verify the contrast.")).toBeInTheDocument();
+	expect(screen.getByText("Hermes coordinates this task")).toBeInTheDocument();
+	expect(screen.queryByText("live terminal preview")).not.toBeInTheDocument();
+
+	await userEvent.setup().click(screen.getByRole("button", { name: "Show live terminal" }));
+	expect(screen.getByText("live terminal preview")).toBeInTheDocument();
 });

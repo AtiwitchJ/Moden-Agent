@@ -49,7 +49,8 @@ export function WorkCardFocusPanel({
 	const [splitOpen, setSplitOpen] = useState(false);
 	const [scheduleError, setScheduleError] = useState<string>();
 	const [scheduledAtLocal, setScheduledAtLocal] = useState("");
-	const showTerminal = card.status === "running" && Boolean(card.sessionId && session);
+	const [livePreviewOpen, setLivePreviewOpen] = useState(false);
+	const showTerminal = livePreviewOpen && card.status === "running" && Boolean(card.sessionId && session);
 	const isRunning = card.status === "running";
 	const isScheduled = card.status === "scheduled";
 	const isHermesCommander = session?.kind === "orchestrator" && session.harness === "hermes";
@@ -58,6 +59,10 @@ export function WorkCardFocusPanel({
 		setScheduledAtLocal(card.scheduledAt ? formatDatetimeLocalValue(new Date(card.scheduledAt)) : "");
 		setScheduleError(undefined);
 	}, [card.id, card.scheduledAt]);
+
+	useEffect(() => {
+		setLivePreviewOpen(false);
+	}, [card.id]);
 
 	const invalidate = async () => {
 		await queryClient.invalidateQueries({ queryKey: workboardQueryKey(projectId) });
@@ -141,7 +146,7 @@ export function WorkCardFocusPanel({
 	const redoQuery = useWorkCardRedo(card.id, (card.redoCount ?? 0) > 0 || card.status === "redo");
 
 	return (
-		<aside aria-label={`Focus panel for ${card.title}`} className="flex h-full w-[360px] shrink-0 flex-col border-l border-border bg-surface">
+		<aside aria-label={`Focus panel for ${card.title}`} className="flex h-full w-[400px] shrink-0 flex-col border-l border-border bg-surface">
 			<div className="flex shrink-0 items-start gap-3 border-b border-border px-4 py-3">
 				<div className="min-w-0 flex-1">
 					<div className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">Focused card</div>
@@ -172,46 +177,71 @@ export function WorkCardFocusPanel({
 				) : null}
 				<Button aria-label="Close card focus panel" onClick={onClose} size="icon-sm" variant="ghost">×</Button>
 			</div>
-			<div className="shrink-0 space-y-3 border-b border-border px-4 py-3">
-				<div className="flex items-center justify-between gap-3 text-[11px]">
-					<span className="text-muted-foreground">Status</span>
-					<span className="font-mono uppercase tracking-[0.05em] text-foreground">{card.status}</span>
+			<div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
+				<div className="space-y-4">
+					<section className="rounded-md border border-border bg-raised/30 p-3">
+						<div className="flex items-center justify-between gap-3 text-[11px]">
+							<span className="text-muted-foreground">Status</span>
+							<span className="rounded bg-accent/10 px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-accent">{card.status}</span>
+						</div>
+						{card.sessionId ? (
+							<div className="mt-3 border-t border-border pt-3">
+								<p className="font-mono text-[10px] uppercase tracking-[0.08em] text-passive">{isHermesCommander ? "Work owner" : "Linked session"}</p>
+								<p className="mt-1 text-[12px] leading-[1.45] text-foreground">
+									{session ? (isHermesCommander ? <>Hermes coordinates this task <span className="text-muted-foreground">· {card.sessionId}</span></> : <>Session {card.sessionId}</>) : "The linked session is unavailable."}
+								</p>
+								{isHermesCommander ? <p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground">Hermes reads the brief, plans the work, and assigns the coding worker.</p> : null}
+							</div>
+						) : <p className="mt-3 border-t border-border pt-3 text-[11px] leading-[1.45] text-passive">No session is linked to this card yet.</p>}
+					</section>
+
+					<section className="space-y-2">
+						<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">Task details</p>
+						<p className="whitespace-pre-wrap break-words text-[12px] leading-[1.6] text-muted-foreground">{card.notes?.trim() || "No additional instructions were provided."}</p>
+					</section>
+
+					<section className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border py-3 text-[11px]">
+						<Detail label="Coding worker" value={card.codingAgent || card.agent || "Automatic"} />
+						<Detail label="Goal version" value={`v${card.goalVersion ?? 1}`} />
+						<Detail label="Project path" value={card.targetPath} className="col-span-2" />
+						{(card.labels ?? []).length > 0 ? <Detail label="Labels" value={card.labels.join(" · ")} className="col-span-2" /> : null}
+					</section>
+					{(card.redoCount ?? 0) > 0 || card.status === "redo" ? (
+						<RedoCyclePanel cycles={redoQuery.data ?? []} latestSummary={card.latestRedoSummary} />
+					) : null}
+					{isScheduled ? (
+						<form className="space-y-2" onSubmit={saveSchedule}>
+							<Label className="text-[11px] text-muted-foreground" htmlFor={`schedule-${card.id}`}>Scheduled for</Label>
+							<Input id={`schedule-${card.id}`} onChange={(event) => setScheduledAtLocal(event.target.value)} type="datetime-local" value={scheduledAtLocal} />
+							{card.scheduledAt ? <p className="text-[10px] text-passive">Currently {formatScheduledAtDisplay(card.scheduledAt)}</p> : null}
+							{scheduleError ? <p className="text-[11px] text-destructive" role="alert">{scheduleError}</p> : null}
+							<Button disabled={updateSchedule.isPending || !scheduledAtLocal.trim()} size="sm" type="submit" variant="outline">
+								{updateSchedule.isPending ? "Saving..." : "Save schedule"}
+							</Button>
+						</form>
+					) : card.scheduledAt ? (
+						<div className="text-[11px] text-muted-foreground">Scheduled for {formatScheduledAtDisplay(card.scheduledAt)}</div>
+					) : null}
+					{card.sessionId && session ? (
+						<div className="flex flex-wrap gap-2 pt-1">
+							{isRunning ? <Button onClick={() => setLivePreviewOpen((open) => !open)} size="sm" variant="outline">{showTerminal ? "Hide live terminal" : "Show live terminal"}</Button> : null}
+							{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">View all sessions</Button> : null}
+						</div>
+					) : null}
+					{actionError ? <p className="text-[11px] text-destructive" role="alert">{actionError}</p> : null}
 				</div>
-				{(card.redoCount ?? 0) > 0 || card.status === "redo" ? (
-					<RedoCyclePanel cycles={redoQuery.data ?? []} latestSummary={card.latestRedoSummary} />
-				) : null}
-				{isScheduled ? (
-					<form className="space-y-2" onSubmit={saveSchedule}>
-						<Label className="text-[11px] text-muted-foreground" htmlFor={`schedule-${card.id}`}>Scheduled for</Label>
-						<Input id={`schedule-${card.id}`} onChange={(event) => setScheduledAtLocal(event.target.value)} type="datetime-local" value={scheduledAtLocal} />
-						{card.scheduledAt ? <p className="text-[10px] text-passive">Currently {formatScheduledAtDisplay(card.scheduledAt)}</p> : null}
-						{scheduleError ? <p className="text-[11px] text-destructive" role="alert">{scheduleError}</p> : null}
-						<Button disabled={updateSchedule.isPending || !scheduledAtLocal.trim()} size="sm" type="submit" variant="outline">
-							{updateSchedule.isPending ? "Saving..." : "Save schedule"}
-						</Button>
-					</form>
-				) : card.scheduledAt ? (
-					<div className="text-[11px] text-muted-foreground">Scheduled for {formatScheduledAtDisplay(card.scheduledAt)}</div>
-				) : null}
-				{card.sessionId ? (
-					<div className="flex items-center gap-2 text-[11px] text-muted-foreground">
-						<span className="truncate">{session ? (isHermesCommander ? `Commander: Hermes · ${card.sessionId}` : `Session ${card.sessionId}`) : "Linked session unavailable"}</span>
-					</div>
-				) : <p className="text-[11px] text-passive">No session is linked to this card yet.</p>}
-				{card.sessionId && !showTerminal && onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="outline">Open terminal</Button> : null}
-				{actionError ? <p className="text-[11px] text-destructive" role="alert">{actionError}</p> : null}
 			</div>
 			{showTerminal ? (
-				<div className="min-h-0 flex-1 p-3">
-					<div className="h-full min-h-[260px] overflow-hidden rounded-md border border-border">
+				<div className="border-t border-border p-4">
+					<div className="mb-2 flex items-center justify-between gap-3">
+						<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">Live terminal</p>
+						<p className="text-[10px] text-passive">Interactive session output</p>
+					</div>
+					<div className="h-[300px] overflow-hidden rounded-md border border-border">
 						<TerminalPane session={session} theme={theme} daemonReady={daemonReady} fontSize={TERMINAL_FONT_SIZE} />
 					</div>
 				</div>
-			) : (
-				<div className="flex flex-1 items-center justify-center px-8 text-center text-[12px] leading-[1.5] text-passive">
-					{card.sessionId ? "Select a running card to preview its live terminal here." : "Select a card linked to a session to preview its terminal here."}
-				</div>
-			)}
+			) : null}
 			<NudgeSheet
 				open={nudgeOpen}
 				onOpenChange={setNudgeOpen}
@@ -236,6 +266,15 @@ export function WorkCardFocusPanel({
 				onSubmit={(body) => split.mutate(body)}
 			/>
 		</aside>
+	);
+}
+
+function Detail({ label, value, className }: { label: string; value: string; className?: string }) {
+	return (
+		<div className={className}>
+			<p className="font-mono text-[9.5px] uppercase tracking-[0.07em] text-passive">{label}</p>
+			<p className="mt-1 break-words text-[11px] leading-[1.4] text-foreground">{value}</p>
+		</div>
 	);
 }
 
@@ -266,7 +305,7 @@ function NudgeSheet({
 			<SheetContent className="sm:max-w-md">
 				<form onSubmit={submit}>
 					<SheetHeader>
-						<SheetTitle>Nudge agent</SheetTitle>
+						<SheetTitle>{commander ? "Nudge commander" : "Nudge agent"}</SheetTitle>
 					<SheetDescription>{commander ? "Send an instruction to Hermes without changing the card column." : "Send a message to the linked coding session without changing the card column."}</SheetDescription>
 					</SheetHeader>
 					<div className="px-4 py-4">
