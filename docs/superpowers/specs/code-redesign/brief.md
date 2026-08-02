@@ -6,10 +6,23 @@
 
 ผู้ใช้หลักคือคนที่บอกเป้าหมายให้ AI ทำ แล้วต้องการตอบคำถามได้ทันทีว่า “ตอนนี้งานไหนกำลังทำอะไร และต้องการฉันหรือไม่”
 
+## Baseline ที่ต้องรักษา
+
+ภาพประกอบจากผู้ใช้คือหน้าจอและ flow อ้างอิงของรอบนี้ ไม่ใช่เพียงตัวอย่างโทนสี
+
+- Mode bar ด้านบน: `Code`, `Code Manage`, `Work`
+- Sidebar ซ้าย: brand, `New`, `Recents`, และ `More` ด้านล่าง
+- พื้นที่กลาง: `Welcome back, {org}` และ empty state หรือรายการ sessions
+- Composer ต้องตรึงที่ **ด้านล่าง**: project picker → prompt → `Send`
+- `New` ไม่เปิด dialog ใหม่ แต่โฟกัส composer
+- `Send` ของ project ที่เลือกสร้าง/เปิด session แล้วพาเข้าสู่ session นั้น
+
+การออกแบบใหม่ห้ามย้าย composer ขึ้นด้านบน, ห้ามเปลี่ยน `New` ให้เป็น flow อื่น, และห้ามนำ Kanban หรือ terminal มาวางแทนพื้นที่กลาง
+
 ## หลักการ
 
-1. เริ่มงานจากกล่องเดียว: เลือก project, พิมพ์สิ่งที่ต้องการ, กดเริ่ม
-2. แสดงงานที่ต้องสนใจก่อนงานทั้งหมด: ต้องตอบ, วางแผน, กำลังทำ, เสร็จแล้ว
+1. เริ่มงานจาก composer ด้านล่างเสมอ: เลือก project, พิมพ์สิ่งที่ต้องการ, กด `Send`
+2. แสดง session ที่ต้องสนใจก่อน session อื่น: ต้องตอบ, วางแผน, กำลังทำ, เสร็จแล้ว
 3. Hermes อธิบายสถานะด้วยภาษาคน; terminal และ technical log เปิดดูเมื่อต้องการเท่านั้น
 4. Code Manage เป็นที่จัดการ card และ Work เป็นที่ติดตามเชิงลึก — ไม่ยัดทั้งสองหน้าลงในหน้า Code
 
@@ -30,53 +43,48 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│ Modern Agent   Code · Code Manage · Work                         profile · … │
+│                Code · Code Manage · Work                         notifications │
 ├───────────────┬──────────────────────────────────────────────────────────────┤
-│ + Start work  │  Good afternoon                                              │
-│               │  What would you like to move forward?                        │
-│ NOW           │  ┌────────────────────────────────────────────────────────┐  │
-│ ● Palette     │  │ Project: billing-portal  Describe the outcome…   Start │  │
-│ ◐ API review  │  └────────────────────────────────────────────────────────┘  │
+│ Modern Agent  │                                                              │
+│               │        Welcome back, Vertex Holdings                         │
+│ + New         │                                                              │
+│               │        No sessions yet — describe what to work on below      │
+│ RECENTS       │                                                              │
+│ No sessions   │        (เมื่อมีงาน: session ที่ต้องตอบก่อน ตามด้วยล่าสุด)   │
 │               │                                                              │
-│ RECENT        │  In progress                                                  │
-│   test-3      │  ┌────────────────────────────────────────────────────────┐  │
-│   billing     │  │ Adjust colour palette                         Running  │  │
-│               │  │ Hermes: reading brief → planning worker                  │  │
-│ MORE          │  │ Brief ✓  Plan ●  Worker ○  Review ○        Open task ›  │  │
-│ Settings      │  └────────────────────────────────────────────────────────┘  │
 │               │                                                              │
-│               │  Needs you                                                    │
-│               │  [ Choose palette direction ]                                 │
+│               ├──────────────────────────────────────────────────────────────┤
+│ More          │ [ Choose a project ▾ ][ Describe what to work on… ][ Send ] │
 └───────────────┴──────────────────────────────────────────────────────────────┘
 ```
 
 ### โครงสร้างข้อมูล
 
-- แถบซ้ายแคบ: `Start work`, งานที่กำลังอยู่ในความสนใจ, และ recent sessions เท่านั้น
-- พื้นที่หลัก: composer อยู่ด้านบนในจุดที่เห็นทันที; ไม่ตรึง terminal ไว้บนหน้า
-- ส่วน `In progress`: 1–3 งานที่มี activity ล่าสุด พร้อม goal ที่อ่านจบในสองบรรทัด
-- ส่วน `Needs you`: แสดงเฉพาะ action ที่ผู้ใช้ต้องตัดสินใจหรือให้ข้อมูลเพิ่ม
+- แถบซ้ายคง `New`, `Recents`, `More` ตามภาพ; ไม่เพิ่ม section `Now`
+- พื้นที่หลักยังเป็น welcome/empty state เมื่อยังไม่มี session เพื่อให้ผู้ใช้โฟกัสกับ composer ด้านล่าง
+- เมื่อมี session ให้แสดงรายการในพื้นที่กลาง: งานที่ต้องตอบก่อน, ตามด้วยงานล่าสุด
+- แต่ละ row อ่านได้ในบรรทัดเดียว: ชื่อ goal, project, เวลา, และสถานะสั้นของ Hermes
 - `Open task` เปิดรายละเอียด task ซึ่งมี progress, workers, history, และปุ่มเปิด terminal แยกกัน
 
 ## Signature: Work pulse
 
-แต่ละงานใช้เส้นทางเดียวกันเสมอ:
+เมื่อมี session แต่ละ row แสดงเส้นทางเดียวกันเสมอ:
 
 ```text
 Brief → Plan → Worker → Review → Done
 ```
 
 จุดสีฟ้าคือขั้นที่กำลังทำ, เครื่องหมายถูกคือขั้นที่เสร็จ, สีอำพันคือขั้นที่รอผู้ใช้ตอบ
-จึงเข้าใจได้จากการกวาดตามองครั้งเดียวโดยไม่ต้องอ่าน log ของ Hermes
+จึงเข้าใจได้จากการกวาดตามองครั้งเดียวโดยไม่ต้องอ่าน log ของ Hermes และไม่รบกวน empty state ของหน้า Code
 
 ## Flow หลัก
 
-1. ผู้ใช้เปิด Code และเห็น composer กับงานที่กำลังเดินอยู่
-2. เลือก project ล่าสุด (หรือเลือก project ใหม่), พิมพ์ outcome แล้วกด `Start`
-3. Hermes อ่าน brief และหน้าเปลี่ยนเป็น `Plan` พร้อมคำอธิบายสั้น ๆ
-4. เมื่อ Hermes สั่ง worker งานย้ายเป็น `Worker`; ผู้ใช้เปิด task หรือ terminal ได้เมื่อต้องการ
-5. หาก Hermes ต้องการคำตอบ งานนั้นย้ายขึ้น `Needs you` พร้อมคำถามและปุ่มตอบ
-6. เมื่อผ่าน review งานเปลี่ยนเป็น `Done` และเลื่อนไป recent
+1. ผู้ใช้เปิด Code และเห็น layout ตามภาพ พร้อม composer ด้านล่าง
+2. กด `New` เพื่อโฟกัส input หรือเลือก project จาก picker
+3. พิมพ์ outcome แล้วกด `Send`; ระบบเปิด session ตาม flow เดิม
+4. กลับมาหน้า Code แล้ว session ปรากฏใน `Recents` และพื้นที่กลาง
+5. Hermes แสดงสถานะสั้น `Plan` หรือ `Worker` ใน row; ผู้ใช้เปิด task หรือ terminal ได้เมื่อต้องการ
+6. หาก Hermes ต้องการคำตอบ row นั้นขึ้นก่อนรายการอื่น พร้อมคำถามที่กดตอบได้
 
 ## ไม่ทำในรอบ Code-first
 
@@ -87,5 +95,5 @@ Brief → Plan → Worker → Review → Done
 ## คำถามที่ต้องล็อกก่อนลงมือ
 
 1. งานที่ `Needs you` ควรตอบในหน้า Code ได้ทันที หรือเปิด task detail ก่อน?
-2. หน้า Code แสดงพร้อมกันกี่งาน: 3 งานล่าสุด หรือเฉพาะงานของ project ที่เลือก?
+2. หน้า Code แสดงพร้อมกันกี่ session: 3 ล่าสุด หรือทุก session ที่ยัง active?
 3. ผู้ใช้ต้องเห็นชื่อ worker (Claude/Codex) เสมอ หรือซ่อนไว้ใต้ `Open task`?
