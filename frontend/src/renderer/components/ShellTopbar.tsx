@@ -4,7 +4,6 @@ import { GitBranch, PanelRightClose, PanelRightOpen, Square, Trash2 } from "luci
 import { useState } from "react";
 import { NotificationCenter } from "./NotificationCenter";
 import {
-	findProjectOrchestrator,
 	isOrchestratorSession,
 	sessionIsActive,
 	workerDisplayStatus,
@@ -13,8 +12,6 @@ import {
 } from "../types/workspace";
 import { useWorkspaceQuery, workspaceQueryKey } from "../hooks/useWorkspaceQuery";
 import { apiClient, apiErrorMessage } from "../lib/api-client";
-import { spawnOrchestrator } from "../lib/spawn-orchestrator";
-import { addRendererExceptionStep, captureRendererEvent, captureRendererException } from "../lib/telemetry";
 import { useUiStore } from "../stores/ui-store";
 import { OrchestratorIcon } from "./icons";
 import { AddSessionToWorkboardButton } from "./AddSessionToWorkboardButton";
@@ -42,11 +39,9 @@ const STATUS_PILL: Record<WorkerDisplayStatus, { label: string; tone: string; br
 // so the crumb and actions sit at identical offsets on every screen.
 // The variant is derived from the route, not props: a sessionId in the URL swaps
 // the lead to the session identity (orchestrator crumb + mode badge, or worker
-// branch + status pill) and the actions to worker/orchestrator + inspector
-// controls (orchestrator sessions have no actions here — task/board management
-// lives in Director mode's Workboard now, not this topbar);
-// otherwise it's the dashboard crumb plus the Orchestrator launcher when a
-// project is in scope. Merges the old DashboardTopbar/Topbar pair —
+// branch + status pill) and the actions to worker + inspector controls.
+// Orchestrator launch and task management belong in Director mode's Workboard,
+// never in the Code-session header. Merges the old DashboardTopbar/Topbar pair —
 // modern-agent keeps those as two components aligned only by CSS.
 export function ShellTopbar() {
 	const navigate = useNavigate();
@@ -54,8 +49,6 @@ export function ShellTopbar() {
 	const params = useParams({ strict: false }) as { projectId?: string; sessionId?: string };
 	const isInspectorOpen = useUiStore((state) => state.isInspectorOpen);
 	const toggleInspector = useUiStore((state) => state.toggleInspector);
-	const restartingProjectIds = useUiStore((state) => state.restartingProjectIds);
-	const [isSpawning, setIsSpawning] = useState(false);
 	const all = useWorkspaceQuery().data ?? [];
 
 	const session = params.sessionId
@@ -72,45 +65,6 @@ export function ShellTopbar() {
 	const isProjectBoardRoute = !isSessionRoute && Boolean(projectId);
 	const project = projectId ? all.find((workspace) => workspace.id === projectId) : undefined;
 	const projectLabel = project?.name ?? session?.workspaceName ?? (projectId ? "" : "modern-agent");
-	const orchestrator = projectId ? findProjectOrchestrator(all, projectId) : undefined;
-	const isProjectRestarting = projectId ? restartingProjectIds.has(projectId) : false;
-
-	const openOrchestrator = async () => {
-		if (!projectId) return;
-		void addRendererExceptionStep("Orchestrator open requested", {
-			source: "orchestrator-open",
-			operation: "open_orchestrator",
-			surface: isSessionRoute ? "session_detail" : "project_board",
-			project_id: projectId,
-		});
-		void captureRendererEvent("ao.renderer.orchestrator_open_requested", { project_id: projectId });
-		if (orchestrator) {
-			void navigate({
-				to: "/projects/$projectId/sessions/$sessionId",
-				params: { projectId, sessionId: orchestrator.id },
-			});
-			return;
-		}
-		setIsSpawning(true);
-		try {
-			const sessionId = await spawnOrchestrator(projectId);
-			await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-			void navigate({
-				to: "/projects/$projectId/sessions/$sessionId",
-				params: { projectId, sessionId },
-			});
-		} catch (error) {
-			void captureRendererException(error, {
-				source: "orchestrator-open",
-				operation: "open_orchestrator",
-				surface: isSessionRoute ? "session_detail" : "project_board",
-				project_id: projectId,
-			});
-			console.error("Failed to spawn orchestrator:", error);
-		} finally {
-			setIsSpawning(false);
-		}
-	};
 
 	return (
 		<header className="dashboard-app-header" style={dragStyle}>
@@ -149,24 +103,10 @@ export function ShellTopbar() {
 				<NotificationCenter style={noDragStyle} />
 				{isSessionRoute ? (
 					<>
-						{/* Kill control sits beside the orchestrator link for active workers —
-						    moved here from the inspector's Summary "Danger zone". */}
+						{/* Kill control moved here from the inspector's Summary "Danger zone". */}
 						{!isOrchestrator && session ? <AddSessionToWorkboardButton session={session} variant="outline" /> : null}
 						{!isOrchestrator && session && sessionIsActive(session) ? <TopbarKillButton session={session} /> : null}
 						{session ? <TopbarDeleteButton session={session} /> : null}
-						{!isOrchestrator && (
-							<button
-								aria-label="Open orchestrator"
-								className="dashboard-app-header__primary-btn dashboard-app-header__primary-btn--compact"
-								disabled={isSpawning || isProjectRestarting}
-								onClick={() => void openOrchestrator()}
-								style={noDragStyle}
-								type="button"
-							>
-								<OrchestratorIcon className="h-3.5 w-3.5" aria-hidden="true" />
-								{isProjectRestarting ? "Restarting…" : isSpawning ? "Spawning…" : "Orchestrator"}
-							</button>
-						)}
 						{/* Inspector collapse (worker sessions only — orchestrators have no rail). */}
 						{!isOrchestrator && (
 							<button

@@ -115,6 +115,20 @@ export function CreateWorkCardDialog({ open, projectId: projectIdProp, onCreated
 		}
 	}, [open, projectIdProp]);
 
+	// In the global Director board there is no projectIdProp, so the user would
+	// otherwise have to pick a project before they can create a card. When there
+	// is only one registered project, auto-select it so the user can go straight
+	// to title + agent.
+	useEffect(() => {
+		if (projectIdProp) return;
+		if (selectedProjectId) return;
+		const projects = projectsQuery.data;
+		if (!projects || projects.length !== 1) return;
+		const only = projects[0];
+		setSelectedProjectId(only.id);
+		if (only.path) setTargetPath(only.path);
+	}, [projectIdProp, selectedProjectId, projectsQuery.data]);
+
 	const handleProjectChange = (projId: string) => {
 		setSelectedProjectId(projId);
 		const proj = projectsQuery.data?.find((p: ProjectSummary) => p.id === projId);

@@ -4,11 +4,14 @@ import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkspaceSession, WorkspaceSummary } from "../types/workspace";
 
-const { navigateMock } = vi.hoisted(() => ({ navigateMock: vi.fn() }));
+const { navigateMock, routeParams } = vi.hoisted(() => ({
+	navigateMock: vi.fn(),
+	routeParams: { sessionId: "orch-1" },
+}));
 
 vi.mock("@tanstack/react-router", async (importOriginal) => {
 	const actual = await importOriginal<typeof import("@tanstack/react-router")>();
-	return { ...actual, useNavigate: () => navigateMock, useParams: () => ({ sessionId: "orch-1" }) };
+	return { ...actual, useNavigate: () => navigateMock, useParams: () => routeParams };
 });
 
 vi.mock("../hooks/useWorkspaceQuery", () => ({
@@ -27,6 +30,18 @@ vi.mock("../hooks/useWorkspaceQuery", () => ({
 						provider: "claude-code",
 						kind: "orchestrator",
 						branch: "main",
+						status: "working",
+						updatedAt: "2026-06-10T00:00:00Z",
+						prs: [],
+					},
+					{
+						id: "worker-1",
+						workspaceId: "proj-1",
+						workspaceName: "my-app",
+						title: "worker",
+						provider: "claude-code",
+						kind: "worker",
+						branch: "ao/worker-1",
 						status: "working",
 						updatedAt: "2026-06-10T00:00:00Z",
 						prs: [],
@@ -93,6 +108,7 @@ function renderKill(session: WorkspaceSession = worker) {
 }
 
 beforeEach(() => {
+	routeParams.sessionId = "orch-1";
 	deleteMock.mockReset();
 	deleteMock.mockResolvedValue({ data: { ok: true, sessionId: "sess-1" }, error: undefined });
 	postMock.mockReset();
@@ -161,5 +177,19 @@ describe("ShellTopbar on an orchestrator session (Code mode)", () => {
 
 		expect(screen.queryByRole("button", { name: "New task" })).not.toBeInTheDocument();
 		expect(screen.queryByRole("button", { name: "Open Kanban" })).not.toBeInTheDocument();
+	});
+});
+
+describe("ShellTopbar on a worker session (Code mode)", () => {
+	it("keeps the orchestrator launcher out of the Code session header", () => {
+		routeParams.sessionId = "worker-1";
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		render(
+			<QueryClientProvider client={queryClient}>
+				<ShellTopbar />
+			</QueryClientProvider>,
+		);
+
+		expect(screen.queryByRole("button", { name: "Open orchestrator" })).not.toBeInTheDocument();
 	});
 });

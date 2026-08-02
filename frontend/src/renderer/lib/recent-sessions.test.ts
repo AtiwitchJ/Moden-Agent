@@ -50,4 +50,15 @@ describe("recentSessions", () => {
 		];
 		expect(recentSessions(workspaces, 1).map((s) => s.id)).toEqual(["b"]);
 	});
+
+	it("excludes orchestrator sessions so they don't leak into the Code shell", () => {
+		const workspaces = [
+			workspace("w1", [
+				session({ id: "worker", status: "working" }),
+				session({ id: "commander", kind: "orchestrator", status: "working" }),
+				session({ id: "tail-orchestrator", status: "working" }),
+			]),
+		];
+		expect(recentSessions(workspaces).map((s) => s.id)).toEqual(["worker"]);
+	});
 });

@@ -44,12 +44,12 @@ export function CodeHome() {
 												params: { projectId: session.workspaceId, sessionId: session.id },
 											})
 										}
+										title={session.workspaceName}
 										type="button"
 									>
 										<SessionDot session={session} />
 										<span className="min-w-0 flex-1">
 											<span className="block truncate text-[13px] font-medium text-foreground">{session.title}</span>
-											<span className="block truncate text-[12px] text-passive">{session.workspaceName}</span>
 										</span>
 										<span className="shrink-0 text-[11px] text-passive">{formatRelativeTime(session.updatedAt)}</span>
 									</button>
