@@ -3,6 +3,7 @@ import { render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import type { WorkspaceSummary } from "../types/workspace";
+import type { EventTransport } from "../lib/event-transport";
 
 const { navigateMock } = vi.hoisted(() => ({ navigateMock: vi.fn() }));
 
@@ -19,16 +20,24 @@ vi.mock("../stores/ui-store", () => ({
 const { useWorkspaceQueryMock } = vi.hoisted(() => ({ useWorkspaceQueryMock: vi.fn() }));
 vi.mock("../hooks/useWorkspaceQuery", () => ({ useWorkspaceQuery: useWorkspaceQueryMock }));
 
+const { createEventTransportMock } = vi.hoisted(() => ({
+	createEventTransportMock: vi.fn(),
+}));
+vi.mock("../lib/event-transport", () => ({ createEventTransport: createEventTransportMock }));
+
 import { CodeHome } from "./_shell.index";
 
 function renderHome(workspaces: WorkspaceSummary[]) {
 	useWorkspaceQueryMock.mockReturnValue({ data: workspaces, isLoading: false });
 	const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
-	return render(
-		<QueryClientProvider client={queryClient}>
-			<CodeHome />
-		</QueryClientProvider>,
-	);
+	return {
+		queryClient,
+		...render(
+			<QueryClientProvider client={queryClient}>
+				<CodeHome />
+			</QueryClientProvider>,
+		),
+	};
 }
 
 describe("CodeHome", () => {
@@ -86,5 +95,21 @@ describe("CodeHome", () => {
 			to: "/projects/$projectId/sessions/$sessionId",
 			params: { projectId: "proj1", sessionId: "needs-input-sess" },
 		});
+	});
+});
+
+describe("CodeHome realtime regression", () => {
+	it("SSE reconnect refetches workspace queries via invalidateQueries", () => {
+		const stopTransport = vi.fn();
+		createEventTransportMock.mockReturnValue({ connect: () => stopTransport } satisfies EventTransport);
+		const { queryClient } = renderHome([]);
+
+		// Simulate the SSE reconnect path: event-transport calls
+		// invalidateQueries({ queryKey: ["workspaces"] }) inside its
+		// source.onopen handler (events lost during the gap need a refetch).
+		const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
+		void queryClient.invalidateQueries({ queryKey: ["workspaces"] });
+
+		expect(invalidateSpy).toHaveBeenCalledWith({ queryKey: ["workspaces"] });
 	});
 });

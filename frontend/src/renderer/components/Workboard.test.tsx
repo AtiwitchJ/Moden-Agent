@@ -201,8 +201,8 @@ describe("DirectorStatusBar", () => {
 			data: { runningCount: 2, wipLimit: 3, todoCount: 5, lastDispatchAttempt: undefined },
 		});
 		renderBoard();
-		expect(screen.getByText("2/3 running")).toBeInTheDocument();
-		expect(screen.getByText("5 queued")).toBeInTheDocument();
+		expect(screen.getByText(/2\/3 running/)).toBeInTheDocument();
+		expect(screen.getByText(/5 queued/)).toBeInTheDocument();
 	});
 });
 

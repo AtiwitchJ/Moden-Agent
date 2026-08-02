@@ -350,3 +350,26 @@ describe("useTerminalSession", () => {
 		expect(muxes).toHaveLength(1);
 	});
 });
+
+describe("Terminal WS regression", () => {
+	it("mode switch does not produce duplicate WS connections — old mux is always torn down before a new one opens", () => {
+		// Regression: before the realtime state branch the mux ref-count or
+		// reattach ordering could leave two sockets open after a mode switch
+		// (daemon bounce or SSE reconnect). verify that connect() always calls
+		// teardownMux() first so the mux count stays at 1.
+		const { view, muxes } = setup();
+		expect(muxes).toHaveLength(1);
+		expect(muxes[0].disposed).toBe(false);
+
+		// Simulate daemon-bounce mode switch: daemon goes unready, then ready again.
+		// This hits the useEffect that calls connect() when daemonReady flips true.
+		view.rerender({ daemonReady: false });
+		act(() => void vi.advanceTimersByTime(60_000));
+		expect(muxes).toHaveLength(1); // still waiting; no reconnect against dead daemon
+
+		view.rerender({ daemonReady: true });
+		expect(muxes).toHaveLength(2);
+		expect(muxes[0].disposed).toBe(true); // old mux cleaned up before new one opened
+		expect(muxes[1].disposed).toBe(false);
+	});
+});
