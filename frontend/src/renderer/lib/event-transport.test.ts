@@ -56,7 +56,8 @@ class EventSourceStub {
 }
 
 function fakeQueryClient() {
-	return { invalidateQueries: vi.fn() } as unknown as Parameters<typeof createEventTransport>[0];
+	// eslint-disable-next-line @typescript-eslint/no-explicit-any
+	return { invalidateQueries: vi.fn() as unknown as import("@tanstack/react-query").QueryClient };
 }
 
 beforeEach(() => {
@@ -149,9 +150,12 @@ describe("createEventTransport", () => {
 		const source = EventSourceStub.instances[0];
 
 		expect(() => {
+			// Event 1: completely malformed JSON → caught by try/catch → 0 invalidations
 			source.handlers["work_card_changed"]?.({
 				data: "not valid json at all",
 			} as MessageEvent<string>);
+			// Event 2: valid JSON but non-string project_id and null card_id →
+			// projectId undefined, cardId undefined → only global board fires once
 			source.handlers["work_card_changed"]?.({
 				data: JSON.stringify({ payload: { project_id: 123, card_id: null } }),
 			} as MessageEvent<string>);
@@ -161,17 +165,17 @@ describe("createEventTransport", () => {
 		// undefined for both (non-string ids), only the global board invalidation
 		// fires once (event 1 throws; event 2 has no valid projectId/cardId).
 		const invalidations = queryClient.invalidateQueries.mock.calls.filter(
-			([arg]) =>
-				Array.isArray(arg.queryKey) &&
-				arg.queryKey[0] === "workboard" &&
-				arg.queryKey[1] === "global",
+			([arg]: [unknown]) =>
+				Array.isArray((arg as { queryKey?: unknown[] }).queryKey) &&
+				((arg as { queryKey: unknown[] }).queryKey)[0] === "workboard" &&
+				((arg as { queryKey: unknown[] }).queryKey)[1] === "global",
 		);
 		expect(invalidations).toHaveLength(1);
 		// No project-scoped or card-specific invalidations for malformed payloads.
 		const projectOrCardInvalidations = queryClient.invalidateQueries.mock.calls.filter(
-			([arg]) =>
-				Array.isArray(arg.queryKey) &&
-				(arg.queryKey.length ?? 0) > 2,
+			([arg]: [unknown]) =>
+				Array.isArray((arg as { queryKey?: unknown[] }).queryKey) &&
+				((arg as { queryKey: unknown[] }).queryKey).length > 2,
 		);
 		expect(projectOrCardInvalidations).toHaveLength(0);
 	});
