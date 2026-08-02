@@ -2,8 +2,48 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import type { WorkspaceSession } from "../types/workspace";
-import { TopbarKillButton } from "./ShellTopbar";
+import type { WorkspaceSession, WorkspaceSummary } from "../types/workspace";
+
+const { navigateMock } = vi.hoisted(() => ({ navigateMock: vi.fn() }));
+
+vi.mock("@tanstack/react-router", async (importOriginal) => {
+	const actual = await importOriginal<typeof import("@tanstack/react-router")>();
+	return { ...actual, useNavigate: () => navigateMock, useParams: () => ({ sessionId: "orch-1" }) };
+});
+
+vi.mock("../hooks/useWorkspaceQuery", () => ({
+	useWorkspaceQuery: (): { data: WorkspaceSummary[] } => ({
+		data: [
+			{
+				id: "proj-1",
+				name: "my-app",
+				path: "/proj-1",
+				sessions: [
+					{
+						id: "orch-1",
+						workspaceId: "proj-1",
+						workspaceName: "my-app",
+						title: "orchestrator",
+						provider: "claude-code",
+						kind: "orchestrator",
+						branch: "main",
+						status: "working",
+						updatedAt: "2026-06-10T00:00:00Z",
+						prs: [],
+					},
+				],
+			},
+		],
+	}),
+	workspaceQueryKey: ["workspaces"],
+}));
+
+// NotificationCenter pulls in SSE/IPC machinery irrelevant to the New
+// task/Kanban removal under test (mirrors SessionView.test.tsx's treatment
+// of unrelated terminal/inspector machinery).
+vi.mock("./NotificationCenter", () => ({ NotificationCenter: () => <div /> }));
+
+import { ShellTopbar, TopbarKillButton } from "./ShellTopbar";
 
 const { postMock } = vi.hoisted(() => ({
 	postMock: vi.fn(),
@@ -88,5 +128,19 @@ describe("TopbarKillButton", () => {
 		await userEvent.click(screen.getByRole("button", { name: "Confirm kill" }));
 
 		expect(await screen.findByText("session not found")).toBeInTheDocument();
+	});
+});
+
+describe("ShellTopbar on an orchestrator session (Code mode)", () => {
+	it("does not offer New task or Kanban — that surface moved to Code Manage mode", () => {
+		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+		render(
+			<QueryClientProvider client={queryClient}>
+				<ShellTopbar />
+			</QueryClientProvider>,
+		);
+
+		expect(screen.queryByRole("button", { name: "New task" })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: "Open Kanban" })).not.toBeInTheDocument();
 	});
 });

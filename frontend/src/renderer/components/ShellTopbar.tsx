@@ -1,6 +1,6 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useNavigate, useParams } from "@tanstack/react-router";
-import { GitBranch, LayoutDashboard, PanelRightClose, PanelRightOpen, Plus, Square, Trash2 } from "lucide-react";
+import { GitBranch, PanelRightClose, PanelRightOpen, Square, Trash2 } from "lucide-react";
 import { useState } from "react";
 import { NotificationCenter } from "./NotificationCenter";
 import {
@@ -17,7 +17,6 @@ import { spawnOrchestrator } from "../lib/spawn-orchestrator";
 import { addRendererExceptionStep, captureRendererEvent, captureRendererException } from "../lib/telemetry";
 import { useUiStore } from "../stores/ui-store";
 import { OrchestratorIcon } from "./icons";
-import { NewTaskDialog } from "./NewTaskDialog";
 import { AddSessionToWorkboardButton } from "./AddSessionToWorkboardButton";
 import { cn } from "../lib/utils";
 
@@ -43,8 +42,9 @@ const STATUS_PILL: Record<WorkerDisplayStatus, { label: string; tone: string; br
 // so the crumb and actions sit at identical offsets on every screen.
 // The variant is derived from the route, not props: a sessionId in the URL swaps
 // the lead to the session identity (orchestrator crumb + mode badge, or worker
-// branch + status pill) and the actions to board/orchestrator + inspector
-// controls (orchestrators open the Kanban board; workers open their orchestrator);
+// branch + status pill) and the actions to worker/orchestrator + inspector
+// controls (orchestrator sessions have no actions here — task/board management
+// lives in Code Manage mode's Workboard now, not this topbar);
 // otherwise it's the dashboard crumb plus the Orchestrator launcher when a
 // project is in scope. Merges the old DashboardTopbar/Topbar pair —
 // modern-agent keeps those as two components aligned only by CSS.
@@ -56,7 +56,6 @@ export function ShellTopbar() {
 	const toggleInspector = useUiStore((state) => state.toggleInspector);
 	const restartingProjectIds = useUiStore((state) => state.restartingProjectIds);
 	const [isSpawning, setIsSpawning] = useState(false);
-	const [isNewTaskOpen, setIsNewTaskOpen] = useState(false);
 	const all = useWorkspaceQuery().data ?? [];
 
 	const session = params.sessionId
@@ -75,23 +74,6 @@ export function ShellTopbar() {
 	const projectLabel = project?.name ?? session?.workspaceName ?? (projectId ? "" : "modern-agent");
 	const orchestrator = projectId ? findProjectOrchestrator(all, projectId) : undefined;
 	const isProjectRestarting = projectId ? restartingProjectIds.has(projectId) : false;
-
-	const openBoard = () =>
-		projectId ? void navigate({ to: "/projects/$projectId", params: { projectId } }) : void navigate({ to: "/" });
-
-	const openNewTask = () => {
-		if (!projectId || isProjectRestarting) return;
-		setIsNewTaskOpen(true);
-	};
-
-	const handleTaskCreated = async (sessionId: string) => {
-		if (!projectId || isProjectRestarting) return;
-		await queryClient.invalidateQueries({ queryKey: workspaceQueryKey });
-		void navigate({
-			to: "/projects/$projectId/sessions/$sessionId",
-			params: { projectId, sessionId },
-		});
-	};
 
 	const openOrchestrator = async () => {
 		if (!projectId) return;
@@ -167,31 +149,6 @@ export function ShellTopbar() {
 				<NotificationCenter style={noDragStyle} />
 				{isSessionRoute ? (
 					<>
-						{isOrchestrator ? (
-							<>
-								<button
-									aria-label="New task"
-									className="dashboard-app-header__primary-btn"
-									disabled={isProjectRestarting}
-									onClick={openNewTask}
-									style={noDragStyle}
-									type="button"
-								>
-									<Plus className="h-3.5 w-3.5" aria-hidden="true" />
-									New task
-								</button>
-								<button
-									aria-label="Open Kanban"
-									className="dashboard-app-header__accent-btn"
-									onClick={openBoard}
-									style={noDragStyle}
-									type="button"
-								>
-									<LayoutDashboard className="h-3.5 w-3.5" aria-hidden="true" />
-									Kanban
-								</button>
-							</>
-						) : null}
 						{/* Kill control sits beside the orchestrator link for active workers —
 						    moved here from the inspector's Summary "Danger zone". */}
 						{!isOrchestrator && session ? <AddSessionToWorkboardButton session={session} variant="outline" /> : null}
@@ -230,12 +187,6 @@ export function ShellTopbar() {
 					</>
 				) : null}
 			</div>
-			<NewTaskDialog
-				open={isNewTaskOpen}
-				projectId={projectId}
-				onCreated={(sessionId) => void handleTaskCreated(sessionId)}
-				onOpenChange={setIsNewTaskOpen}
-			/>
 		</header>
 	);
 }
