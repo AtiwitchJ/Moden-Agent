@@ -22,6 +22,7 @@ type fakeWorkboardService struct {
 	createIn   workboardsvc.CreateInput
 	updateID   string
 	updateIn   workboardsvc.UpdateInput
+	deleteID   string
 	moveID     string
 	moveStatus domain.CardStatus
 	movePos    int64
@@ -65,6 +66,11 @@ func (f *fakeWorkboardService) Get(_ context.Context, id string) (domain.WorkCar
 func (f *fakeWorkboardService) Update(_ context.Context, id string, in workboardsvc.UpdateInput) (domain.WorkCard, error) {
 	f.updateID, f.updateIn = id, in
 	return f.cards[0], nil
+}
+
+func (f *fakeWorkboardService) Delete(_ context.Context, id string) error {
+	f.deleteID = id
+	return nil
 }
 
 func (f *fakeWorkboardService) Move(_ context.Context, id string, status domain.CardStatus, position int64) (domain.WorkCard, error) {
@@ -259,6 +265,14 @@ func TestWorkboardAPI_CardCRUDAndMove(t *testing.T) {
 	body, status, _ = doRequest(t, srv, http.MethodGet, "/api/v1/workboard/cards/card_1", "")
 	if status != http.StatusOK {
 		t.Fatalf("get status = %d, want 200; body=%s", status, body)
+	}
+
+	body, status, _ = doRequest(t, srv, http.MethodDelete, "/api/v1/workboard/cards/card_1", "")
+	if status != http.StatusOK {
+		t.Fatalf("delete status = %d, want 200; body=%s", status, body)
+	}
+	if svc.deleteID != "card_1" {
+		t.Fatalf("delete id = %q, want card_1", svc.deleteID)
 	}
 
 	body, status, _ = doRequest(t, srv, http.MethodPatch, "/api/v1/workboard/cards/card_1", `{"priority":"high","position":4}`)

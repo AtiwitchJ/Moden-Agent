@@ -811,7 +811,8 @@ export interface paths {
         get: operations["getWorkCard"];
         put?: never;
         post?: never;
-        delete?: never;
+        /** Permanently remove a work card and its dependent history */
+        delete: operations["deleteWorkCard"];
         options?: never;
         head?: never;
         /** Update mutable work-card fields */
@@ -1051,6 +1052,10 @@ export interface components {
         };
         DeleteCompanyResponse: {
             deleted: boolean;
+        };
+        DeleteWorkCardResponse: {
+            cardId: string;
+            ok: boolean;
         };
         DomainActivity: {
             /** Format: date-time */
@@ -4854,6 +4859,56 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkCardResponse"];
+                };
+            };
+            /** @description Not Found */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Internal Server Error */
+            500: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+            /** @description Not Implemented */
+            501: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["APIError"];
+                };
+            };
+        };
+    };
+    deleteWorkCard: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                /** @description Work card identifier. */
+                cardId: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description OK */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeleteWorkCardResponse"];
                 };
             };
             /** @description Not Found */

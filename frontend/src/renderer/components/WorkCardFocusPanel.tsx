@@ -1,5 +1,5 @@
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { MoreHorizontal, Split, Target, Zap } from "lucide-react";
+import { MoreHorizontal, Split, Target, Trash2, Zap } from "lucide-react";
 import { type FormEvent, useEffect, useId, useState } from "react";
 import type { components } from "../../api/schema";
 import { useWorkCardRedo, workboardQueryKey, type WorkCard as WorkboardCard } from "../hooks/useWorkboardQuery";
@@ -47,6 +47,7 @@ export function WorkCardFocusPanel({
 	const [nudgeOpen, setNudgeOpen] = useState(false);
 	const [retargetOpen, setRetargetOpen] = useState(false);
 	const [splitOpen, setSplitOpen] = useState(false);
+	const [deleteConfirming, setDeleteConfirming] = useState(false);
 	const [scheduleError, setScheduleError] = useState<string>();
 	const [scheduledAtLocal, setScheduledAtLocal] = useState("");
 	const [livePreviewOpen, setLivePreviewOpen] = useState(false);
@@ -62,6 +63,7 @@ export function WorkCardFocusPanel({
 
 	useEffect(() => {
 		setLivePreviewOpen(false);
+		setDeleteConfirming(false);
 	}, [card.id]);
 
 	const invalidate = async () => {
@@ -132,6 +134,22 @@ export function WorkCardFocusPanel({
 		onError: (error) => setScheduleError(error instanceof Error ? error.message : "Could not update schedule."),
 	});
 
+	const remove = useMutation({
+		mutationFn: async () => {
+			const { error } = await apiClient.DELETE("/api/v1/workboard/cards/{cardId}", {
+				params: { path: { cardId: card.id } },
+			});
+			if (error) throw new Error(apiErrorMessage(error, "Could not delete work card."));
+		},
+		onSuccess: async () => {
+			setActionError(undefined);
+			setDeleteConfirming(false);
+			await invalidate();
+			onClose();
+		},
+		onError: (error) => setActionError(error instanceof Error ? error.message : "Could not delete work card."),
+	});
+
 	const saveSchedule = (event: FormEvent<HTMLFormElement>) => {
 		event.preventDefault();
 		if (updateSchedule.isPending) return;
@@ -152,14 +170,14 @@ export function WorkCardFocusPanel({
 					<div className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">Focused card</div>
 					<h2 className="mt-1 line-clamp-2 text-[14px] font-medium leading-[1.35] text-foreground">{card.title}</h2>
 				</div>
-				{isRunning ? (
-					<DropdownMenu>
+				<DropdownMenu>
 						<DropdownMenuTrigger asChild>
-							<Button aria-label="Running card actions" size="icon-sm" variant="ghost">
+							<Button aria-label="Card actions" size="icon-sm" variant="ghost">
 								<MoreHorizontal className="size-4" aria-hidden="true" />
 							</Button>
 						</DropdownMenuTrigger>
 						<DropdownMenuContent align="end" className="min-w-44">
+							{isRunning ? <>
 							<DropdownMenuItem onSelect={() => setNudgeOpen(true)}>
 								<Zap className="size-3.5" aria-hidden="true" />
 								{isHermesCommander ? "Nudge commander" : "Nudge agent"}
@@ -172,9 +190,13 @@ export function WorkCardFocusPanel({
 								<Split className="size-3.5" aria-hidden="true" />
 								Split card
 							</DropdownMenuItem>
+							</> : null}
+							<DropdownMenuItem className="text-destructive focus:text-destructive" onSelect={() => setDeleteConfirming(true)}>
+								<Trash2 className="size-3.5 text-destructive" aria-hidden="true" />
+								Delete card
+							</DropdownMenuItem>
 						</DropdownMenuContent>
 					</DropdownMenu>
-				) : null}
 				<Button aria-label="Close card focus panel" onClick={onClose} size="icon-sm" variant="ghost">×</Button>
 			</div>
 			<div className="min-h-0 flex-1 overflow-y-auto px-4 py-4">
@@ -227,6 +249,18 @@ export function WorkCardFocusPanel({
 							{isRunning ? <Button onClick={() => setLivePreviewOpen((open) => !open)} size="sm" variant="outline">{showTerminal ? "Hide live terminal" : "Show live terminal"}</Button> : null}
 							{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">View all sessions</Button> : null}
 						</div>
+					) : null}
+					{deleteConfirming ? (
+						<section className="space-y-3 rounded-md border border-destructive/50 bg-destructive/5 p-3" role="alert">
+							<div>
+								<p className="text-[12px] font-medium text-foreground">Delete this card permanently?</p>
+								<p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground">The card and its history will be removed. {card.sessionId ? "Its linked session will keep running; stop it separately from Sessions." : ""}</p>
+							</div>
+							<div className="flex gap-2">
+								<Button className="border-destructive bg-destructive text-destructive-foreground hover:opacity-90" disabled={remove.isPending} onClick={() => remove.mutate()} size="sm">{remove.isPending ? "Deleting..." : "Confirm delete card"}</Button>
+								<Button disabled={remove.isPending} onClick={() => setDeleteConfirming(false)} size="sm" variant="ghost">Cancel</Button>
+							</div>
+						</section>
 					) : null}
 					{actionError ? <p className="text-[11px] text-destructive" role="alert">{actionError}</p> : null}
 				</div>

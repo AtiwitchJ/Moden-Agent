@@ -2393,6 +2393,44 @@ paths:
       tags:
       - workboard
   /api/v1/workboard/cards/{cardId}:
+    delete:
+      operationId: deleteWorkCard
+      parameters:
+      - description: Work card identifier.
+        in: path
+        name: cardId
+        required: true
+        schema:
+          description: Work card identifier.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/DeleteWorkCardResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Permanently remove a work card and its dependent history
+      tags:
+      - workboard
     get:
       operationId: getWorkCard
       parameters:
@@ -3113,6 +3151,16 @@ components:
           type: boolean
       required:
       - deleted
+      type: object
+    DeleteWorkCardResponse:
+      properties:
+        cardId:
+          type: string
+        ok:
+          type: boolean
+      required:
+      - ok
+      - cardId
       type: object
     DomainActivity:
       properties:

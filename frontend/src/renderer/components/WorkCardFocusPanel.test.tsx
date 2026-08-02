@@ -1,16 +1,18 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkCard } from "../hooks/useWorkboardQuery";
 import type { WorkspaceSession } from "../types/workspace";
 
-const { patchMock } = vi.hoisted(() => ({
+const { deleteMock, patchMock } = vi.hoisted(() => ({
+	deleteMock: vi.fn(),
 	patchMock: vi.fn(),
 }));
 
 vi.mock("../lib/api-client", () => ({
 	apiClient: {
+		DELETE: (...args: unknown[]) => deleteMock(...args),
 		PATCH: (...args: unknown[]) => patchMock(...args),
 		POST: vi.fn(),
 	},
@@ -61,6 +63,7 @@ function renderPanel(card: WorkCard = scheduledCard) {
 }
 
 beforeEach(() => {
+	deleteMock.mockReset().mockResolvedValue({ error: undefined });
 	patchMock.mockReset().mockResolvedValue({ error: undefined });
 });
 
@@ -90,8 +93,31 @@ it("identifies a linked Hermes orchestrator as the commander", async () => {
 		</QueryClientProvider>,
 	);
 	expect(screen.getByText("Hermes coordinates this task")).toBeInTheDocument();
-	await userEvent.setup().click(screen.getByRole("button", { name: "Running card actions" }));
+	await userEvent.setup().click(screen.getByRole("button", { name: "Card actions" }));
 	expect(screen.getByText("Nudge commander")).toBeInTheDocument();
+});
+
+it("requires confirmation before deleting a card", async () => {
+	const card: WorkCard = { ...scheduledCard, status: "running", sessionId: "hermes-1" };
+	const session: WorkspaceSession = {
+		id: "hermes-1", workspaceId: "proj-1", workspaceName: "Project", title: "Hermes",
+		provider: "codex", harness: "hermes", kind: "orchestrator", branch: "main", status: "working", updatedAt: "2026-07-17T08:00:00.000Z", prs: [],
+	};
+	render(
+		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+			<WorkCardFocusPanel card={card} projectId="proj-1" session={session} theme="dark" daemonReady onClose={vi.fn()} />
+		</QueryClientProvider>,
+	);
+	const user = userEvent.setup();
+	await user.click(screen.getByRole("button", { name: "Card actions" }));
+	await user.click(screen.getByText("Delete card"));
+	expect(screen.getByText("Delete this card permanently?")).toBeInTheDocument();
+	expect(deleteMock).not.toHaveBeenCalled();
+
+	await user.click(screen.getByRole("button", { name: "Confirm delete card" }));
+	await waitFor(() => expect(deleteMock).toHaveBeenCalledWith("/api/v1/workboard/cards/{cardId}", {
+		params: { path: { cardId: "card_1" } },
+	}));
 });
 
 it("shows the card brief before opening a live terminal", async () => {

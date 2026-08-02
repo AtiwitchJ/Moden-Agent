@@ -35,6 +35,10 @@ type Store interface {
 	ListRedoAttempts(ctx context.Context, findingID string) ([]domain.RedoAttempt, error)
 }
 
+type cardDeleter interface {
+	DeleteWorkCard(ctx context.Context, id string) error
+}
+
 // CreateInput is the required content and placement of a new work card.
 type CreateInput struct {
 	ProjectID     string
@@ -273,6 +277,22 @@ func (s *Service) Get(ctx context.Context, id string) (domain.WorkCard, error) {
 		return domain.WorkCard{}, apierr.NotFound("WORK_CARD_NOT_FOUND", "Unknown work card")
 	}
 	return card, nil
+}
+
+// Delete permanently removes a durable work card and its dependent history.
+// Sessions are intentionally not removed: they have an independent lifecycle.
+func (s *Service) Delete(ctx context.Context, id string) error {
+	if _, err := s.Get(ctx, id); err != nil {
+		return err
+	}
+	deleter, ok := s.store.(cardDeleter)
+	if !ok {
+		return apierr.Internal("WORK_CARD_DELETE_UNAVAILABLE", "Work card deletion is unavailable")
+	}
+	if err := deleter.DeleteWorkCard(ctx, id); err != nil {
+		return apierr.Internal("WORK_CARD_DELETE_FAILED", "Failed to delete work card")
+	}
+	return nil
 }
 
 // Move updates a card's board position and status. Ready cards record the

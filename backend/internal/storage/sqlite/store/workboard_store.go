@@ -96,6 +96,17 @@ func (s *Store) UpdateWorkCard(ctx context.Context, card domain.WorkCard) error 
 	return nil
 }
 
+// DeleteWorkCard permanently removes a card. SQLite cascades its dependent
+// work-card events and redo history through the schema's foreign keys.
+func (s *Store) DeleteWorkCard(ctx context.Context, id string) error {
+	s.writeMu.Lock()
+	defer s.writeMu.Unlock()
+	if err := s.qw.DeleteWorkCard(ctx, id); err != nil {
+		return fmt.Errorf("delete work card %s: %w", id, err)
+	}
+	return nil
+}
+
 // ClaimReadyWorkCard atomically transitions one ready card to running when it
 // is still eligible and the project's durable running-card count is below the
 // supplied WIP limit. The returned flag reports whether this dispatcher won

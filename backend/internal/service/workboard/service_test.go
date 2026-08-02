@@ -107,6 +107,24 @@ func TestCRUDUsesPartialUpdateAndMove(t *testing.T) {
 	}
 }
 
+func TestDeleteRemovesCard(t *testing.T) {
+	svc, _, root := newTestService(t)
+	ctx := context.Background()
+	card, err := svc.Create(ctx, workboard.CreateInput{
+		ProjectID: "p1", Title: "remove me", Notes: "notes", Priority: domain.CardPriorityNormal,
+		Labels: []string{"bug"}, TargetPath: root, Agent: "codex",
+	})
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if err := svc.Delete(ctx, card.ID); err != nil {
+		t.Fatalf("Delete: %v", err)
+	}
+	if _, err := svc.Get(ctx, card.ID); err == nil {
+		t.Fatal("Get deleted card = nil error, want not found")
+	}
+}
+
 func TestUpdateLinksSessionID(t *testing.T) {
 	svc, sqliteStore, root := newTestService(t)
 	ctx := context.Background()

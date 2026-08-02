@@ -151,6 +151,7 @@ var schemaNames = map[string]string{
 	"ControllersWorkboardProjectIDParam":          "WorkboardProjectIDParam",
 	"ControllersWorkCardIDParam":                  "WorkCardIDParam",
 	"ControllersWorkCardResponse":                 "WorkCardResponse",
+	"ControllersDeleteWorkCardResponse":           "DeleteWorkCardResponse",
 	"ControllersCreateWorkCardRequest":            "CreateWorkCardRequest",
 	"ControllersUpdateWorkCardRequest":            "UpdateWorkCardRequest",
 	"ControllersMoveWorkCardRequest":              "MoveWorkCardRequest",
@@ -440,6 +441,17 @@ func workboardOperations() []operation {
 			pathParams: []any{controllers.WorkCardIDParam{}},
 			resps: []respUnit{
 				{http.StatusOK, controllers.WorkCardResponse{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodDelete, path: "/api/v1/workboard/cards/{cardId}", id: "deleteWorkCard", tag: "workboard",
+			summary:    "Permanently remove a work card and its dependent history",
+			pathParams: []any{controllers.WorkCardIDParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.DeleteWorkCardResponse{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},
 				{http.StatusNotImplemented, envelope.APIError{}},

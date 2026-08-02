@@ -77,6 +77,12 @@ type WorkCardResponse struct {
 	UpdatedAt          time.Time  `json:"updatedAt"`
 }
 
+// DeleteWorkCardResponse confirms that a durable work card was removed.
+type DeleteWorkCardResponse struct {
+	OK     bool   `json:"ok"`
+	CardID string `json:"cardId"`
+}
+
 // CreateWorkCardRequest is the body of POST /api/v1/workboard/cards or POST /api/v1/projects/{projectId}/workboard/cards.
 type CreateWorkCardRequest struct {
 	ProjectID     string     `json:"projectId,omitempty"`

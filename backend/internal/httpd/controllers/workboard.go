@@ -20,6 +20,7 @@ type WorkboardService interface {
 	List(ctx context.Context, projectID, boardID string) ([]domain.WorkCard, error)
 	ListAll(ctx context.Context) ([]domain.WorkCard, error)
 	Get(ctx context.Context, id string) (domain.WorkCard, error)
+	Delete(ctx context.Context, id string) error
 	Update(ctx context.Context, id string, in workboardsvc.UpdateInput) (domain.WorkCard, error)
 	Move(ctx context.Context, id string, status domain.CardStatus, position int64) (domain.WorkCard, error)
 	Nudge(ctx context.Context, id string, in workboardsvc.NudgeInput) (domain.WorkCard, error)
@@ -43,6 +44,7 @@ func (c *WorkboardController) Register(r chi.Router) {
 	r.Post("/projects/{projectId}/workboard/cards", c.create)
 	r.Patch("/projects/{id}/workboard/autonomous", c.updateAutonomous)
 	r.Get("/workboard/cards/{cardId}", c.get)
+	r.Delete("/workboard/cards/{cardId}", c.delete)
 	r.Patch("/workboard/cards/{cardId}", c.update)
 	r.Post("/workboard/cards/{cardId}/move", c.move)
 	r.Post("/workboard/cards/{cardId}/nudge", c.nudge)
@@ -118,6 +120,19 @@ func (c *WorkboardController) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envelope.WriteJSON(w, http.StatusOK, newWorkCardResponse(card))
+}
+
+func (c *WorkboardController) delete(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodDelete, "/api/v1/workboard/cards/{cardId}")
+		return
+	}
+	cardID := chi.URLParam(r, "cardId")
+	if err := c.Svc.Delete(r.Context(), cardID); err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, DeleteWorkCardResponse{OK: true, CardID: cardID})
 }
 
 func (c *WorkboardController) update(w http.ResponseWriter, r *http.Request) {
