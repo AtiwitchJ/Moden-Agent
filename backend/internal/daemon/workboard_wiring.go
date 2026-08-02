@@ -26,9 +26,11 @@ func startWorkboardDispatcher(ctx context.Context, store *sqlite.Store, sessions
 	switcher := workboardsvc.NewAgentSwitcher(workboardsvc.SwitchDeps{
 		Store: store, Spawner: sessions, Killer: sessions, Capture: runtime,
 	})
+	nudger := workboardsvc.NewStallNudger(workboardsvc.StallNudgeDeps{Store: store, Sender: sessions})
 
 	answererDone := startProjectReconciler(ctx, store, answerer, logger, "workboard answerer")
 	switcherDone := startProjectReconciler(ctx, store, switcher, logger, "workboard switcher")
+	nudgerDone := startProjectReconciler(ctx, store, nudger, logger, "workboard stall nudger")
 
 	allDone := make(chan struct{})
 	go func() {
@@ -36,6 +38,7 @@ func startWorkboardDispatcher(ctx context.Context, store *sqlite.Store, sessions
 		<-trigger.Done()
 		<-answererDone
 		<-switcherDone
+		<-nudgerDone
 	}()
 	return trigger, allDone
 }
