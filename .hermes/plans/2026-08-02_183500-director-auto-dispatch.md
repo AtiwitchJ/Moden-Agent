@@ -24,10 +24,10 @@
 - `frontend/src/renderer/lib/workboard-config.ts`
 - affected project settings/create-project tests
 
-- [ ] Change `DefaultWorkboardConfig().WIPLimit` from 3 to 4.
-- [ ] Change the frontend default project config to `wipLimit: 4` so a newly created Hermes project persists the same value as the daemon default.
-- [ ] Keep projects with an existing explicit value unchanged; zero still means “use default”.
-- [ ] Update assertions that deliberately test defaults. Do not mass-rewrite fixtures whose WIP value exists only to test another behavior.
+- [x] Change `DefaultWorkboardConfig().WIPLimit` from 3 to 4.
+- [x] Change the frontend default project config to `wipLimit: 4` so a newly created Hermes project persists the same value as the daemon default.
+- [x] Keep projects with an existing explicit value unchanged; zero still means “use default”.
+- [x] Update assertions that deliberately test defaults. Do not mass-rewrite fixtures whose WIP value exists only to test another behavior.
 
 **Verification:** domain default test plus focused project configuration tests prove an unspecified project resolves to 4 and an explicit value still wins.
 
