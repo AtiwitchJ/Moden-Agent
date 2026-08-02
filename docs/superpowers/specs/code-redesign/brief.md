@@ -10,7 +10,7 @@
 
 ภาพประกอบจากผู้ใช้คือหน้าจอและ flow อ้างอิงของรอบนี้ ไม่ใช่เพียงตัวอย่างโทนสี
 
-- Mode bar ด้านบน: `Code`, `Code Manage`, `Work`
+- Mode bar ด้านบน: `Code`, `Director`, `Work`
 - Sidebar ซ้าย: brand, `New`, `Recents`, และ `More` ด้านล่าง
 - พื้นที่กลาง: `Welcome back, {org}` และ empty state หรือรายการ sessions
 - Composer ต้องตรึงที่ **ด้านล่าง**: project picker → prompt → `Send`
@@ -24,7 +24,7 @@
 1. เริ่มงานจาก composer ด้านล่างเสมอ: เลือก project, พิมพ์สิ่งที่ต้องการ, กด `Send`
 2. แสดง session ที่ต้องสนใจก่อน session อื่น: ต้องตอบ, วางแผน, กำลังทำ, เสร็จแล้ว
 3. Hermes อธิบายสถานะด้วยภาษาคน; terminal และ technical log เปิดดูเมื่อต้องการเท่านั้น
-4. Code Manage เป็นที่จัดการ card และ Work เป็นที่ติดตามเชิงลึก — ไม่ยัดทั้งสองหน้าลงในหน้า Code
+4. Director เป็นที่จัดการ card และ Work เป็นที่ติดตามเชิงลึก — ไม่ยัดทั้งสองหน้าลงในหน้า Code
 
 ## ภาษาภาพ
 
@@ -43,7 +43,7 @@
 
 ```text
 ┌──────────────────────────────────────────────────────────────────────────────┐
-│                Code · Code Manage · Work                         notifications │
+│                Code · Director · Work                            notifications │
 ├───────────────┬──────────────────────────────────────────────────────────────┤
 │ Modern Agent  │                                                              │
 │               │        Welcome back, Vertex Holdings                         │
@@ -99,7 +99,7 @@ Composer ล่างจอ: [B เลือก project ▾] [C อธิบา�
 4. กด **D `Send`** เพื่อเปิด session ให้ agent เริ่มงาน
 5. กลับมาหน้า Code แล้วเปิด session จาก `Recents` หรือ row ในพื้นที่กลาง
 
-หน้า Code ใช้เพื่อเริ่มและกลับมาหา session เท่านั้น; เมื่ออยากจัดลำดับ card ให้ไป Code Manage
+หน้า Code ใช้เพื่อเริ่มและกลับมาหา session เท่านั้น; เมื่ออยากจัดลำดับ card ให้ไป Director
 
 ## ไม่ทำในรอบ Code-first
 

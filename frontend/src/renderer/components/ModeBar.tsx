@@ -15,7 +15,7 @@ export function activeModeFromPathname(pathname: string): AppMode {
 
 const MODES: { id: AppMode; label: string; to: string }[] = [
 	{ id: "code", label: "Code", to: "/" },
-	{ id: "manage", label: "Code Manage", to: "/manage" },
+	{ id: "manage", label: "Director", to: "/manage" },
 	{ id: "work", label: "Work", to: "/work" },
 ];
 

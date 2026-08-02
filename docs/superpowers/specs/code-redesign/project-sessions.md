@@ -50,7 +50,7 @@ Project: billing-portal
 
 ผลลัพธ์: ผู้ใช้เปิด project เดียวและทำ `Palette`, `Export`, `API review` พร้อมกันได้ โดยแต่ละงานมี session ของตัวเอง
 
-### Code Manage
+### Director
 
 1. Card มี `Commander: Hermes` เพียงจุดเดียว
 2. ใต้ card แสดง worker ล่าสุด และใน panel แสดง `Worker sessions` ทั้งหมดของ card
@@ -90,7 +90,7 @@ work_card_session_links
 2. **Service boundary** — link commander/worker/reviewer/tester ตอน spawn, complete/kill/redo และอัปเดต control paths ให้ใช้ role
 3. **API contract** — card detail ส่ง session links; regenerate OpenAPI และ frontend types
 4. **Code UI** — project-scoped session list, project pill และ `New work request` ที่ไม่สร้าง Hermes ซ้ำ
-5. **Code Manage UI** — card/panel แสดง commander หนึ่งตัว + worker session history หลายตัว
+5. **Director UI** — card/panel แสดง commander หนึ่งตัว + worker session history หลายตัว
 6. **Work UI** — file change map filter ด้วย card/session จาก relation ใหม่
 7. **Migration + regression tests** — project เดียวหลาย card/worker, reuse Hermes, legacy link, nudge/retarget/split, session cleanup
 

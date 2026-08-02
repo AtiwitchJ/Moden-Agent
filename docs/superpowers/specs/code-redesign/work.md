@@ -32,14 +32,14 @@ Work มองเห็นได้เฉพาะ project และ repository 
 | หน้า | คำถามที่ตอบ |
 | --- | --- |
 | Code | อยากให้ AI เริ่มทำอะไร? |
-| Code Manage | งานใบไหนอยู่ขั้นไหน และต้องสั่งอะไรต่อ? |
+| Director | งานใบไหนอยู่ขั้นไหน และต้องสั่งอะไรต่อ? |
 | **Work** | ไฟล์ไหนอยู่ที่ไหน เปลี่ยนอะไร และเกี่ยวกับงานใด? |
 
 ## Layout
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────┐
-│                     Code · Code Manage · Work                         notifications │
+│                     Code · Director · Work                            notifications │
 ├────────────────────────────────────────────────────────────────────────────────────┤
 │ billing-portal ▾       Search files…                    Changes 4     Open session │
 ├────────────────┬─────────────────────────────────┬─────────────────────────────────┤
@@ -110,7 +110,7 @@ Adjust colour palette     Hermes → Claude Code     3 files
 2. เห็น change map และ file tree ของ root ที่ปลอดภัย
 3. เลือกไฟล์เพื่อดู preview/diff ใน Inspect pane
 4. เลือก related card เพื่อดูว่า Hermes/worker กำลังทำอะไรกับไฟล์นั้น
-5. กด `Open task` เพื่อไป Code Manage หรือ `Open terminal` เพื่อไป Work session detail
+5. กด `Open task` เพื่อไป Director หรือ `Open terminal` เพื่อไป Work session detail
 6. เมื่อ write phase เปิดใช้ ผู้ใช้ทำ file operation ผ่าน confirmation sheet เท่านั้น
 
 ## การใช้งานตาม Layout
@@ -124,7 +124,7 @@ Right:   [Inspect: preview, diff, related work]
 1. เลือก project และ repository root จาก rail
 2. เปิด folder หรือเลือกไฟล์ในคอลัมน์ **Files**
 3. อ่าน preview หรือ diff ใน **Inspect**
-4. คลิก `Related work` เพื่อกลับไปที่ card ใน Code Manage
+4. คลิก `Related work` เพื่อกลับไปที่ card ใน Director
 5. กด `Open terminal` เมื่อต้องคุยหรือสั่งงาน session โดยตรง
 
 รอบแรกเป็น read-only; การสร้าง, ย้าย, rename และลบไฟล์จะเปิดใช้หลัง path guard และการยืนยันผ่านการทดสอบเท่านั้น

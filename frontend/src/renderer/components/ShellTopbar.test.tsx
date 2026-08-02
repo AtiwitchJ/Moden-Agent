@@ -151,7 +151,7 @@ describe("TopbarKillButton", () => {
 });
 
 describe("ShellTopbar on an orchestrator session (Code mode)", () => {
-	it("does not offer New task or Kanban — that surface moved to Code Manage mode", () => {
+	it("does not offer New task or Kanban — that surface moved to Director mode", () => {
 		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 		render(
 			<QueryClientProvider client={queryClient}>

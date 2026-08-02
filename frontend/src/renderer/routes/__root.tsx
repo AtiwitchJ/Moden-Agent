@@ -50,7 +50,7 @@ export function RootComponent() {
 				</div>
 				{/* Fixed macOS titlebar cluster beside the traffic lights — rendered here
 				    (outside the outlet, after the main layout content) so it's always
-				    available in all modes (Code, Code Manage, Work) without re-mounting.
+				    available in all modes (Code, Director, Work) without re-mounting.
 				    MUST come after the ModeBar and content div in the DOM: Electron
 				    builds the window-drag region in document order (drag rects add,
 				    no-drag rects subtract), so the cluster's no-drag holes only survive

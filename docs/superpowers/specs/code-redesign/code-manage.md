@@ -1,8 +1,8 @@
-# Code Manage Redesign — Draft 1
+# Director Redesign — Draft 1
 
 ## หน้าที่ของหน้า
 
-Code Manage คือหน้าที่ผู้ใช้ **จัดลำดับและควบคุมงานหลายใบ** ไม่ใช่หน้าสำหรับเริ่ม session และไม่ใช่หน้าดู terminal
+Director คือหน้าที่ผู้ใช้ **จัดลำดับ สั่ง และควบคุมงานหลายใบ** ไม่ใช่หน้าสำหรับเริ่ม session และไม่ใช่หน้าดู terminal
 
 คำตอบที่ผู้ใช้ต้องได้ภายในไม่กี่วินาทีคือ:
 
@@ -12,7 +12,7 @@ Code Manage คือหน้าที่ผู้ใช้ **จัดลำ�
 
 ## Baseline ที่ต้องรักษา
 
-- Mode bar ด้านบน: `Code`, `Code Manage`, `Work`
+- Mode bar ด้านบน: `Code`, `Director`, `Work`
 - Board หกคอลัมน์: `Todo`, `Running`, `Review`, `Testing`, `Redo`, `Done`
 - สร้าง card ด้วยปุ่ม `Create card`
 - ลาก card ข้ามคอลัมน์ได้ และ click เพื่อเปิดรายละเอียด
@@ -24,7 +24,7 @@ Code Manage คือหน้าที่ผู้ใช้ **จัดลำ�
 | หน้า | หน้าที่ |
 | --- | --- |
 | Code | เริ่มหรือกลับไปทำงานหนึ่ง session |
-| **Code Manage** | จัดลำดับ, เริ่ม, ย้าย, และแทรกแซง durable work cards |
+| **Director** | จัดลำดับ, เริ่ม, ย้าย, และแทรกแซง durable work cards |
 | Work | เปิด session, terminal และรายละเอียดการทำงานเชิงลึก |
 
 ## ภาษาภาพ
@@ -52,7 +52,7 @@ Brief ✓  Plan ●  Worker ○  Review ○
 
 ```text
 ┌────────────────────────────────────────────────────────────────────────────────────┐
-│                     Code · Code Manage · Work                         notifications │
+│                     Code · Director · Work                            notifications │
 ├────────────────────────────────────────────────────────────────────────────────────┤
 │ Workboard                                      2 need attention       + Create card │
 ├───────────┬───────────┬───────────┬───────────┬───────────┬─────────────────────────┤
@@ -133,12 +133,12 @@ Board:  [Todo] → [Running] → [Review] → [Testing] → [Redo] → [Done]
 5. ใช้ `Nudge commander`, `Retarget goal` หรือ `Split card` เมื่อจำเป็น
 6. กด `Show live terminal` เฉพาะเมื่อต้องดู log จริง; กด `Delete card` แล้วต้องยืนยันอีกครั้ง
 
-หน้า Code Manage ใช้ควบคุมวงจรของ card; เมื่ออยากดู file/folder ที่เปลี่ยนให้ไป Work
+หน้า Director ใช้ควบคุมวงจรของ card; เมื่ออยากดู file/folder ที่เปลี่ยนให้ไป Work
 
 ## ไม่ทำในรอบนี้
 
 - ไม่สร้าง child-card schema ใหม่
-- ไม่แสดง live terminal หลายบานในหน้า Code Manage
+- ไม่แสดง live terminal หลายบานในหน้า Director
 - ไม่ทำให้การลบ card ฆ่า session โดยอัตโนมัติ
 - ไม่ซ้ำหน้า Code ด้วย composer หรือ recents sidebar
 

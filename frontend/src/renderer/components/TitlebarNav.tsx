@@ -11,7 +11,7 @@ const noDragStyle = isMac ? ({ WebkitAppRegion: "no-drag" } as React.CSSProperti
 // the traffic lights, VS Code-style. Approved divergence from the web
 // reference, which has no window chrome (DESIGN.md banner, 2026-06-10).
 // Rendered as a fixed-position root-level sibling (.titlebar-nav in styles.css)
-// so it's always visible and available in all three modes (Code, Code Manage, Work).
+// so it's always visible and available in all three modes (Code, Director, Work).
 // The sidebar toggle button is always mounted but hidden in non-Code modes to
 // preserve the cluster's fixed width; otherwise the cluster shifts ~30px left
 // when leaving Code mode, breaking the overlay positioning invariant.

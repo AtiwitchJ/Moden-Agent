@@ -118,8 +118,8 @@ export function Workboard({ projectId, onShowSessions }: { projectId?: string; o
 	return (
 		<div className="flex h-full min-h-0 flex-col bg-background text-foreground">
 			<DashboardSubhead
-				title="Workboard"
-				subtitle="Track each task from queue to review, with its worker and live session in one place."
+				title="Director"
+				subtitle="Direct each task from queue to review, with its commander, worker, and live session in one place."
 				actions={<>{projectId ? <Button onClick={() => setIsAutonomousOpen(true)} size="sm" variant="ghost"><SlidersHorizontal className="size-3.5" aria-hidden="true" />Autonomous</Button> : null}<Button onClick={() => setIsCreateOpen(true)} size="sm"><Plus className="size-3.5" aria-hidden="true" />Create card</Button>{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">Sessions</Button> : null}</>}
 			/>
 			<p className="sr-only" id="workboard-keyboard-help">Press Left or Right Arrow to move the focused card between columns.</p>

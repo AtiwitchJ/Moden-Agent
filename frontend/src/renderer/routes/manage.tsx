@@ -7,7 +7,7 @@ export const Route = createFileRoute("/manage")({
 	component: ManagePage,
 });
 
-// Code Manage mode: light shell — the root ModeBar + TitlebarNav sit above;
+// Director mode: light shell — the root ModeBar + TitlebarNav sit above;
 // the board owns the rest of the viewport. No project sidebar, no ShellTopbar
 // (approved design: modes operate independently, board-first).
 // ShellProvider and daemonStatus are provided by root and inherited here.

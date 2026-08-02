@@ -44,7 +44,7 @@ const STATUS_PILL: Record<WorkerDisplayStatus, { label: string; tone: string; br
 // the lead to the session identity (orchestrator crumb + mode badge, or worker
 // branch + status pill) and the actions to worker/orchestrator + inspector
 // controls (orchestrator sessions have no actions here — task/board management
-// lives in Code Manage mode's Workboard now, not this topbar);
+// lives in Director mode's Workboard now, not this topbar);
 // otherwise it's the dashboard crumb plus the Orchestrator launcher when a
 // project is in scope. Merges the old DashboardTopbar/Topbar pair —
 // modern-agent keeps those as two components aligned only by CSS.
