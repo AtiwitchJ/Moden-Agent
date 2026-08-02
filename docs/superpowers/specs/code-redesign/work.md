@@ -113,6 +113,22 @@ Adjust colour palette     Hermes → Claude Code     3 files
 5. กด `Open task` เพื่อไป Code Manage หรือ `Open terminal` เพื่อไป Work session detail
 6. เมื่อ write phase เปิดใช้ ผู้ใช้ทำ file operation ผ่าน confirmation sheet เท่านั้น
 
+## การใช้งานตาม Layout
+
+```text
+Rail:    [Project / repository]
+Middle:  [Files / folders]
+Right:   [Inspect: preview, diff, related work]
+```
+
+1. เลือก project และ repository root จาก rail
+2. เปิด folder หรือเลือกไฟล์ในคอลัมน์ **Files**
+3. อ่าน preview หรือ diff ใน **Inspect**
+4. คลิก `Related work` เพื่อกลับไปที่ card ใน Code Manage
+5. กด `Open terminal` เมื่อต้องคุยหรือสั่งงาน session โดยตรง
+
+รอบแรกเป็น read-only; การสร้าง, ย้าย, rename และลบไฟล์จะเปิดใช้หลัง path guard และการยืนยันผ่านการทดสอบเท่านั้น
+
 ## Daemon/API ที่ต้องมีภายหลัง
 
 Work ไม่ควรใช้ Electron filesystem API ตรง ๆ จึงต้องออกแบบ daemon contract ก่อน implementation:

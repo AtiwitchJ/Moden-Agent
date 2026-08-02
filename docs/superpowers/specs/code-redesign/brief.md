@@ -86,6 +86,21 @@ Brief → Plan → Worker → Review → Done
 5. Hermes แสดงสถานะสั้น `Plan` หรือ `Worker` ใน row; ผู้ใช้เปิด task หรือ terminal ได้เมื่อต้องการ
 6. หาก Hermes ต้องการคำตอบ row นั้นขึ้นก่อนรายการอื่น พร้อมคำถามที่กดตอบได้
 
+## การใช้งานตาม Layout
+
+```text
+Sidebar: [A New] · Recents · More
+Composer ล่างจอ: [B เลือก project ▾] [C อธิบายงาน…] [D Send]
+```
+
+1. กด **A `New`** เพื่อโฟกัสช่อง C
+2. เลือก project ใน **B** หรือเลือก `New project…`
+3. พิมพ์ผลลัพธ์ที่ต้องการใน **C**
+4. กด **D `Send`** เพื่อเปิด session ให้ agent เริ่มงาน
+5. กลับมาหน้า Code แล้วเปิด session จาก `Recents` หรือ row ในพื้นที่กลาง
+
+หน้า Code ใช้เพื่อเริ่มและกลับมาหา session เท่านั้น; เมื่ออยากจัดลำดับ card ให้ไป Code Manage
+
 ## ไม่ทำในรอบ Code-first
 
 - ไม่ย้าย Kanban หรือการตั้งค่า project มาที่หน้า Code

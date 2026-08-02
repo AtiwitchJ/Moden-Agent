@@ -119,6 +119,22 @@ Click card → right-side task detail overlay (ไม่บีบคอลัม
 5. งานผ่าน Review และ Testing ก่อนเข้า `Done`; ถ้าติดปัญหาเข้า `Redo` พร้อมเหตุผล
 6. ผู้ใช้เปิด Work เฉพาะเมื่อจำเป็นต้องคุม session หรืออ่าน terminal
 
+## การใช้งานตาม Layout
+
+```text
+Header: Workboard                                      [+ Create card]
+Board:  [Todo] → [Running] → [Review] → [Testing] → [Redo] → [Done]
+```
+
+1. กด **`Create card`** แล้วระบุ goal, project, target folder และ coding worker
+2. Card ใหม่อยู่ใน **Todo** เพื่อรอจัดลำดับ
+3. ลาก card ไป **Running** เมื่อต้องการให้ Hermes เริ่มคุมงาน
+4. คลิก card เพื่ออ่าน owner, details, path และสถานะสรุป
+5. ใช้ `Nudge commander`, `Retarget goal` หรือ `Split card` เมื่อจำเป็น
+6. กด `Show live terminal` เฉพาะเมื่อต้องดู log จริง; กด `Delete card` แล้วต้องยืนยันอีกครั้ง
+
+หน้า Code Manage ใช้ควบคุมวงจรของ card; เมื่ออยากดู file/folder ที่เปลี่ยนให้ไป Work
+
 ## ไม่ทำในรอบนี้
 
 - ไม่สร้าง child-card schema ใหม่
