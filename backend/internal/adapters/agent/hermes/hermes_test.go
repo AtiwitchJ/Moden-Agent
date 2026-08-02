@@ -21,13 +21,11 @@ func TestGetLaunchCommandBuildsCrossPlatformArgv(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// cfg.SessionID is the AO-internal id and must NOT be passed as --session on
-	// launch; hermes mints its own native id, which GetRestoreCommand resumes by.
+	// Hermes inherits the worktree from the runtime's cwd. Its current CLI does
+	// not support --cwd or a positional launch prompt.
 	want := []string{
 		"hermes",
-		"--cwd", "/tmp/workspace",
 		"--yolo",
-		"--", "fix this",
 	}
 	if !reflect.DeepEqual(cmd, want) {
 		t.Fatalf("unexpected command\nwant: %#v\n got: %#v", want, cmd)
@@ -89,7 +87,7 @@ func TestGetLaunchCommandMapsPermissionModes(t *testing.T) {
 	}
 }
 
-func TestGetPromptDeliveryStrategyIsInCommand(t *testing.T) {
+func TestGetPromptDeliveryStrategyIsAfterStart(t *testing.T) {
 	plugin := &Plugin{resolvedBinary: "hermes"}
 
 	got, err := plugin.GetPromptDeliveryStrategy(context.Background(), ports.LaunchConfig{})
@@ -97,8 +95,8 @@ func TestGetPromptDeliveryStrategyIsInCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if got != ports.PromptDeliveryInCommand {
-		t.Fatalf("unexpected prompt delivery strategy: got %v, want %v", got, ports.PromptDeliveryInCommand)
+	if got != ports.PromptDeliveryAfterStart {
+		t.Fatalf("unexpected prompt delivery strategy: got %v, want %v", got, ports.PromptDeliveryAfterStart)
 	}
 }
 
@@ -119,7 +117,7 @@ func TestGetRestoreCommand(t *testing.T) {
 			workspacePath:  "/tmp/workspace",
 			permission:     ports.PermissionModeDefault,
 			wantOk:         true,
-			wantContains:   []string{"--cwd", "/tmp/workspace", "--session", "hermes-session-123"},
+			wantContains:   []string{"--resume", "hermes-session-123"},
 		},
 		{
 			name:           "restore with bypass permissions",
@@ -127,7 +125,7 @@ func TestGetRestoreCommand(t *testing.T) {
 			workspacePath:  "/tmp/workspace",
 			permission:     ports.PermissionModeBypassPermissions,
 			wantOk:         true,
-			wantContains:   []string{"--cwd", "/tmp/workspace", "--yolo", "--session", "hermes-session-456"},
+			wantContains:   []string{"--yolo", "--resume", "hermes-session-456"},
 		},
 		{
 			name:           "no session id",
@@ -153,6 +151,9 @@ func TestGetRestoreCommand(t *testing.T) {
 			}
 			if tt.wantOk && len(tt.wantContains) > 0 && !containsSubsequence(cmd, tt.wantContains) {
 				t.Fatalf("command %#v does not contain %#v", cmd, tt.wantContains)
+			}
+			if contains(cmd, "--cwd") || contains(cmd, "--session") {
+				t.Fatalf("command %#v contains unsupported Hermes flags", cmd)
 			}
 		})
 	}

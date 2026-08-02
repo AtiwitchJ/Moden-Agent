@@ -65,12 +65,12 @@ func (p *Plugin) GetConfigSpec(ctx context.Context) (ports.ConfigSpec, error) {
 // GetLaunchCommand builds the argv to start an interactive hermes session.
 // Shape:
 //
-//	hermes [--cwd <WorkspacePath>] [--yolo] [-- <Prompt>]
+//	hermes [--yolo]
 //
-// The session runs in the worktree (cwd is set by the runtime). hermes doesn't
-// have native system prompt support, so cfg.SystemPrompt / SystemPromptFile are
-// intentionally ignored. The initial task prompt is delivered as a positional
-// argument after `--`. The --yolo flag corresponds to bypass-permissions mode.
+// The session runs in the worktree because the runtime sets its cwd. Hermes
+// does not support --cwd or a positional interactive prompt, so cfg.WorkspacePath,
+// cfg.Prompt, cfg.SystemPrompt, and cfg.SystemPromptFile are intentionally not
+// represented in argv. The --yolo flag corresponds to bypass-permissions mode.
 //
 // We intentionally do not pass --session on launch: cfg.SessionID is the
 // AO-internal id, not a hermes-native session id. Letting hermes mint its own
@@ -84,35 +84,25 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 
 	cmd = []string{binary}
 
-	// hermes uses --cwd to set working directory
-	if cfg.WorkspacePath != "" {
-		cmd = append(cmd, "--cwd", cfg.WorkspacePath)
-	}
-
 	// Handle permission modes
 	if cfg.Permissions == ports.PermissionModeBypassPermissions {
 		cmd = append(cmd, "--yolo")
 	}
 
-	// Prompt is passed after `--` so a leading "-" is not read as a flag
-	if cfg.Prompt != "" {
-		cmd = append(cmd, "--", cfg.Prompt)
-	}
-
 	return cmd, nil
 }
 
-// GetPromptDeliveryStrategy reports that hermes receives its prompt in the
-// launch command itself as a positional argument.
+// GetPromptDeliveryStrategy reports that Hermes receives prompts through its
+// interactive terminal after it starts.
 func (p *Plugin) GetPromptDeliveryStrategy(ctx context.Context, cfg ports.LaunchConfig) (ports.PromptDeliveryStrategy, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	return ports.PromptDeliveryInCommand, nil
+	return ports.PromptDeliveryAfterStart, nil
 }
 
 // GetRestoreCommand rebuilds the argv that continues an existing hermes session:
-// `hermes [--cwd <WorkspacePath>] [--yolo] --session <agentSessionId>`.
+// `hermes [--yolo] --resume <agentSessionId>`.
 // It re-applies the permission flag but not the prompt, which the session
 // already carries. ok is false when the native session id is not available.
 func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig) (cmd []string, ok bool, err error) {
@@ -131,15 +121,11 @@ func (p *Plugin) GetRestoreCommand(ctx context.Context, cfg ports.RestoreConfig)
 
 	cmd = []string{binary}
 
-	if cfg.Session.WorkspacePath != "" {
-		cmd = append(cmd, "--cwd", cfg.Session.WorkspacePath)
-	}
-
 	if cfg.Permissions == ports.PermissionModeBypassPermissions {
 		cmd = append(cmd, "--yolo")
 	}
 
-	cmd = append(cmd, "--session", agentSessionID)
+	cmd = append(cmd, "--resume", agentSessionID)
 	return cmd, true, nil
 }
 
