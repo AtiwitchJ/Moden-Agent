@@ -14,6 +14,8 @@ import (
 	"time"
 
 	"github.com/modernagent/modern-agent/backend/internal/adapters/runtime/runtimeselect"
+	"github.com/modernagent/modern-agent/backend/internal/commander/orchestrator"
+	"github.com/modernagent/modern-agent/backend/internal/commander/spawner"
 	"github.com/modernagent/modern-agent/backend/internal/config"
 	"github.com/modernagent/modern-agent/backend/internal/daemon/supervisor"
 	"github.com/modernagent/modern-agent/backend/internal/domain"
@@ -100,13 +102,6 @@ func Run() error {
 		return err
 	}
 
-	// Orchestrator wiring: subscribes to CDC card-change events and drives periodic
-	// ticks. Nil orchestrator is tolerated before Task 6 lands so boot never blocks.
-	orchWiring, err := WireOrchestrator(ctx, OrchestratorConfig{Orchestrator: nil}, cdcPipe.Broadcaster, store, log)
-	if err != nil {
-		return fmt.Errorf("wire orchestrator: %w", err)
-	}
-
 	// Terminal streaming: the selected runtime (tmux on macOS/Linux, conpty on Windows) supplies the
 	// attach Stream and liveness; the CDC broadcaster feeds the session-state channel. The manager
 	// is handed to httpd, which mounts it at /mux. Raw PTY bytes never flow
@@ -149,6 +144,33 @@ func Run() error {
 		}
 		return fmt.Errorf("wire session service: %w", err)
 	}
+
+	// Orchestrator wiring: subscribes to CDC card-change events and drives
+	// periodic ticks that advance work cards through their phases, spawning
+	// the right agent session per phase via the session service.
+	orchStore := orchestratorStoreAdapter{store: store}
+	orchSpawner := spawner.New(
+		&spawner.SessionServiceLauncher{Sessions: sessionSvc},
+		orchStore,
+		nil,
+		nil,
+		nil,
+	)
+	orch := orchestrator.New(orchestrator.Config{
+		Spawner:  spawnerAdapter{spawner: orchSpawner},
+		Store:    orchStore,
+		WIPLimit: domain.DefaultWorkboardConfig().WIPLimit,
+	})
+	orchWiring, err := WireOrchestrator(ctx, OrchestratorConfig{Orchestrator: orch}, cdcPipe.Broadcaster, store, log)
+	if err != nil {
+		stop()
+		lcStack.Stop()
+		if cdcErr := cdcPipe.Stop(); cdcErr != nil {
+			log.Error("cdc pipeline shutdown", "err", cdcErr)
+		}
+		return fmt.Errorf("wire orchestrator: %w", err)
+	}
+
 	workboardTrigger, workboardDone := startWorkboardDispatcher(ctx, store, sessionSvc, runtimeAdapter, log)
 	workboardSvc := workboardsvc.NewWithDeps(workboardsvc.Deps{
 		Store: store, Sender: sessionSvc, Spawner: sessionSvc, Killer: sessionSvc,
