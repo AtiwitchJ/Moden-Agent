@@ -77,3 +77,4 @@ Thumbs.db
 
 # ── Personal local overrides (not for the team) ──────────────────
 .envrc.local
+.worktrees/
