@@ -591,3 +591,20 @@ func cloneTime(value *time.Time) *time.Time {
 	cloned := value.UTC()
 	return &cloned
 }
+
+// CountActiveCards returns the number of cards in active phases
+// (running, review, testing, redo) for the project.
+func (s *Service) CountActiveCards(ctx context.Context, projectID string) (int, error) {
+	cards, err := s.store.ListWorkCards(ctx, projectID, defaultBoardID)
+	if err != nil {
+		return 0, err
+	}
+	active := 0
+	for _, c := range cards {
+		switch c.Status {
+		case domain.CardStatusRunning, domain.CardStatusReview, domain.CardStatusTesting, domain.CardStatusRedo:
+			active++
+		}
+	}
+	return active, nil
+}

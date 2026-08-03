@@ -642,13 +642,17 @@ func (s *dispatchStore) ClaimReadyWorkCard(_ context.Context, cardID, projectID 
 	if !ok || card.ProjectID != projectID || card.Status != domain.CardStatusReady || card.PausedRetarget {
 		return false, nil
 	}
-	running := 0
-	for _, card := range s.cards {
-		if card.ProjectID == projectID && card.Status == domain.CardStatusRunning {
-			running++
+	active := 0
+	for _, c := range s.cards {
+		if c.ProjectID != projectID {
+			continue
+		}
+		switch c.Status {
+		case domain.CardStatusRunning, domain.CardStatusReview, domain.CardStatusTesting, domain.CardStatusRedo:
+			active++
 		}
 	}
-	if running >= wipLimit {
+	if active >= wipLimit {
 		return false, nil
 	}
 	card.Status = domain.CardStatusRunning
