@@ -28,6 +28,7 @@ type ConfiguredOrchestrator struct {
 // loop. *sqlite.Store satisfies it structurally.
 type OrchestratorStore interface {
 	ListWorkCards(ctx context.Context, projectID, boardID string) ([]domain.WorkCard, error)
+	GetWorkCard(ctx context.Context, id string) (domain.WorkCard, bool, error)
 	GetActiveSession(ctx context.Context, cardID string) (ActiveSessionRecord, bool, error)
 	InsertActiveSession(ctx context.Context, s spawner.InsertActiveSession) error
 	DeleteActiveSession(ctx context.Context, cardID string) error
@@ -373,16 +374,7 @@ func (o *ConfiguredOrchestrator) createRedoCycleAndTransition(ctx context.Contex
 
 // getCard fetches a single card by ID from the store.
 func (o *ConfiguredOrchestrator) getCard(ctx context.Context, cardID string) (domain.WorkCard, bool, error) {
-	cards, err := o.store.ListWorkCards(ctx, "", "")
-	if err != nil {
-		return domain.WorkCard{}, false, err
-	}
-	for _, c := range cards {
-		if c.ID == cardID {
-			return c, true, nil
-		}
-	}
-	return domain.WorkCard{}, false, nil
+	return o.store.GetWorkCard(ctx, cardID)
 }
 
 // appendEvent records a work card event.

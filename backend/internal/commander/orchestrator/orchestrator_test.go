@@ -38,6 +38,11 @@ func (s *fakeStore) ListWorkCards(_ context.Context, projectID, _ string) ([]dom
 	return out, nil
 }
 
+func (s *fakeStore) GetWorkCard(_ context.Context, id string) (domain.WorkCard, bool, error) {
+	c, ok := s.cards[id]
+	return c, ok, nil
+}
+
 func (s *fakeStore) GetActiveSession(_ context.Context, cardID string) (ActiveSessionRecord, bool, error) {
 	rec, ok := s.activeSessions[cardID]
 	return rec, ok, nil
@@ -257,6 +262,27 @@ func TestOnAgentCompleted_VerdictApprovedOnReviewCard_TransitionsToTesting(t *te
 	}
 	if !hasTestingEvent {
 		t.Fatalf("no phase_completed event recorded")
+	}
+}
+
+func TestGetCardUsesGetWorkCard_NotListWorkCardsWithEmptyFilters(t *testing.T) {
+	store := newFakeStore()
+	store.cards["card-1"] = domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", Status: domain.CardStatusRunning,
+		CodingAgent: "hermes",
+	}
+	// listWorkCardsCalls with empty projectID/boardID must be zero: getCard must
+	// go through GetWorkCard, not ListWorkCards(ctx, "", "").
+	orc := New(Config{Store: store, Spawner: &fakeSpawner{}})
+
+	err := orc.OnAgentCompleted(context.Background(), "card-1", commander.AgentResult{
+		Phase: commander.PhaseCoding, Verdict: "approved",
+	})
+	if err != nil {
+		t.Fatalf("OnAgentCompleted: %v", err)
+	}
+	if got := store.cards["card-1"].Status; got != domain.CardStatusReview {
+		t.Fatalf("status = %s, want review", got)
 	}
 }
 
