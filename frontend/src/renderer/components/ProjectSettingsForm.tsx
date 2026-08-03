@@ -90,6 +90,7 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 		orchestratorAgent: config.orchestrator?.agent ?? "",
 		model: config.agentConfig?.model ?? "",
 		permissions: config.agentConfig?.permissions ?? "",
+		directorKey: config.env?.[directorKeyEnvVar(config.agentConfig?.model ?? "")] ?? "",
 		reviewerHarness: config.reviewers?.[0]?.harness ?? "",
 		intakeEnabled: intake.enabled ?? false,
 		intakeRepo: intake.repo ?? "",
@@ -131,6 +132,12 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 	const mutation = useMutation({
 		mutationFn: async () => {
 			const desiredOrchestratorAgent = form.orchestratorAgent;
+			// One key at a time: switching the engine must not leave the previous
+			// provider's key behind, where it would look configured and never be read.
+			const keyVar = directorKeyEnvVar(form.model);
+			const env: Record<string, string> = { ...config.env };
+			for (const name of DIRECTOR_KEY_ENV_VARS) delete env[name];
+			if (workboardEnabled && form.directorKey.trim()) env[keyVar] = form.directorKey.trim();
 			// PUT replaces the whole config; merge the edited fields over what loaded
 			// so we don't drop env/symlinks/postCreate the form doesn't expose.
 			const next: ProjectConfig = {
@@ -147,6 +154,7 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 				}),
 				reviewers: form.reviewerHarness ? [{ harness: form.reviewerHarness }] : undefined,
 				trackerIntake: buildIntake(intakeForm),
+				env: Object.keys(env).length > 0 ? env : undefined,
 			};
 			const { error } = await apiClient.PUT("/api/v1/projects/{id}/config", {
 				params: { path: { id: projectId } },
@@ -321,6 +329,22 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 							onChange={(v) => setForm((f) => ({ ...f, permissions: v }))}
 						/>
 					</Field>
+					{workboardEnabled ? (
+						<Field label="Director API key" htmlFor="directorKey">
+							<input
+								id="directorKey"
+								type="password"
+								autoComplete="off"
+								className="h-8 w-full rounded-md border border-input bg-transparent px-2.5 text-[13px] text-foreground placeholder:text-passive focus-visible:border-accent focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-weak"
+								value={form.directorKey}
+								onChange={(e) => setForm((f) => ({ ...f, directorKey: e.target.value }))}
+								placeholder={directorKeyEnvVar(form.model)}
+							/>
+							<p className="mt-1 text-[12px] leading-5 text-muted-foreground">
+								Stored as <code>{directorKeyEnvVar(form.model)}</code> in this project's environment. The Director will not start without it.
+							</p>
+						</Field>
+					) : null}
 				</CardContent>
 			</Card>
 
@@ -552,6 +576,19 @@ function ReviewerSelect({ id, value, onChange }: { id: string; value: string; on
 		</Select>
 	);
 }
+
+/** The env var the Director's bundled model factory reads for a given engine
+ * string. Mirrors createDirectorModel in director/src/model.ts, which throws at
+ * startup when the key is absent — so a wrong name here is a Director that will
+ * not boot. Keep the two in step. */
+function directorKeyEnvVar(model: string): string {
+	const provider = model.split(":")[0]?.trim().toLowerCase();
+	if (provider === "openai") return "OPENAI_API_KEY";
+	if (provider === "openrouter") return "OPENROUTER_API_KEY";
+	return "ANTHROPIC_API_KEY"; // the Director's default engine is anthropic:
+}
+
+const DIRECTOR_KEY_ENV_VARS = ["ANTHROPIC_API_KEY", "OPENAI_API_KEY", "OPENROUTER_API_KEY"];
 
 function Field({ label, htmlFor, children }: { label: string; htmlFor?: string; children: React.ReactNode }) {
 	return (

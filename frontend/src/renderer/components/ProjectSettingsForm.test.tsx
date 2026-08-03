@@ -591,3 +591,77 @@ describe("ProjectSettingsForm", () => {
 		);
 	});
 });
+
+describe("ProjectSettingsForm director API key", () => {
+	it("saves the key under the env var the configured provider needs", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "",
+			defaultBranch: "main",
+			config: {
+				worker: { agent: "codex" },
+				director: { agent: "director" },
+				workboard: { wipLimit: 3 },
+				agentConfig: { model: "anthropic:claude-sonnet-4-6" },
+			},
+		});
+
+		renderSettings();
+
+		const input = await screen.findByLabelText(/director api key/i);
+		await userEvent.type(input, "sk-ant-test");
+		await userEvent.click(screen.getByRole("button", { name: /save/i }));
+
+		await waitFor(() => expect(putMock).toHaveBeenCalled());
+		const body = putMock.mock.calls.at(-1)?.[1]?.body;
+		expect(body.config.env).toMatchObject({ ANTHROPIC_API_KEY: "sk-ant-test" });
+	});
+
+	it("switches the env var with the provider", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "",
+			defaultBranch: "main",
+			config: {
+				worker: { agent: "codex" },
+				director: { agent: "director" },
+				workboard: { wipLimit: 3 },
+				agentConfig: { model: "openrouter:minimax/minimax-m2" },
+			},
+		});
+
+		renderSettings();
+
+		const input = await screen.findByLabelText(/director api key/i);
+		await userEvent.type(input, "sk-or-test");
+		await userEvent.click(screen.getByRole("button", { name: /save/i }));
+
+		await waitFor(() => expect(putMock).toHaveBeenCalled());
+		const body = putMock.mock.calls.at(-1)?.[1]?.body;
+		expect(body.config.env).toMatchObject({ OPENROUTER_API_KEY: "sk-or-test" });
+		expect(body.config.env.ANTHROPIC_API_KEY).toBeUndefined();
+	});
+
+	it("does not offer the field when the Director is not the commander", async () => {
+		mockProject({
+			id: "proj-1",
+			name: "Project One",
+			kind: "single_repo",
+			path: "/repo/project-one",
+			repo: "",
+			defaultBranch: "main",
+			config: { worker: { agent: "codex" }, orchestrator: { agent: "hermes" } },
+		});
+
+		renderSettings();
+
+		await screen.findByLabelText(/default worker agent/i);
+		expect(screen.queryByLabelText(/director api key/i)).not.toBeInTheDocument();
+	});
+});
