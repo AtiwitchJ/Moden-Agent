@@ -70,6 +70,16 @@ type AgentBinaryResolver interface {
 	ResolveBinary(ctx context.Context) (path string, err error)
 }
 
+// AgentCapabilities is the optional interface agents can implement to declare
+// optional capabilities. Agents that support being spawned for specific phases
+// (e.g. review, testing) should return true for SupportsSpawnPhase.
+type AgentCapabilities interface {
+	Capabilities() AgentCapabilitySet
+}
+
+// AgentCapabilitySet describes which optional capabilities an agent supports.
+type AgentCapabilitySet map[string]bool
+
 // AgentResolver maps a session's harness onto the Agent adapter that drives it,
 // so the Session Manager can spawn (and restore) a different agent per session
 // without depending on the concrete adapter registry. ok=false means no adapter
