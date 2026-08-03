@@ -284,6 +284,15 @@ type SplitWorkCardResponse struct {
 	NewCard WorkCardResponse `json:"newCard"`
 }
 
+// RecordCardEventRequest is the body of POST /api/v1/workboard/cards/{cardId}/events.
+// Kind is one of agent_transition, agent_verdict, agent_finding, test_result,
+// or agent_failed. Payload is the kind-specific JSON document, sent as a string
+// so the daemon stores exactly what the agent reported.
+type RecordCardEventRequest struct {
+	Kind    string `json:"kind"`
+	Payload string `json:"payload"`
+}
+
 // UpdateWorkboardAutonomousRequest is a sparse update for a project's
 // workboard autonomous settings. Omitted fields retain their stored values.
 type UpdateWorkboardAutonomousRequest struct {
@@ -325,11 +334,11 @@ type DispatchFailureResponse struct {
 // by the API. It combines durable card counts with the daemon process's
 // readiness and most recent dispatch attempt.
 type DirectorStatusResponse struct {
-	ProjectID           string              `json:"projectId"`
-	DaemonReady         bool                `json:"daemonReady"`
-	RunningCount        int                 `json:"runningCount"`
-	WIPLimit            int                 `json:"wipLimit"`
-	TodoCount           int                 `json:"todoCount"`
+	ProjectID           string                  `json:"projectId"`
+	DaemonReady         bool                    `json:"daemonReady"`
+	RunningCount        int                     `json:"runningCount"`
+	WIPLimit            int                     `json:"wipLimit"`
+	TodoCount           int                     `json:"todoCount"`
 	LastDispatchAttempt DispatchAttemptResponse `json:"lastDispatchAttempt,omitempty"`
 }
 
