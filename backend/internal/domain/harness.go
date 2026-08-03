@@ -35,6 +35,11 @@ const (
 	// AO_PROMPT / AO_SYSTEM_PROMPT env vars; activity is reported through
 	// `ao hooks command <event>`.
 	HarnessCommand AgentHarness = "command"
+	// HarnessDirector runs AO's first-party Director agent: a DeepAgents loop
+	// that drives a work card through its phases. Unlike the CLI-wrapping
+	// harnesses, AO owns its loop, so agentConfig.model selects its engine
+	// ("provider:model-name", e.g. openrouter:minimax/minimax-m2).
+	HarnessDirector AgentHarness = "director"
 )
 
 // AllHarnesses lists every supported harness. It is the canonical set used to
@@ -45,7 +50,7 @@ var AllHarnesses = []AgentHarness{
 	HarnessCopilot, HarnessGoose, HarnessAuggie, HarnessContinue, HarnessDevin,
 	HarnessCline, HarnessKimi, HarnessKiro, HarnessKilocode, HarnessVibe, HarnessPi,
 	HarnessAutohand, HarnessOpenClaw, HarnessHermes,
-	HarnessCommand,
+	HarnessCommand, HarnessDirector,
 }
 
 // IsKnown reports whether h is one of the supported harnesses.

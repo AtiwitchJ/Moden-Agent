@@ -89,7 +89,7 @@ func startSession(cfg config.Config, runtime runtimeselect.Runtime, store *sqlit
 	if defaultAgent == "" {
 		defaultAgent = config.DefaultAgent
 	}
-	agents, err := buildAgentResolver(defaultAgent, log)
+	agents, err := buildAgentResolver(defaultAgent, cfg.DataDir, log)
 	if err != nil {
 		return nil, nil, nil, err
 	}
@@ -196,8 +196,10 @@ func newSessionMessenger(store *sqlite.Store, runtime runtimeMessageSender, _ *s
 // empty/duplicate id — a programmer error, not a runtime condition.
 // The shipped adapter list lives in the adapters/agent/registry package
 // (registry.Constructors). Adding a new harness is a one-line edit there.
-func buildAgentRegistry() (*adapters.Registry, error) {
-	return agentregistry.Build()
+// The dataDir is threaded to the registry so the Director adapter can locate
+// its bundled assets.
+func buildAgentRegistry(dataDir string) (*adapters.Registry, error) {
+	return agentregistry.Build(dataDir)
 }
 
 // agentRegistry adapts the generic adapter Registry to ports.AgentResolver: it
@@ -223,12 +225,13 @@ func (a agentRegistry) Agent(harness domain.AgentHarness) (ports.Agent, bool) {
 // Manager consumes (sessionmanager.Deps.Agents): a registry of the shipped
 // adapters. It still validates AO_AGENT at startup for compatibility with the
 // config surface, but worker/orchestrator spawns must provide a resolved
-// harness before calling Agent.
-func buildAgentResolver(defaultAgent string, log *slog.Logger) (ports.AgentResolver, error) {
+// harness before calling Agent. dataDir is threaded to the registry so the
+// Director adapter can locate its bundled assets.
+func buildAgentResolver(defaultAgent string, dataDir string, log *slog.Logger) (ports.AgentResolver, error) {
 	if defaultAgent == "" {
 		defaultAgent = config.DefaultAgent
 	}
-	reg, err := buildAgentRegistry()
+	reg, err := buildAgentRegistry(dataDir)
 	if err != nil {
 		return nil, err
 	}

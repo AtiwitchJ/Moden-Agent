@@ -78,7 +78,7 @@ func makeCard(id, projectID, title, notes, path string) *domain.WorkCard {
 
 func TestSpawn_Hermes(t *testing.T) {
 	t.Parallel()
-	reg, err := registry.Build()
+	reg, err := registry.Build("/fake-data-dir")
 	require.NoError(t, err)
 
 	fl := &fakeLauncher{Handle: spawner.SessionHandle{ID: "sess-1"}}
@@ -111,7 +111,7 @@ func TestSpawn_Hermes(t *testing.T) {
 
 func TestSpawn_ClaudeCode(t *testing.T) {
 	t.Parallel()
-	reg, err := registry.Build()
+	reg, err := registry.Build("/fake-data-dir")
 	require.NoError(t, err)
 
 	fl := &fakeLauncher{Handle: spawner.SessionHandle{ID: "sess-2"}}
@@ -137,7 +137,7 @@ func TestSpawn_ClaudeCode(t *testing.T) {
 
 func TestSpawn_UnknownAgent(t *testing.T) {
 	t.Parallel()
-	reg, err := registry.Build()
+	reg, err := registry.Build("/fake-data-dir")
 	require.NoError(t, err)
 
 	fl := &fakeLauncher{Handle: spawner.SessionHandle{ID: "sess-3"}}
@@ -159,7 +159,7 @@ func TestSpawn_UnknownAgent(t *testing.T) {
 
 func TestSpawn_ConcurrentSameCard(t *testing.T) {
 	t.Parallel()
-	reg, err := registry.Build()
+	reg, err := registry.Build("/fake-data-dir")
 	require.NoError(t, err)
 
 	store := &fakeStore{}
@@ -206,7 +206,7 @@ func TestSpawn_ConcurrentSameCard(t *testing.T) {
 
 func TestSpawn_ConcurrentDifferentCards(t *testing.T) {
 	t.Parallel()
-	reg, err := registry.Build()
+	reg, err := registry.Build("/fake-data-dir")
 	require.NoError(t, err)
 
 	const cardCount = 8
@@ -313,7 +313,7 @@ func TestSessionServiceLauncher_PropagatesSpawnError(t *testing.T) {
 
 func TestSpawn_LancherError(t *testing.T) {
 	t.Parallel()
-	reg, err := registry.Build()
+	reg, err := registry.Build("/fake-data-dir")
 	require.NoError(t, err)
 
 	fl := &fakeLauncher{

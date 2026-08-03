@@ -225,7 +225,7 @@ func Run() error {
 		Companies:          companysvc.New(store),
 		Org:                orgsvc.NewWithDeps(orgsvc.Deps{Store: store, Projects: projectSvc, DataDir: cfg.DataDir}),
 		Messages:           messagesvc.New(messagesvc.Deps{Store: store}),
-		Agents:             agentsvc.New(),
+		Agents:             agentsvc.New(cfg.DataDir),
 		Sessions:           sessionSvc,
 		Reviews:            reviewSvc,
 		Policy:             policyEngine,

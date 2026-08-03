@@ -16,6 +16,7 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/adapters/agent/cline"
 	"github.com/modernagent/modern-agent/backend/internal/adapters/agent/codex"
 	"github.com/modernagent/modern-agent/backend/internal/adapters/agent/command"
+	"github.com/modernagent/modern-agent/backend/internal/adapters/agent/director"
 	"github.com/modernagent/modern-agent/backend/internal/adapters/agent/hermes"
 	"github.com/modernagent/modern-agent/backend/internal/adapters/agent/openclaw"
 	"github.com/modernagent/modern-agent/backend/internal/adapters/agent/continueagent"
@@ -40,8 +41,9 @@ import (
 // Constructors returns a fresh instance of every agent adapter the daemon
 // ships, in a stable registration order. Adding a new harness means adding its
 // constructor here (and a domain.AgentHarness constant) — the one edit the
-// daemon picks up.
-func Constructors() []adapters.Adapter {
+// daemon picks up. The dataDir parameter is passed to adapters that need to
+// locate a bundled asset (currently only the Director).
+func Constructors(dataDir string) []adapters.Adapter {
 	return []adapters.Adapter{
 		claudecode.New(),
 		codex.New(),
@@ -69,15 +71,17 @@ func Constructors() []adapters.Adapter {
 		command.New(),
 		openclaw.New(),
 		hermes.New(),
+		director.New(director.WithDataDir(dataDir)),
 	}
 }
 
 // Build returns a registry populated with the shipped agent adapters, keyed by
 // manifest id. Registration only fails on an empty/duplicate id — a programmer
-// error, not a runtime condition.
-func Build() (*adapters.Registry, error) {
+// error, not a runtime condition. The dataDir is threaded to adapters that
+// need to locate bundled assets.
+func Build(dataDir string) (*adapters.Registry, error) {
 	reg := adapters.NewRegistry()
-	for _, a := range Constructors() {
+	for _, a := range Constructors(dataDir) {
 		if err := reg.Register(a); err != nil {
 			return nil, fmt.Errorf("register agent adapter %q: %w", a.Manifest().ID, err)
 		}
@@ -96,9 +100,9 @@ type HarnessAgent struct {
 
 // Harnessed returns every shipped adapter that drives an agent, paired with its
 // harness, in Constructors() order. An adapter that does not implement
-// ports.Agent is skipped.
-func Harnessed() []HarnessAgent {
-	cons := Constructors()
+// ports.Agent is skipped. dataDir is threaded to Constructors.
+func Harnessed(dataDir string) []HarnessAgent {
+	cons := Constructors(dataDir)
 	out := make([]HarnessAgent, 0, len(cons))
 	for _, a := range cons {
 		agent, ok := a.(ports.Agent)

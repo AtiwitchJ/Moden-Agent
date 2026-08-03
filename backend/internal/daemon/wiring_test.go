@@ -84,7 +84,7 @@ func TestWiring_WriteFlowsToBroadcaster(t *testing.T) {
 // matching registered adapter, while empty and unknown harnesses miss.
 func TestWiring_AgentResolverResolvesRealAdapters(t *testing.T) {
 	log := slog.New(slog.NewTextHandler(io.Discard, nil))
-	resolver, err := buildAgentResolver("", log) // empty default → claude-code
+	resolver, err := buildAgentResolver("", t.TempDir(), log) // empty default → claude-code
 	if err != nil {
 		t.Fatal(err)
 	}

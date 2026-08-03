@@ -20,7 +20,7 @@ import (
 // uncovered hook file makes every one of that adapter's session workspaces
 // permanently undeletable (kill/cleanup can never free them).
 func TestGetAgentHooksFootprintIsGitignored(t *testing.T) {
-	for _, ha := range Harnessed() {
+	for _, ha := range Harnessed(t.TempDir()) {
 		t.Run(string(ha.Harness), func(t *testing.T) {
 			ws := t.TempDir()
 			if ha.Harness == "autohand" {
@@ -59,7 +59,7 @@ func TestEveryHarnessReportsAuthStatus(t *testing.T) {
 	authCheckerExempt := map[string]string{
 		"continue": "Continue auth probes require sending a model prompt, so catalog refresh must not run them",
 	}
-	for _, ha := range Harnessed() {
+	for _, ha := range Harnessed(t.TempDir()) {
 		if reason, exempt := authCheckerExempt[string(ha.Harness)]; exempt {
 			if _, ok := ha.Agent.(ports.AgentAuthChecker); ok {
 				t.Errorf("%s implements ports.AgentAuthChecker but is exempt: %s", ha.Harness, reason)

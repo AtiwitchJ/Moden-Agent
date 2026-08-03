@@ -52,9 +52,10 @@ type Service struct {
 }
 
 // New returns an agent inventory service backed by the daemon's shipped
-// adapter registry.
-func New() *Service {
-	return NewWithAgents(agentregistry.Harnessed())
+// adapter registry. dataDir is threaded to the registry so the Director
+// adapter can locate its bundled assets.
+func New(dataDir string) *Service {
+	return NewWithAgents(agentregistry.Harnessed(dataDir))
 }
 
 // NewWithAgents returns an inventory service over a caller-provided adapter

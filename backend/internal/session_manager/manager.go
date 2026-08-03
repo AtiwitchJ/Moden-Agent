@@ -353,7 +353,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		SessionID:     id,
 		WorkspacePath: launchPath,
 		Argv:          argv,
-		Env:           m.runtimeEnv(id, cfg.ProjectID, cfg.IssueID, project.Config.Env, cfg.Harness, prompt, systemPrompt),
+		Env:           m.runtimeEnv(id, cfg.ProjectID, cfg.IssueID, project.Config.Env, cfg.Harness, prompt, systemPrompt, agentConfig),
 	})
 	if err != nil {
 		_ = m.workspace.Destroy(ctx, ws)
@@ -780,7 +780,7 @@ func (m *Manager) Restore(ctx context.Context, id domain.SessionID) (domain.Sess
 		SessionID:     id,
 		WorkspacePath: launchPath,
 		Argv:          argv,
-		Env:           m.runtimeEnv(id, rec.ProjectID, rec.IssueID, project.Config.Env, rec.Harness, meta.Prompt, systemPrompt),
+		Env:           m.runtimeEnv(id, rec.ProjectID, rec.IssueID, project.Config.Env, rec.Harness, meta.Prompt, systemPrompt, effectiveAgentConfig(rec.Kind, project.Config)),
 	})
 	if err != nil {
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: runtime: %w", id, err)
@@ -1521,15 +1521,23 @@ func spawnEnv(id domain.SessionID, project domain.ProjectID, issue domain.IssueI
 // command, which fails every callback and silently kills activity tracking).
 // When the pin cannot be applied the inherited PATH is kept and a warning is
 // logged so the degradation isn't silent.
-func (m *Manager) runtimeEnv(id domain.SessionID, project domain.ProjectID, issue domain.IssueID, projectEnv map[string]string, harness domain.AgentHarness, prompt, systemPrompt string) map[string]string {
+func (m *Manager) runtimeEnv(id domain.SessionID, project domain.ProjectID, issue domain.IssueID, projectEnv map[string]string, harness domain.AgentHarness, prompt, systemPrompt string, agentConfig ports.AgentConfig) map[string]string {
 	env := spawnEnv(id, project, issue, m.dataDir, projectEnv)
-	if harness == domain.HarnessCommand {
+	if harness == domain.HarnessCommand || harness == domain.HarnessDirector {
 		if prompt != "" {
 			env[EnvPrompt] = prompt
 		}
 		if systemPrompt != "" {
 			env[EnvSystemPrompt] = systemPrompt
 		}
+	}
+	// AO_DIRECTOR_MODEL tells the Director which engine to use. The model comes
+	// from the agent config (merged from the role override) so it respects the
+	// project's configured engine. Card ID (AO_DIRECTOR_CARD_ID) is not set here
+	// because the Director dispatch path (Task 10) is what knows which card is being
+	// driven — it is threaded through the dispatcher rather than the spawn path.
+	if harness == domain.HarnessDirector && agentConfig.Model != "" {
+		env["AO_DIRECTOR_MODEL"] = agentConfig.Model
 	}
 	path, err := HookPATH(m.executable, os.Getenv, projectEnv)
 	if err != nil {
