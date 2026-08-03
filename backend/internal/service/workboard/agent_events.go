@@ -17,6 +17,18 @@ type workCardEventAppender interface {
 	AppendWorkCardEvent(ctx context.Context, event domain.WorkCardEvent) error
 }
 
+// activeSessionDeleter is the optional durable capability that clears the
+// orchestrator's per-card session bookkeeping when a phase transition
+// happens. commander/orchestrator's own OnAgentCompleted/OnAgentFailed
+// already do this for the signal-driven path; RecordAgentEvent's
+// agent_transition is the only other place a card's phase changes today
+// (ValidateWorkflowTransition rejects every actor="user" move), so it must
+// do the same or the next phase's spawn collides with the stale row and
+// never recovers. *sqlite.Store satisfies it.
+type activeSessionDeleter interface {
+	DeleteActiveSession(ctx context.Context, cardID string) error
+}
+
 // agentEventKinds are the reports `ao workboard card ...` can send. The set is
 // closed so an agent cannot invent audit kinds the board does not understand.
 var agentEventKinds = map[string]bool{
@@ -77,5 +89,14 @@ func (s *Service) RecordAgentEvent(ctx context.Context, cardID string, in AgentE
 	if err := domain.ValidateWorkflowTransition(card.Status, next, "agent"); err != nil {
 		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_TRANSITION_INVALID", err.Error(), nil)
 	}
-	return s.Update(ctx, cardID, UpdateInput{Status: &next})
+	updated, err := s.Update(ctx, cardID, UpdateInput{Status: &next})
+	if err != nil {
+		return domain.WorkCard{}, err
+	}
+	if deleter, ok := s.store.(activeSessionDeleter); ok {
+		if err := deleter.DeleteActiveSession(ctx, cardID); err != nil {
+			return domain.WorkCard{}, fmt.Errorf("clear active session for card %s after transition to %s: %w", cardID, next, err)
+		}
+	}
+	return updated, nil
 }

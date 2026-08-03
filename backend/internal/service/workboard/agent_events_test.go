@@ -100,3 +100,42 @@ func TestRecordAgentEventRejectsNonJSONPayload(t *testing.T) {
 		t.Fatal("RecordAgentEvent: want error for non-JSON payload, got nil")
 	}
 }
+
+func TestRecordAgentEventTransitionClearsActiveSession(t *testing.T) {
+	svc, store := newAgentEventService(domain.CardStatusRunning)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_transition",
+		Payload: `{"status":"review"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	if len(store.deletedActiveSessions) != 1 || store.deletedActiveSessions[0] != "card-1" {
+		t.Fatalf("deletedActiveSessions = %v, want [card-1]", store.deletedActiveSessions)
+	}
+}
+
+func TestRecordAgentEventNonTransitionDoesNotClearActiveSession(t *testing.T) {
+	svc, store := newAgentEventService(domain.CardStatusRunning)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_verdict",
+		Payload: `{"verdict":"approved"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	if len(store.deletedActiveSessions) != 0 {
+		t.Fatalf("deletedActiveSessions = %v, want none for a non-transition event", store.deletedActiveSessions)
+	}
+}
+
+func TestRecordAgentEventRejectedTransitionDoesNotClearActiveSession(t *testing.T) {
+	svc, store := newAgentEventService(domain.CardStatusRunning)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_transition",
+		Payload: `{"status":"done"}`,
+	}); err == nil {
+		t.Fatal("RecordAgentEvent: want error for running->done, got nil")
+	}
+	if len(store.deletedActiveSessions) != 0 {
+		t.Fatalf("deletedActiveSessions = %v, want none for a rejected transition", store.deletedActiveSessions)
+	}
+}
