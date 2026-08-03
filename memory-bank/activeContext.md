@@ -2,16 +2,21 @@
 
 ## Current Focus
 
-Hermes Director Orchestrator: Last-Mile Wiring
-(`docs/superpowers/plans/2026-08-03-hermes-orchestrator-wiring.md`) is
-**complete and verified**. All 15 tasks implemented, reviewed clean, and the
-final live smoke test (Task 15) confirmed the full card lifecycle —
-Todo → Running → Review → Testing → Done — works with the daemon spawning a
-real agent session per phase, with zero bookkeeping errors, across a
-~105-minute run including nine consecutive timeout-triggered replacement
-cycles. **The orchestrator wiring loop is verified working and safe to use**
-(with the one known, accepted limitation noted below). Next step is
-`superpowers:finishing-a-development-branch` (merge/PR decision).
+**Director Agent (Task 13, `feat/live-terminals`): FAILED at Step 4.**
+The Director harness cannot start because `director/dist/index.js` uses ES
+module bare imports (`import ... from "langchain"`) that Node.js cannot
+resolve at runtime — `langchain`'s package exports only subpaths
+(e.g. `langchain/load`, `langchain/chat_models`), not the root `"langchain"`
+specifier. This is a pre-existing bug introduced in Task 6 (entrypoint
+wiring). Unit tests don't catch it (they test only pure modules). The
+full report is at `.superpowers/sdd/task-13-report.md`. **Do not merge
+this branch until the module resolution issue is fixed.**
+
+Prior work on `feat/live-terminals`: The Hermes Director Orchestrator
+(`docs/superpowers/plans/2026-08-03-director-agent.md`) was being
+implemented as a parallel effort to the Hermes orchestrator wiring. All
+Tasks 1-12 were implemented and unit-test-clean. Task 13 (live
+verification) is the first to exercise the full entrypoint.
 
 ## Recent Changes
 
@@ -72,12 +77,26 @@ cycles. **The orchestrator wiring loop is verified working and safe to use**
 
 ## Blockers
 
-None. All four respawn-collision/leak bugs found during this plan's own
-verification passes are fixed and re-confirmed clean. The orchestrator
-wiring is ready for `superpowers:finishing-a-development-branch`.
+### Blocker 1 (P0 — Director Agent Non-Functional)
 
-Separately noted, not investigated, unrelated to this plan:
-`ao project set-config --config-json` reports success but does not persist —
-the project's `config` column stayed empty after the CLI call; a direct
-`PUT /api/v1/projects/{id}/config` HTTP call worked correctly. Worked around
-in Tasks 7, 9, 11, and 15's live tests, not fixed.
+**`ERR_PACKAGE_PATH_NOT_EXPORTED` on `langchain` bare import.** The
+Director's `director/dist/index.js` imports from `"langchain"` directly,
+but `langchain`'s `package.json` exports only subpaths. Node.js ESM
+resolution fails at runtime. This was not caught by unit tests (which test
+only pure modules) and is a pre-existing bug introduced in Task 6. Fix
+required before `feat/live-terminals` can be merged. Full details:
+`.superpowers/sdd/task-13-report.md`.
+
+### Blocker 2 (Known-Red Tests)
+
+The three `TestLifecycleDispatcherIsUnwired_*` tests in
+`internal/service/workboard/lifecycle_dispatcher_test.go` are red by design:
+they test automatic phase advancement (dispatcher → review → testing →
+done) which requires the signal-driven advancement path not built in this
+branch. They are tracked as known-red and unrelated to the Director work.
+
+### Previously Noted (Now Fixed by Task 11)
+
+`ao project set-config --config-json` reports success but does not persist
+to the `projects.config` column; `PUT /api/v1/projects/{id}/config` over
+HTTP works. **Fixed by Task 11's `buildProjectConfig` DTO gap fix.**

@@ -2,6 +2,19 @@
 
 ## Completed
 
+- Director Agent Tasks 1-12 (`feat/live-terminals`,
+  `docs/superpowers/plans/2026-08-03-director-agent.md`): All implemented,
+  unit-test-clean (except the three known-red `TestLifecycleDispatcherIsUnwired_*`
+  tests which are by design unrelated to this feature).
+  - Task 11 `buildProjectConfig` DTO gap fix verified: `director` config
+    block correctly persists to the database when using `--director-agent`
+    and `--director-model` flags. (The `--config-json` path for the director
+    config was also fixed as part of the same DTO gap fix.)
+  - Tasks 1-8: Pure module unit tests pass (config, budget, tools, prompt).
+  - Task 6: DeepAgents loop wired with ao-backed tools.
+  - Tasks 7-9: Go adapter, domain, bundle embedding.
+  - Tasks 10-12: Dispatch, CLI plumbing, frontend predicate fix.
+
 - Hermes Director Orchestrator wiring plan
   (`docs/superpowers/plans/2026-08-03-hermes-orchestrator-wiring.md`), all 15
   tasks, verified end-to-end:
@@ -22,9 +35,10 @@
 
 ## In Progress
 
-- Nothing currently being implemented. Ready for
-  `superpowers:finishing-a-development-branch` (merge/PR decision) on branch
-  `worktree-hermes-solo-loop`.
+- **Director Agent Task 13 (`feat/live-terminals`): FAILED.** Module
+  resolution bug prevents the Director harness from starting. Investigation
+  and fix pending. See `.superpowers/sdd/task-13-report.md` for full
+  details.
 
 ## Planned
 
@@ -38,6 +52,19 @@
 - Moden Work product definition and implementation (pre-existing, unrelated).
 
 ## Known Issues
+
+- **P0 Blocker — Director Agent Non-Functional (Task 13, `feat/live-terminals`):**
+  `ERR_PACKAGE_PATH_NOT_EXPORTED` on `import ... from "langchain"` in
+  `director/dist/index.js`. The `langchain` npm package does not export a root
+  module — only subpaths (e.g. `langchain/load`). Node.js ESM resolution fails
+  at runtime because `langchain/package.json` has no `"."` entry in its
+  `exports` map. Confirmed by running the Director from both the `director/`
+  package directory (where `node_modules` exist) and the data dir. Unit tests
+  don't catch this because they test only pure modules. Fix requires one of:
+  (a) bundling the Director with a bundler (esbuild/rollup) that resolves
+  subpath imports, (b) changing `index.ts` to use only `@langchain/core` imports
+  (which does have a root export), or (c) installing `node_modules` alongside
+  the bundle in the data dir. See `.superpowers/sdd/task-13-report.md`.
 
 - **Fixed (Task 8, `cfa8327a`)**: the orchestrator's tick loop redundantly
   double-wrote `active_session` on every successful spawn (always failing

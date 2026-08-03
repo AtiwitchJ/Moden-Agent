@@ -16,6 +16,7 @@ import (
 
 	"github.com/google/uuid"
 
+	"github.com/modernagent/modern-agent/backend/internal/directorassets"
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/ports"
 	aoprocess "github.com/modernagent/modern-agent/backend/internal/process"
@@ -1538,6 +1539,12 @@ func (m *Manager) runtimeEnv(id domain.SessionID, project domain.ProjectID, issu
 	// driven — it is threaded through the dispatcher rather than the spawn path.
 	if harness == domain.HarnessDirector && agentConfig.Model != "" {
 		env["AO_DIRECTOR_MODEL"] = agentConfig.Model
+	}
+	// NODE_PATH lets Node resolve the @langchain/* packages the Director's
+	// bundled deepagents loads via dynamic import(). The path points to the
+	// director's node_modules installed alongside the bundle in the data dir.
+	if harness == domain.HarnessDirector {
+		env["NODE_PATH"] = directorassets.Dir(m.dataDir)
 	}
 	path, err := HookPATH(m.executable, os.Getenv, projectEnv)
 	if err != nil {

@@ -102,6 +102,15 @@ surface (`npm run sqlc`, `npm run api`).
 
 ## In flight / not yet a runtime feature
 
+- **Director Agent** (`feat/live-terminals`,
+  `docs/superpowers/plans/2026-08-03-director-agent.md`): Tasks 1-12
+  implemented and unit-test-clean; Task 13 (live verification) failed with a
+  module resolution bug — `director/dist/index.js` uses `import ... from
+  "langchain"` which Node.js cannot resolve because `langchain`'s
+  `package.json` exports only subpaths, not a root module. **The Director
+  harness cannot start.** Fix required before the feature is shippable.
+  Full report: `.superpowers/sdd/task-13-report.md`.
+
 - **Automatic, signal-driven phase advancement for the Hermes Director
   orchestrator** (PR/CI watcher, reviewer invoker, testing invoker): the
   orchestrator itself is shipped (see "Shipped" above), but today phase

@@ -21,7 +21,7 @@ func TestInstallWritesEntrypoint(t *testing.T) {
 	if info.Size() == 0 {
 		t.Fatal("installed entrypoint is empty")
 	}
-	if want := filepath.Join(dir, "director", "index.js"); path != want {
+	if want := filepath.Join(dir, "director", "dist", "index.js"); path != want {
 		t.Fatalf("EntrypointPath = %q, want %q", path, want)
 	}
 }
