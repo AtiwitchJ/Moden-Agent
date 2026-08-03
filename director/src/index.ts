@@ -6,6 +6,7 @@ import { loadADHDSkill } from "./adhd.js";
 import { IterationBudget } from "./budget.js";
 import { loadConfig } from "./config.js";
 import { loadGitWorkflowSkill } from "./git_workflow.js";
+import { inboundInstruction } from "./inbound.js";
 import { createDirectorModel } from "./model.js";
 import { directorSystemPrompt } from "./prompt.js";
 import {
@@ -158,21 +159,31 @@ async function main(): Promise<void> {
 	const opening = cfg.prompt.trim() || `Drive work card ${cfg.cardId} to completion.`;
 	enqueue(opening);
 
-	// The daemon's session messenger writes to this process's PTY. Keeping
-	// stdin open turns the Director terminal into a control channel: a worker's
-	// `ao send` question is a new model turn, not text lost at a shell prompt.
+	// The daemon's session messenger writes to this process's PTY. Keeping stdin
+	// open turns the Director terminal into a control channel: a worker's
+	// `ao send` message is a new model turn, not text lost at a shell prompt.
+	//
+	// One `ao send` arrives as several stdin chunks (tmux send-keys is chunked,
+	// then Enter). Buffer until the message stops arriving, so a multi-line
+	// handoff report reaches the model whole instead of one turn per line.
+	//
+	// ponytail: a fixed quiet window, not a framed protocol. The ceiling is a
+	// message that stalls mid-flight for longer than the window arriving as two
+	// turns. Upgrade path: have `ao send` frame messages with an explicit
+	// terminator the Director splits on.
+	const INBOUND_QUIET_MS = 300;
 	process.stdin.setEncoding("utf8");
 	let pendingInput = "";
+	let flushTimer: NodeJS.Timeout | undefined;
+	const flushInbound = () => {
+		const message = pendingInput.trim();
+		pendingInput = "";
+		if (message !== "" && !terminalCard) enqueue(inboundInstruction(message));
+	};
 	process.stdin.on("data", (chunk: string) => {
 		pendingInput += chunk;
-		const lines = pendingInput.split(/\r?\n/);
-		pendingInput = lines.pop() ?? "";
-		for (const line of lines) {
-			const question = line.trim();
-			if (question !== "" && !terminalCard) {
-				enqueue(`A worker sent this terminal question. Resolve it and use answer_worker to reply:\n${question}`);
-			}
-		}
+		if (flushTimer) clearTimeout(flushTimer);
+		flushTimer = setTimeout(flushInbound, INBOUND_QUIET_MS);
 	});
 	process.stdin.resume();
 	await finished;
