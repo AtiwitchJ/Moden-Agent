@@ -152,6 +152,10 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 		return nil, fmt.Errorf("list work cards for project %s: %w", projectID, err)
 	}
 
+	if directorEnabled(project) {
+		return d.dispatchToDirector(ctx, project, cards, d.clock().UTC())
+	}
+
 	now := d.clock().UTC()
 	wasTodo := make(map[string]bool, len(cards))
 	for i := range cards {
