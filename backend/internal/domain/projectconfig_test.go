@@ -194,3 +194,19 @@ func TestProjectConfigIsZero(t *testing.T) {
 		t.Fatal("config with env should not be zero")
 	}
 }
+
+func TestProjectConfigDirectorValidation(t *testing.T) {
+	valid := ProjectConfig{Director: RoleOverride{Harness: HarnessDirector}}
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("Validate with a known director harness: %v", err)
+	}
+
+	invalid := ProjectConfig{Director: RoleOverride{Harness: AgentHarness("nope")}}
+	err := invalid.Validate()
+	if err == nil {
+		t.Fatal("Validate: want error for an unknown director harness, got nil")
+	}
+	if !strings.Contains(err.Error(), "director") {
+		t.Fatalf("error = %v, want it to name the director role", err)
+	}
+}

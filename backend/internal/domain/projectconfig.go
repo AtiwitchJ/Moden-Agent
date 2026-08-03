@@ -40,6 +40,10 @@ type ProjectConfig struct {
 	// Worker and Orchestrator are role-specific harness/agent-config overrides.
 	Worker       RoleOverride `json:"worker,omitempty"`
 	Orchestrator RoleOverride `json:"orchestrator,omitempty"`
+	// Director opts the project into AO's first-party Director agent, which
+	// drives work cards itself. Unset means the project uses the existing
+	// dispatch paths unchanged.
+	Director RoleOverride `json:"director,omitempty"`
 
 	// Reviewers names the agent(s) that review a worker's PR when a review is
 	// triggered. It is configured independently of the Worker override; an empty
@@ -104,6 +108,9 @@ func (c ProjectConfig) MarshalJSON() ([]byte, error) {
 	}
 	if !reflect.DeepEqual(c.Orchestrator, RoleOverride{}) {
 		out["orchestrator"] = c.Orchestrator
+	}
+	if !reflect.DeepEqual(c.Director, RoleOverride{}) {
+		out["director"] = c.Director
 	}
 	if len(c.Reviewers) > 0 {
 		out["reviewers"] = c.Reviewers
@@ -309,7 +316,7 @@ func (c ProjectConfig) Validate() error {
 	if err := validateNameComponent("sessionPrefix", c.SessionPrefix); err != nil {
 		return err
 	}
-	for role, ro := range map[string]RoleOverride{"worker": c.Worker, "orchestrator": c.Orchestrator} {
+	for role, ro := range map[string]RoleOverride{"worker": c.Worker, "orchestrator": c.Orchestrator, "director": c.Director} {
 		if ro.Harness != "" && !ro.Harness.IsKnown() {
 			return fmt.Errorf("%s.agent: unknown harness %q", role, ro.Harness)
 		}
