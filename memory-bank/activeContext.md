@@ -3,91 +3,81 @@
 ## Current Focus
 
 Hermes Director Orchestrator: Last-Mile Wiring
-(`docs/superpowers/plans/2026-08-03-hermes-orchestrator-wiring.md`). Tasks
-1-6 (test fix, `getCard` fix, `active_session` store, real launcher, daemon
-wiring, agent-events route) are implemented and reviewed clean. Task 7 found
-a blocking immediate-runaway bug; Task 8 (commit `cfa8327a`) fixed it. Task 9
-re-verified against a live daemon and confirmed the immediate runaway is
-gone, but found a second, related bug when a card changes phase — **the
-orchestrator wiring is still not verified end-to-end and must not be treated
-as working.**
+(`docs/superpowers/plans/2026-08-03-hermes-orchestrator-wiring.md`) is
+**complete and verified**. All 15 tasks implemented, reviewed clean, and the
+final live smoke test (Task 15) confirmed the full card lifecycle —
+Todo → Running → Review → Testing → Done — works with the daemon spawning a
+real agent session per phase, with zero bookkeeping errors, across a
+~105-minute run including nine consecutive timeout-triggered replacement
+cycles. **The orchestrator wiring loop is verified working and safe to use**
+(with the one known, accepted limitation noted below). Next step is
+`superpowers:finishing-a-development-branch` (merge/PR decision).
 
 ## Recent Changes
 
 - Orchestrator is now constructed and wired into the daemon
   (`internal/daemon/daemon.go`) instead of `Orchestrator: nil`; the daemon
   boots cleanly with it, no panics.
-- `commander/spawner.RegistryLauncher`'s fake-handle bug (Task 4) is fixed:
-  `SessionServiceLauncher` now spawns a real session through the session
-  service and returns its real generated id.
-- `POST /api/v1/workboard/cards/{cardId}/events` is mounted (Task 6); the
-  five `ao workboard card ...` CLI commands work end-to-end against a live
-  daemon, including `ao workboard card transition`.
-- Task 8 (commit `cfa8327a`) removed `tick.go`'s/`orchestrator.go`'s
-  redundant `InsertActiveSession` re-insert (the primary Task 7 bug) and
-  simplified `isSessionLive` to a pure session-age check instead of the
-  `WorkCard.SessionID` comparison that could never succeed.
-- Task 9's live smoke test (same isolated-daemon setup as Task 7, `command`
-  harness) confirmed the fix holds for a card's first phase: 2 sessions
-  total (1 expected new-real-spawn + 1 pre-existing, documented
-  `dispatch.go`/orchestrator double-spawn — see Active Decisions), flat
-  across 90+ seconds / 3 tick intervals, zero `UNIQUE constraint failed`
-  errors. It then found a **second, still-blocking bug** when the card
-  transitions to `review` — see Blockers.
+- `commander/spawner.RegistryLauncher`'s fake-handle bug is fixed:
+  `SessionServiceLauncher` spawns a real session through the session service
+  and returns its real generated id.
+- `POST /api/v1/workboard/cards/{cardId}/events` is mounted; the five
+  `ao workboard card ...` CLI commands work end-to-end against a live daemon.
+- Four respawn-collision/leak bugs were found by three rounds of live
+  smoke testing plus one code review, and fixed:
+  1. (Task 8, `cfa8327a`) Redundant `InsertActiveSession` re-insert in
+     `tick.go`/`orchestrator.go` (always failed, `isSessionLive` compared
+     against a field the orchestrator's own spawns never wrote) — caused an
+     immediate, ~1-per-second runaway.
+  2. (Task 10, `f73681f2`) `RecordAgentEvent`'s `agent_transition` handling
+     never cleared the completed phase's stale `active_session` row — caused
+     the same runaway, delayed by the stale row's timeout (~10 min).
+  3. (Task 12, `a3fa4173`) Root cause: `InsertActiveSession` was a plain,
+     non-upsert `INSERT` against a `card_id`-only `PRIMARY KEY`. Changed to
+     `INSERT ... ON CONFLICT(card_id) DO UPDATE` — closes every future
+     "replace the current session" collision at the source, not per-trigger.
+  4. (Task 14, `6740615f`) The upsert stopped the crash-loop but never
+     stopped the *superseded* session — wired `sessionsvc.Service.Kill` in as
+     an optional `orchestrator.Config.Killer`, called (best-effort, failures
+     swallowed) immediately before every timeout-triggered replacement spawn.
+- Task 15's final live smoke test (isolated daemon, `command` harness)
+  confirmed all four fixes hold together: full lifecycle completes, zero
+  `UNIQUE constraint failed` anywhere, and superseded sessions are actually
+  terminated (not just replaced in bookkeeping) — see
+  `.superpowers/sdd/task-15-report.md`.
 
 ## Active Decisions
 
-- Task 7/9 both used the `command` harness (an existing, already-shipped
-  non-AI adapter that runs a project-configured argv) instead of
-  `claude-code`/`codex` for the live smoke, specifically to avoid burning
-  real API cost while verifying spawn-loop behavior.
-- Known, accepted, out-of-scope (not the bug tracked below): `dispatch.go`'s
-  Todo→Running auto-dispatch and the orchestrator's own tick both spawn a
-  worker the first time a card enters `running`, because `dispatch.go` never
-  writes to `active_session`. One-time, bounded, does not grow — confirmed
-  again in Task 9 (session count settles at 2, not more, across the full
-  90s+ window). A real design decision (which system owns the initial spawn)
-  is needed to resolve it; not part of this wiring plan.
+- Every live smoke test in this plan (Tasks 7, 9, 11, 15) used the `command`
+  harness (an existing, already-shipped non-AI adapter that runs a
+  project-configured argv) instead of `claude-code`/`codex`, specifically to
+  avoid burning real API cost while a spawn-loop bug was suspected or under
+  test. Real coding-agent harnesses exercise the identical, now-fixed spawn
+  code path — no further harness-specific testing is needed before real use.
+- Known, accepted, out-of-scope: `dispatch.go`'s Todo→Running auto-dispatch
+  and the orchestrator's own tick both spawn a worker the first time a card
+  enters `running`, because `dispatch.go` never writes to `active_session`.
+  One-time, bounded, does not grow — confirmed in every one of Tasks 9, 11,
+  and 15's live tests (session count settles at 2, never more). A real
+  design decision (which system owns the initial spawn) is needed to resolve
+  it; not part of this wiring plan.
+- Phase advancement today is agent-initiated only, via
+  `ao workboard card transition` (and the other four `ao workboard card ...`
+  reporting commands, which are audit-only). Automatic, signal-driven
+  advancement (PR/CI watcher, reviewer invoker, testing invoker — Tasks 7-9
+  of the *original*, larger `.hermes/plans/2026-08-02_223800-hermes-director-orchestrator.md`)
+  remains unbuilt and out of scope here; the three
+  `TestLifecycleDispatcherIsUnwired_*` tests stay red by design until that
+  separate effort lands.
 
 ## Blockers
 
-**Task 9 found a second respawn-runaway bug, distinct from Task 7's (which
-Task 8 fixed): a card's `active_session` row from a completed phase is never
-cleaned up when the card advances via `ao workboard card transition`, so
-once that stale row's phase-appropriate timeout elapses, the orchestrator
-spawns a brand-new real session on every 30s tick, forever, and every one of
-those spawns' bookkeeping insert fails with the same
-`UNIQUE constraint failed: active_session.card_id` Task 7 originally
-reported.** Full detail, root cause, and evidence:
-`.superpowers/sdd/task-9-report.md`.
+None. All four respawn-collision/leak bugs found during this plan's own
+verification passes are fixed and re-confirmed clean. The orchestrator
+wiring is ready for `superpowers:finishing-a-development-branch`.
 
-Summary: `active_session` is keyed by a bare `card_id PRIMARY KEY` (one row
-per **card**, not per **card+phase**); `InsertActiveSession` is a plain
-`INSERT`, never an upsert. `DeleteActiveSession` — the only code that clears
-that row — is called solely from `OnAgentCompleted`/`OnAgentFailed`
-(`orchestrator.go` lines 108, 195), which are driven by real agent-signal
-events (`/events` route wiring) that this plan explicitly does not build.
-The only phase-advance mechanism actually reachable today,
-`ao workboard card transition`, never touches `active_session`. So: a
-card's coding-phase row survives the transition to `review`; `isSessionLive`
-(correctly age-based since Task 8) treats it as the review phase's live
-session for as long as it's within the review timeout (10 min) — silently
-suppressing the correct spawn — and once that timeout elapses, every tick
-performs a real spawn whose bookkeeping insert collides with the still-stale
-row and fails, forever. In a live test this produced 4-5 additional real
-sessions, one every 30 seconds, with no sign of stopping, before the daemon
-was manually stopped.
-
-**Do not mark the Hermes orchestrator wiring loop verified.** Likely fix
-directions (not implemented — verification-only tasks): make
-`InsertActiveSession` an upsert keyed on `card_id`, and/or have
-`checkActiveSession`/`isSessionLive` also compare the stored row's `phase`
-against the card's current status, and/or wire `DeleteActiveSession` into
-whatever route legitimately advances a card's phase today. Needs its own
-implementation task before this can be re-verified and pass.
-
-Separately noted, not investigated further (unrelated to this plan):
+Separately noted, not investigated, unrelated to this plan:
 `ao project set-config --config-json` reports success but does not persist —
 the project's `config` column stayed empty after the CLI call; a direct
 `PUT /api/v1/projects/{id}/config` HTTP call worked correctly. Worked around
-in both Task 7 and Task 9, not fixed.
+in Tasks 7, 9, 11, and 15's live tests, not fixed.

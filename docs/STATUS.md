@@ -40,6 +40,21 @@ surface (`npm run sqlc`, `npm run api`).
   Running auto-start with asynchronous dispatch trigger, individual card spawn
   failures recorded as `dispatch_failed` events without blocking later eligible
   cards, and a manual `POST /projects/{id}/workboard/dispatch` retry action.
+- Hermes Director orchestrator: the daemon constructs and wires a real
+  orchestrator that subscribes to work-card CDC events and ticks every 30s,
+  spawning a real agent session per phase through the session service.
+  `POST /workboard/cards/{cardId}/events` is mounted, so the
+  `ao workboard card set-verdict|set-finding|set-test-result|fail-attempt|transition`
+  commands work end-to-end. Phase advancement is agent-initiated today via
+  `ao workboard card transition` (and friends), not automatic — see "In
+  flight" below for the not-yet-built automatic-advancement path. Verified
+  safe under sustained live load (nine consecutive timeout-triggered session
+  replacements, zero bookkeeping errors, every superseded session correctly
+  terminated); see `memory-bank/progress.md` for the four respawn-collision/
+  leak bugs found and fixed during verification, and one known, accepted
+  limitation (a one-time, bounded double-spawn the first time a card enters
+  `running`, from an unrelated pre-existing coordination gap between the
+  auto-dispatcher above and the orchestrator).
 - PR action engine wired into the API: `POST /prs/{id}/merge` and
   `/prs/{id}/resolve-comments`.
 - Review routes registered: `GET /reviews`, `POST /reviews/execute`,
@@ -87,31 +102,13 @@ surface (`npm run sqlc`, `npm run api`).
 
 ## In flight / not yet a runtime feature
 
-- **Hermes Director orchestrator wiring**: the daemon now constructs and
-  wires a real orchestrator (`Orchestrator: nil` is gone) that subscribes to
-  work-card CDC events and ticks every 30s, spawning a real agent session
-  per phase through the session service (the old fake-handle bug is fixed).
-  `POST /workboard/cards/{cardId}/events` is mounted, so the
-  `ao workboard card set-verdict|set-finding|set-test-result|fail-attempt|transition`
-  commands work end-to-end against a live daemon — phase advancement today
-  is agent-initiated via `ao workboard card transition` (and friends), not
-  automatic; the PR/CI-driven watcher, reviewer invoker, and testing invoker
-  that would make advancement automatic are separate, unbuilt work. A fix
-  (commit `cfa8327a`) resolved the original immediate-runaway bug (verified:
-  a card's first phase now holds a flat session count with zero
-  `UNIQUE constraint failed` errors across 90+ seconds of ticking). **A
-  second live smoke test then found a second, still-blocking bug and this
-  loop remains not yet verified safe to use**: a card's `active_session` row
-  from a completed phase is never cleaned up when advanced via
-  `ao workboard card transition` (the cleanup, `DeleteActiveSession`, is
-  only wired to the not-yet-built signal-driven completion handlers), so
-  once that stale row's phase timeout elapses the orchestrator spawns a
-  brand-new real agent session on every 30s tick, forever, each failing the
-  same `UNIQUE constraint failed` bookkeeping insert — 4-5 additional real
-  sessions were produced, one per tick, in a live test. Do not enable this
-  against a real coding-agent harness until fixed; see
-  `memory-bank/progress.md` Known Issues and
-  `.superpowers/sdd/task-9-report.md` for the full repro and root cause.
+- **Automatic, signal-driven phase advancement for the Hermes Director
+  orchestrator** (PR/CI watcher, reviewer invoker, testing invoker): the
+  orchestrator itself is shipped (see "Shipped" above), but today phase
+  advancement is agent-initiated only, via `ao workboard card transition`
+  and friends. The three `TestLifecycleDispatcherIsUnwired_*` tests in
+  `internal/service/workboard/lifecycle_dispatcher_test.go` stay red by
+  design until this lands.
 - **Tracker lane**: GitHub tracker adapter exists, but there is no daemon
   observer loop or agent-lifecycle→issue mirroring yet, so the tracker does
   nothing at runtime ([#112](https://github.com/modernagent/modern-agent/issues/112)).
