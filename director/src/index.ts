@@ -2,8 +2,10 @@ import { spawn } from "node:child_process";
 import { createDeepAgent } from "deepagents";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
+import { loadADHDSkill } from "./adhd.js";
 import { IterationBudget } from "./budget.js";
 import { loadConfig } from "./config.js";
+import { loadGitWorkflowSkill } from "./git_workflow.js";
 import { createDirectorModel } from "./model.js";
 import { directorSystemPrompt } from "./prompt.js";
 import {
@@ -34,6 +36,10 @@ const runner: Runner = (argv) =>
 
 async function main(): Promise<void> {
 	const cfg = loadConfig(process.env);
+	const [adhdSkill, gitWorkflowSkill] = await Promise.all([
+		loadADHDSkill(process.env),
+		loadGitWorkflowSkill(process.env),
+	]);
 	const budget = new IterationBudget(cfg.maxIterations);
 	let finish: (() => void) | undefined;
 	const finished = new Promise<void>((resolve) => {
@@ -102,7 +108,7 @@ async function main(): Promise<void> {
 	const agent = await createDeepAgent({
 		model: createDirectorModel(cfg.model, process.env),
 		tools: [showCard, transitionCard, spawnWorker, answerWorker],
-		systemPrompt: directorSystemPrompt(cfg.cardId),
+		systemPrompt: [directorSystemPrompt(cfg.cardId), adhdSkill, gitWorkflowSkill].filter(Boolean).join("\n\n"),
 	});
 
 	let messages: Array<{ role: string; content: string }> = [];

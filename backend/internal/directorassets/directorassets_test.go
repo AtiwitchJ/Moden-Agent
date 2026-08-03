@@ -3,6 +3,7 @@ package directorassets_test
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/modernagent/modern-agent/backend/internal/directorassets"
@@ -23,6 +24,17 @@ func TestInstallWritesEntrypoint(t *testing.T) {
 	}
 	if want := filepath.Join(dir, "director", "dist", "index.js"); path != want {
 		t.Fatalf("EntrypointPath = %q, want %q", path, want)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "director", "skills", "adhd", "SKILL.md")); err != nil {
+		t.Fatalf("stat installed ADHD skill: %v", err)
+	}
+	gitSkillPath := filepath.Join(dir, "director", "skills", "git-workflow-and-versioning", "SKILL.md")
+	gitSkill, err := os.ReadFile(gitSkillPath)
+	if err != nil {
+		t.Fatalf("stat installed Git workflow skill: %v", err)
+	}
+	if !strings.Contains(string(gitSkill), "# Git Workflow and Versioning") {
+		t.Fatal("installed Git workflow skill is incomplete")
 	}
 }
 

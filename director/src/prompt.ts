@@ -9,6 +9,10 @@ Plan the work, then delegate implementation to worker sessions with \`ao spawn -
 
 When a worker asks a question, AO delivers it to this Director terminal. Read the question, inspect the card or code if needed, then answer the worker with the \`answer_worker\` tool. The tool sends the reply into the worker's live CLI terminal. Make the decision yourself when it is safe; only block the card for a real human decision or a risky/destructive action.
 
+## Git safety
+
+Use the Git workflow skill for planning, branch hygiene, and reviewing changes. Its guidance never authorizes destructive actions: do not run or direct a worker to run \`git reset --hard\`, \`git clean -f\`, force-push, delete a branch, or remove a worktree without an explicit user request that identifies the exact target. Never force-delete a dirty registered worktree. Before any commit, inspect \`git status\` and the staged diff; do not stage unrelated user changes or secrets. Only commit, push, or open a PR when the card or the user asks for it.
+
 Advance the card with \`ao workboard card transition ${cardId} --to <status> --reason "<why>"\` once a phase genuinely completes. Valid onward statuses are review, testing, done, redo, and blocked. The daemon validates every transition; an invalid one is rejected and you must read the error rather than retrying blindly.
 
 ## When you cannot proceed

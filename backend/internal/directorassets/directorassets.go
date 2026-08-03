@@ -24,7 +24,7 @@ import (
 	"strings"
 )
 
-//go:embed bundle/index.js bundle/nodemodules.tar
+//go:embed bundle/index.js bundle/nodemodules.tar bundle/skills/adhd/SKILL.md bundle/skills/git-workflow-and-versioning/SKILL.md
 var bundle embed.FS
 
 // DirName is the installed bundle's directory name under <dataDir>.
@@ -74,6 +74,12 @@ func Install(dataDir string) error {
 	if cerr != nil {
 		return fmt.Errorf("close bundle: %w", cerr)
 	}
+	if err := installSkill("bundle/skills/adhd/SKILL.md", filepath.Join(dest, "skills", "adhd", "SKILL.md")); err != nil {
+		return err
+	}
+	if err := installSkill("bundle/skills/git-workflow-and-versioning/SKILL.md", filepath.Join(dest, "skills", "git-workflow-and-versioning", "SKILL.md")); err != nil {
+		return err
+	}
 	// Extract node_modules from the embedded tar archive.
 	nodemodules, err := bundle.Open("bundle/nodemodules.tar")
 	if err != nil {
@@ -87,6 +93,30 @@ func Install(dataDir string) error {
 	defer gr.Close()
 	if err := extractTar(gr, dest); err != nil {
 		return fmt.Errorf("extract node_modules tar: %w", err)
+	}
+	return nil
+}
+
+func installSkill(source, destination string) error {
+	file, err := bundle.Open(source)
+	if err != nil {
+		return fmt.Errorf("open Director skill %q: %w", source, err)
+	}
+	defer file.Close()
+	if err := os.MkdirAll(filepath.Dir(destination), 0o750); err != nil {
+		return fmt.Errorf("create Director skill directory: %w", err)
+	}
+	out, err := os.OpenFile(destination, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+	if err != nil {
+		return fmt.Errorf("write Director skill %q: %w", destination, err)
+	}
+	_, copyErr := io.Copy(out, file)
+	closeErr := out.Close()
+	if copyErr != nil {
+		return fmt.Errorf("copy Director skill: %w", copyErr)
+	}
+	if closeErr != nil {
+		return fmt.Errorf("close Director skill: %w", closeErr)
 	}
 	return nil
 }

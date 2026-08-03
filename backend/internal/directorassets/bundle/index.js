@@ -114727,6 +114727,23 @@ init_tools2();
 init_external();
 init_external();
 
+// src/adhd.ts
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
+async function loadADHDSkill(env, read = readFile) {
+  const root = env.AO_DIRECTOR_SKILLS_DIR?.trim();
+  if (!root) return "";
+  try {
+    const skill = await read(join(root, "adhd", "SKILL.md"), "utf8");
+    return `## Installed skill: ADHD
+
+${skill}`;
+  } catch (error90) {
+    console.warn(`director: ADHD skill unavailable: ${error90 instanceof Error ? error90.message : String(error90)}`);
+    return "";
+  }
+}
+
 // src/budget.ts
 var RESERVE_ITERATIONS = 3;
 var IterationBudget = class {
@@ -134682,6 +134699,7 @@ var runner = (argv) => new Promise((resolve4, reject) => {
 });
 async function main() {
   const cfg = loadConfig(process.env);
+  const adhdSkill = await loadADHDSkill(process.env);
   const budget = new IterationBudget(cfg.maxIterations);
   let finish;
   const finished = new Promise((resolve4) => {
@@ -134744,7 +134762,7 @@ You are supervised by Director session ${cfg.sessionId}. If your CLI asks a ques
   const agent = await createDeepAgent({
     model: createDirectorModel(cfg.model, process.env),
     tools: [showCard, transitionCard, spawnWorker, answerWorker],
-    systemPrompt: directorSystemPrompt(cfg.cardId)
+    systemPrompt: [directorSystemPrompt(cfg.cardId), adhdSkill].filter(Boolean).join("\n\n")
   });
   let messages = [];
   const drive = async (instruction) => {

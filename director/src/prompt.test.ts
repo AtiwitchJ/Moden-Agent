@@ -28,4 +28,10 @@ describe("directorSystemPrompt", () => {
 	it("makes the Director answer worker terminal questions", () => {
 		expect(prompt).toContain("answer_worker");
 	});
+
+	it("keeps Git workflow automation within destructive-action guardrails", () => {
+		expect(prompt).toContain("git reset --hard");
+		expect(prompt).toContain("force-push");
+		expect(prompt).toContain("dirty registered worktree");
+	});
 });

@@ -1568,6 +1568,7 @@ func (m *Manager) runtimeEnv(id domain.SessionID, project domain.ProjectID, issu
 	// director's node_modules installed alongside the bundle in the data dir.
 	if harness == domain.HarnessDirector {
 		env["NODE_PATH"] = directorassets.Dir(m.dataDir)
+		env["AO_DIRECTOR_SKILLS_DIR"] = filepath.Join(directorassets.Dir(m.dataDir), "skills")
 	}
 	path, err := HookPATH(m.executable, os.Getenv, projectEnv)
 	if err != nil {
