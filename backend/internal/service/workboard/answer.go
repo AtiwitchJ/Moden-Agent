@@ -113,7 +113,7 @@ func (a *Answerer) ReconcileProject(ctx context.Context, projectID string) ([]st
 		worker, exists := workers[domain.SessionID(card.SessionID)]
 		// Hermes now owns commanded cards directly. It is not the coding worker
 		// whose interactive question autonomous answering is designed to handle.
-		if exists && isHermesCommander(worker) {
+		if exists && isCardCommander(worker) {
 			if card.WaitingForInput {
 				card.WaitingForInput = false
 				card.UpdatedAt = now

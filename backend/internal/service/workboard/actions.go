@@ -149,7 +149,7 @@ func (s *Service) Retarget(ctx context.Context, id string, in RetargetInput) (do
 	}
 	workers, hermes := answerSessions(sessions)
 	worker, workerOK := workers[domain.SessionID(card.SessionID)]
-	commander, commanded := hermesCommanderSession(sessions, domain.SessionID(card.SessionID))
+	commander, commanded := cardCommanderSession(sessions, domain.SessionID(card.SessionID))
 	handoff := retargetHandoffPrompt(card, card.GoalVersion)
 	var handoffSession domain.SessionID
 	var spawnedSession domain.SessionID
@@ -275,7 +275,7 @@ func (s *Service) Split(ctx context.Context, id string, in SplitInput) (SplitRes
 	if err != nil {
 		return SplitResult{}, apierr.Internal("WORK_CARD_SPLIT_FAILED", "Failed to load project sessions")
 	}
-	commander, commanded := hermesCommanderSession(sessions, domain.SessionID(card.SessionID))
+	commander, commanded := cardCommanderSession(sessions, domain.SessionID(card.SessionID))
 	if !commanded && s.killer == nil {
 		return SplitResult{}, apierr.Internal("WORK_CARD_SPLIT_UNAVAILABLE", "Work card split is unavailable")
 	}
@@ -330,18 +330,26 @@ func (s *Service) Split(ctx context.Context, id string, in SplitInput) (SplitRes
 	return SplitResult{OldCard: card, NewCard: newCard}, nil
 }
 
-func isHermesCommander(session domain.SessionRecord) bool {
-	return !session.IsTerminated && session.Kind == domain.KindOrchestrator && session.Harness == domain.HarnessHermes
+// isCardCommander reports whether a session is a live commander that owns work
+// cards — AO's Director or a Hermes orchestrator. A commander is coordinated
+// with (nudged, handed off to, answered), never treated as the coding worker
+// and never killed by the rate-limit auto-switch.
+func isCardCommander(session domain.SessionRecord) bool {
+	if session.IsTerminated || session.Kind != domain.KindOrchestrator {
+		return false
+	}
+	return session.Harness == domain.HarnessHermes || session.Harness == domain.HarnessDirector
 }
 
-func hermesCommanderSession(sessions []domain.SessionRecord, id domain.SessionID) (domain.SessionRecord, bool) {
+func cardCommanderSession(sessions []domain.SessionRecord, id domain.SessionID) (domain.SessionRecord, bool) {
 	for _, session := range sessions {
-		if session.ID == id && isHermesCommander(session) {
+		if session.ID == id && isCardCommander(session) {
 			return session, true
 		}
 	}
 	return domain.SessionRecord{}, false
 }
+
 
 func splitHandoffPrompt(oldCard, newCard domain.WorkCard, fate domain.CardStatus) string {
 	return "AO split work-card " + oldCard.ID + " into " + newCard.ID + ". Stop coordinating the old card; it moved to " + string(fate) + ". The new card will be dispatched separately."

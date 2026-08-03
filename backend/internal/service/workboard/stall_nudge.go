@@ -102,10 +102,10 @@ func (n *StallNudger) ReconcileProject(ctx context.Context, projectID string) ([
 			// task owns it.
 			continue
 		}
-		if !isHermesCommander(session) {
+		if !isCardCommander(session) {
 			// Non-commander sessions cannot act on nudge instructions
 			// (which are CLI commands like "ao workboard status <id> <next-status>").
-			// Only Hermes commanders are nudged.
+			// Only card commanders (Director, Hermes) are nudged.
 			continue
 		}
 		if session.Activity.State != domain.ActivityIdle {

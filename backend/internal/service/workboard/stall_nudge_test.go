@@ -266,3 +266,26 @@ func TestStallNudge_ExcludesNonCommanderSessions(t *testing.T) {
 		t.Fatalf("events = %+v, want one stall_nudged event", store.appended)
 	}
 }
+
+func TestStallNudge_IdleDirectorCommanderGetsNudged(t *testing.T) {
+	now := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
+	director := idleCommander("director-1", now.Add(-11*time.Minute))
+	director.Harness = domain.HarnessDirector
+	store := &stallNudgeStore{
+		cards:    map[string]domain.WorkCard{"c1": stallCard("c1", "running", "director-1")},
+		sessions: []domain.SessionRecord{director},
+	}
+	sender := &stallNudgeSender{}
+	n := NewStallNudger(StallNudgeDeps{Store: store, Sender: sender, Clock: func() time.Time { return now }, NewID: func() string { return "ev-1" }})
+
+	nudged, err := n.ReconcileProject(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("ReconcileProject: %v", err)
+	}
+	if len(nudged) != 1 || nudged[0] != "c1" {
+		t.Fatalf("nudged = %v, want [c1] — a stalled Director must be nudged like a Hermes commander", nudged)
+	}
+	if len(sender.sent) != 1 || sender.sent[0].session != "director-1" {
+		t.Fatalf("sent = %+v, want one message to director-1", sender.sent)
+	}
+}

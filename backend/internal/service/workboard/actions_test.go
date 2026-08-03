@@ -354,3 +354,24 @@ func (f *actionsKillerFake) Kill(_ context.Context, id domain.SessionID) (bool, 
 	f.killed = id
 	return true, nil
 }
+
+func TestIsCardCommander_AcceptsHermesAndDirector(t *testing.T) {
+	cases := []struct {
+		name string
+		rec  domain.SessionRecord
+		want bool
+	}{
+		{"hermes commander", domain.SessionRecord{Kind: domain.KindOrchestrator, Harness: domain.HarnessHermes}, true},
+		{"director commander", domain.SessionRecord{Kind: domain.KindOrchestrator, Harness: domain.HarnessDirector}, true},
+		{"terminated director", domain.SessionRecord{Kind: domain.KindOrchestrator, Harness: domain.HarnessDirector, IsTerminated: true}, false},
+		{"coding worker", domain.SessionRecord{Kind: domain.KindWorker, Harness: domain.HarnessDirector}, false},
+		{"other orchestrator", domain.SessionRecord{Kind: domain.KindOrchestrator, Harness: domain.HarnessCodex}, false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if got := isCardCommander(tc.rec); got != tc.want {
+				t.Fatalf("isCardCommander = %v, want %v", got, tc.want)
+			}
+		})
+	}
+}

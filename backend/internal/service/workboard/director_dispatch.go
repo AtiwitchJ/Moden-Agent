@@ -18,8 +18,9 @@ func directorEnabled(project domain.ProjectRecord) bool {
 }
 
 // isProjectDirector reports whether a session is this project's live Director.
-// Deliberately independent of isHermesCommander: the two commander mechanisms
-// share no state and must not share a predicate.
+// Deliberately independent of isCardCommander: that predicate answers "may I
+// coordinate with this session"; this one answers "is this project's Director
+// already running", and the two must not drift into each other.
 func isProjectDirector(session domain.SessionRecord, harness domain.AgentHarness) bool {
 	return !session.IsTerminated && session.Kind == domain.KindOrchestrator && session.Harness == harness
 }
