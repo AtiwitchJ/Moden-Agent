@@ -2,15 +2,16 @@
 
 ## Current Focus
 
-**Director Agent (Task 13, `feat/live-terminals`): FAILED at Step 4.**
-The Director harness cannot start because `director/dist/index.js` uses ES
-module bare imports (`import ... from "langchain"`) that Node.js cannot
-resolve at runtime — `langchain`'s package exports only subpaths
-(e.g. `langchain/load`, `langchain/chat_models`), not the root `"langchain"`
-specifier. This is a pre-existing bug introduced in Task 6 (entrypoint
-wiring). Unit tests don't catch it (they test only pure modules). The
-full report is at `.superpowers/sdd/task-13-report.md`. **Do not merge
-this branch until the module resolution issue is fixed.**
+**Director Agent (Task 13, `feat/live-terminals`): Bundle FIXED, full e2e pending outside sandbox.**
+Root cause: `tsc` does not bundle — `dist/index.js` still had bare `import`
+specifiers that Node.js couldn't resolve outside the `director/` package dir.
+Fix: replaced `tsc` with `esbuild --bundle` + downgraded `deepagents@1.12.1` →
+`deepagents@1.8.8` (which depends on `langchain@^1.2.39` that has a root
+export). Bundle is now self-contained (~102K lines, no bare imports).
+Confirmed: `node backend/internal/directorassets/bundle/index.js` runs without
+`ERR_PACKAGE_PATH_NOT_EXPORTED`. Steps 5-6 require a live daemon + real LLM
+API outside sandbox (MiniMax API key available in `.env`). Steps 7-9 done
+(cleanup, memory-bank, docs updated). Full report: `.superpowers/sdd/task-13-report.md`.
 
 Prior work on `feat/live-terminals`: The Hermes Director Orchestrator
 (`docs/superpowers/plans/2026-08-03-director-agent.md`) was being
@@ -77,15 +78,12 @@ verification) is the first to exercise the full entrypoint.
 
 ## Blockers
 
-### Blocker 1 (P0 — Director Agent Non-Functional)
+### Blocker 1 (RESOLVED — Director Bundle Fixed)
 
-**`ERR_PACKAGE_PATH_NOT_EXPORTED` on `langchain` bare import.** The
-Director's `director/dist/index.js` imports from `"langchain"` directly,
-but `langchain`'s `package.json` exports only subpaths. Node.js ESM
-resolution fails at runtime. This was not caught by unit tests (which test
-only pure modules) and is a pre-existing bug introduced in Task 6. Fix
-required before `feat/live-terminals` can be merged. Full details:
-`.superpowers/sdd/task-13-report.md`.
+Bundle now self-contained via `esbuild --bundle` + `deepagents@1.8.8`.
+`node backend/internal/directorassets/bundle/index.js` runs without
+module resolution errors. Full e2e verification (Steps 5-6) requires
+running outside sandbox with real API key — see below.
 
 ### Blocker 2 (Known-Red Tests)
 

@@ -35,10 +35,12 @@
 
 ## In Progress
 
-- **Director Agent Task 13 (`feat/live-terminals`): FAILED.** Module
-  resolution bug prevents the Director harness from starting. Investigation
-  and fix pending. See `.superpowers/sdd/task-13-report.md` for full
-  details.
+- **Director Agent Task 13 (`feat/live-terminals`): Bundle FIXED, e2e pending.**
+  `esbuild --bundle` + `deepagents@1.8.8` produces a self-contained
+  `index.js` (~102K lines). Verified: `node bundle/index.js` runs without
+  `ERR_PACKAGE_PATH_NOT_EXPORTED`. Steps 5-6 (live Director session spawn,
+  card transition) require running outside sandbox with real LLM API. Steps
+  7-9 completed. See `.superpowers/sdd/task-13-report.md`.
 
 ## Planned
 
@@ -53,18 +55,10 @@
 
 ## Known Issues
 
-- **P0 Blocker — Director Agent Non-Functional (Task 13, `feat/live-terminals`):**
-  `ERR_PACKAGE_PATH_NOT_EXPORTED` on `import ... from "langchain"` in
-  `director/dist/index.js`. The `langchain` npm package does not export a root
-  module — only subpaths (e.g. `langchain/load`). Node.js ESM resolution fails
-  at runtime because `langchain/package.json` has no `"."` entry in its
-  `exports` map. Confirmed by running the Director from both the `director/`
-  package directory (where `node_modules` exist) and the data dir. Unit tests
-  don't catch this because they test only pure modules. Fix requires one of:
-  (a) bundling the Director with a bundler (esbuild/rollup) that resolves
-  subpath imports, (b) changing `index.ts` to use only `@langchain/core` imports
-  (which does have a root export), or (c) installing `node_modules` alongside
-  the bundle in the data dir. See `.superpowers/sdd/task-13-report.md`.
+- **RESOLVED (was P0 Blocker — Director Agent):** Bundle now self-contained via
+  `esbuild --bundle` + `deepagents@1.8.8`. `node bundle/index.js` confirmed
+  working without `ERR_PACKAGE_PATH_NOT_EXPORTED`. Remaining gap: e2e verification
+  requires running outside sandbox with real LLM API (MiniMax API key in `.env`).
 
 - **Fixed (Task 8, `cfa8327a`)**: the orchestrator's tick loop redundantly
   double-wrote `active_session` on every successful spawn (always failing
