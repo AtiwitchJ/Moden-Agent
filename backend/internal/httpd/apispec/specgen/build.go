@@ -156,6 +156,7 @@ var schemaNames = map[string]string{
 	"ControllersUpdateWorkCardRequest":            "UpdateWorkCardRequest",
 	"ControllersMoveWorkCardRequest":              "MoveWorkCardRequest",
 	"ControllersNudgeWorkCardRequest":             "NudgeWorkCardRequest",
+	"ControllersRecordCardEventRequest":           "RecordCardEventRequest",
 	"ControllersRetargetWorkCardRequest":          "RetargetWorkCardRequest",
 	"ControllersSplitWorkCardRequest":             "SplitWorkCardRequest",
 	"ControllersSplitWorkCardResponse":            "SplitWorkCardResponse",
@@ -554,6 +555,19 @@ func workboardOperations() []operation {
 			reqBody:    controllers.SplitWorkCardRequest{},
 			resps: []respUnit{
 				{http.StatusOK, controllers.SplitWorkCardResponse{}},
+				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodPost, path: "/api/v1/workboard/cards/{cardId}/events", id: "recordWorkCardEvent", tag: "workboard",
+			summary:    "Record an agent report against a work card",
+			pathParams: []any{controllers.WorkCardIDParam{}},
+			reqBody:    controllers.RecordCardEventRequest{},
+			resps: []respUnit{
+				{http.StatusOK, controllers.WorkCardResponse{}},
 				{http.StatusBadRequest, envelope.APIError{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},

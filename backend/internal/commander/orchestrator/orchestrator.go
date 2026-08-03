@@ -22,12 +22,23 @@ type ConfiguredOrchestrator struct {
 	clock    func() time.Time
 	newID    func() string
 	wipLimit int
+	killer   SessionKiller
+}
+
+// SessionKiller stops a previously spawned session. Used when the
+// orchestrator supersedes a session on a phase-timeout-triggered
+// replacement, so the old real process doesn't leak. A Kill failure (the
+// old session may already be gone — a normal, harmless case) is handled by
+// the caller and never blocks the replacement spawn.
+type SessionKiller interface {
+	Kill(ctx context.Context, id domain.SessionID) (bool, error)
 }
 
 // OrchestratorStore is the durable surface required by the orchestrator tick
 // loop. *sqlite.Store satisfies it structurally.
 type OrchestratorStore interface {
 	ListWorkCards(ctx context.Context, projectID, boardID string) ([]domain.WorkCard, error)
+	GetWorkCard(ctx context.Context, id string) (domain.WorkCard, bool, error)
 	GetActiveSession(ctx context.Context, cardID string) (ActiveSessionRecord, bool, error)
 	InsertActiveSession(ctx context.Context, s spawner.InsertActiveSession) error
 	DeleteActiveSession(ctx context.Context, cardID string) error
@@ -53,6 +64,7 @@ type Config struct {
 	Clock    func() time.Time
 	NewID    func() string
 	WIPLimit int
+	Killer   SessionKiller
 }
 
 // New returns a configured orchestrator that implements commander.Orchestrator
@@ -73,6 +85,7 @@ func New(cfg Config) *ConfiguredOrchestrator {
 		clock:    clock,
 		newID:    newID,
 		wipLimit: cfg.WIPLimit,
+		killer:   cfg.Killer,
 	}
 }
 
@@ -165,19 +178,13 @@ func (o *ConfiguredOrchestrator) OnAgentFailed(ctx context.Context, cardID strin
 			CycleHistory: cycle,
 		}
 
-		handle, err := o.spawner.Spawn(ctx, spec)
-		if err != nil {
+		// spawner.Spawn already records the (card, session, phase, agent) fact in
+		// active_session on success — active_session.card_id is a PRIMARY KEY, so
+		// inserting it again here always fails and (before this fix) made every
+		// tick believe the spawn never happened, triggering an unbounded respawn
+		// loop. Do not re-insert.
+		if _, err := o.spawner.Spawn(ctx, spec); err != nil {
 			return fmt.Errorf("spawn fallback agent %s for %s: %w", nextAgent, cardID, err)
-		}
-
-		insert := spawner.InsertActiveSession{
-			CardID:    cardID,
-			SessionID: handle.ID,
-			Phase:     spawner.Phase(phase),
-			Agent:     nextAgent,
-		}
-		if err := o.store.InsertActiveSession(ctx, insert); err != nil {
-			return fmt.Errorf("insert active session for %s: %w", cardID, err)
 		}
 	}
 
@@ -373,16 +380,7 @@ func (o *ConfiguredOrchestrator) createRedoCycleAndTransition(ctx context.Contex
 
 // getCard fetches a single card by ID from the store.
 func (o *ConfiguredOrchestrator) getCard(ctx context.Context, cardID string) (domain.WorkCard, bool, error) {
-	cards, err := o.store.ListWorkCards(ctx, "", "")
-	if err != nil {
-		return domain.WorkCard{}, false, err
-	}
-	for _, c := range cards {
-		if c.ID == cardID {
-			return c, true, nil
-		}
-	}
-	return domain.WorkCard{}, false, nil
+	return o.store.GetWorkCard(ctx, cardID)
 }
 
 // appendEvent records a work card event.

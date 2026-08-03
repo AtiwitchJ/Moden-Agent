@@ -220,10 +220,11 @@ func TestSplitHermesLinkedCardNotifiesCommanderWithoutKillingIt(t *testing.T) {
 }
 
 type actionsStoreFake struct {
-	cards    map[string]domain.WorkCard
-	sessions []domain.SessionRecord
-	events   []domain.WorkCardEvent
-	created  []domain.WorkCard
+	cards                 map[string]domain.WorkCard
+	sessions              []domain.SessionRecord
+	events                []domain.WorkCardEvent
+	created               []domain.WorkCard
+	deletedActiveSessions []string
 }
 
 func (f *actionsStoreFake) CreateWorkCard(_ context.Context, card domain.WorkCard) error {
@@ -300,6 +301,11 @@ func (f *actionsStoreFake) ListSessions(_ context.Context, _ domain.ProjectID) (
 
 func (f *actionsStoreFake) AppendWorkCardEvent(_ context.Context, event domain.WorkCardEvent) error {
 	f.events = append(f.events, event)
+	return nil
+}
+
+func (f *actionsStoreFake) DeleteActiveSession(_ context.Context, cardID string) error {
+	f.deletedActiveSessions = append(f.deletedActiveSessions, cardID)
 	return nil
 }
 

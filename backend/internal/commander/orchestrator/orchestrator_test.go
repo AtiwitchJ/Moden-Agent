@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -36,6 +37,11 @@ func (s *fakeStore) ListWorkCards(_ context.Context, projectID, _ string) ([]dom
 		}
 	}
 	return out, nil
+}
+
+func (s *fakeStore) GetWorkCard(_ context.Context, id string) (domain.WorkCard, bool, error) {
+	c, ok := s.cards[id]
+	return c, ok, nil
 }
 
 func (s *fakeStore) GetActiveSession(_ context.Context, cardID string) (ActiveSessionRecord, bool, error) {
@@ -81,18 +87,34 @@ type fakeSpawner struct {
 	spawned     []spawnedCall
 	spawnErr    error
 	stopErr     error
+	// store, when set, mirrors production spawner.Spawner.Spawn's behavior of
+	// recording the (card, session, phase, agent) fact in active_session on a
+	// successful launch. Left nil in tests that don't care about that
+	// bookkeeping.
+	store *fakeStore
 }
 
 type spawnedCall struct {
 	Spec commander.SpawnSpec
 }
 
-func (s *fakeSpawner) Spawn(_ context.Context, spec commander.SpawnSpec) (commander.SessionHandle, error) {
+func (s *fakeSpawner) Spawn(ctx context.Context, spec commander.SpawnSpec) (commander.SessionHandle, error) {
 	s.spawned = append(s.spawned, spawnedCall{Spec: spec})
 	if s.spawnErr != nil {
 		return commander.SessionHandle{}, s.spawnErr
 	}
-	return commander.SessionHandle{ID: "session-" + spec.CardID + "-" + spec.Agent, NativeID: "native-" + spec.Agent}, nil
+	handle := commander.SessionHandle{ID: "session-" + spec.CardID + "-" + spec.Agent, NativeID: "native-" + spec.Agent}
+	if s.store != nil {
+		if err := s.store.InsertActiveSession(ctx, spawner.InsertActiveSession{
+			CardID:    spec.CardID,
+			SessionID: handle.ID,
+			Phase:     spawner.Phase(spec.Phase),
+			Agent:     spec.Agent,
+		}); err != nil {
+			return commander.SessionHandle{}, err
+		}
+	}
+	return handle, nil
 }
 
 func (s *fakeSpawner) Stop(_ context.Context, _ string) error {
@@ -101,6 +123,16 @@ func (s *fakeSpawner) Stop(_ context.Context, _ string) error {
 
 func (s *fakeSpawner) Inject(_ context.Context, _, _ string) error {
 	return nil
+}
+
+type fakeKiller struct {
+	killed []domain.SessionID
+	err    error
+}
+
+func (f *fakeKiller) Kill(_ context.Context, id domain.SessionID) (bool, error) {
+	f.killed = append(f.killed, id)
+	return f.err == nil, f.err
 }
 
 func card(id, projectID, status string) domain.WorkCard {
@@ -260,6 +292,27 @@ func TestOnAgentCompleted_VerdictApprovedOnReviewCard_TransitionsToTesting(t *te
 	}
 }
 
+func TestGetCardUsesGetWorkCard_NotListWorkCardsWithEmptyFilters(t *testing.T) {
+	store := newFakeStore()
+	store.cards["card-1"] = domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", Status: domain.CardStatusRunning,
+		CodingAgent: "hermes",
+	}
+	// listWorkCardsCalls with empty projectID/boardID must be zero: getCard must
+	// go through GetWorkCard, not ListWorkCards(ctx, "", "").
+	orc := New(Config{Store: store, Spawner: &fakeSpawner{}})
+
+	err := orc.OnAgentCompleted(context.Background(), "card-1", commander.AgentResult{
+		Phase: commander.PhaseCoding, Verdict: "approved",
+	})
+	if err != nil {
+		t.Fatalf("OnAgentCompleted: %v", err)
+	}
+	if got := store.cards["card-1"].Status; got != domain.CardStatusReview {
+		t.Fatalf("status = %s, want review", got)
+	}
+}
+
 func TestOnAgentFailed_ReviewerExhausted_FallsBackToHermes(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}
@@ -364,7 +417,10 @@ func TestOnAgentFailed_HermesExhausted_CreatesRedoCycleAndTransitionsToRedo(t *t
 
 func TestCheckOrphans_StaleRunningSession_SpawnsReplacement(t *testing.T) {
 	store := newFakeStore()
-	sp := &fakeSpawner{}
+	// store must be wired so fakeSpawner.Spawn records the replacement session,
+	// matching production spawner.Spawner.Spawn — this test asserts on that
+	// recorded row below.
+	sp := &fakeSpawner{store: store}
 	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
 	oc := New(Config{
 		Store:    store,
@@ -537,6 +593,89 @@ func TestCountActiveCards(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("active count = %d, want 2 (running + review)", count)
+	}
+}
+
+func TestTickDoesNotDoubleInsertActiveSession(t *testing.T) {
+	store := newFakeStore()
+	store.cards["card-1"] = domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", Status: domain.CardStatusRunning,
+		CodingAgent: "hermes",
+	}
+	sp := &fakeSpawner{store: store} // fakeSpawner.Spawn inserts into store.activeSessions, matching production spawner.Spawner.Spawn
+	orc := New(Config{Store: store, Spawner: sp, WIPLimit: 4})
+
+	if err := orc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	rec, ok := store.activeSessions["card-1"]
+	if !ok {
+		t.Fatal("no active session recorded for card-1 after first tick")
+	}
+	firstSessionID := rec.SessionID
+
+	// A second tick immediately after must NOT spawn another session: the
+	// first spawn is live (fresh, well within any timeout), so tickActiveCards
+	// must recognize it and do nothing.
+	if err := orc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("second Tick: %v", err)
+	}
+	if len(sp.spawned) != 1 {
+		t.Fatalf("spawner.Spawn called %d times across two ticks, want 1 (no runaway respawn)", len(sp.spawned))
+	}
+	if store.activeSessions["card-1"].SessionID != firstSessionID {
+		t.Fatalf("active session changed across ticks: %s -> %s, want stable", firstSessionID, store.activeSessions["card-1"].SessionID)
+	}
+}
+
+func TestTickKillsSupersededSessionOnTimeoutReplacement(t *testing.T) {
+	store := newFakeStore()
+	store.cards["card-1"] = domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", Status: domain.CardStatusRunning,
+		CodingAgent: "hermes",
+	}
+	// Pre-seed a stale active session, older than the 30-minute Running timeout.
+	store.activeSessions["card-1"] = ActiveSessionRecord{
+		CardID: "card-1", SessionID: "old-sess", Phase: "coding", Agent: "hermes",
+		CreatedAt: time.Now().Add(-31 * time.Minute),
+	}
+	spawner := &fakeSpawner{store: store}
+	killer := &fakeKiller{}
+	orc := New(Config{Store: store, Spawner: spawner, Killer: killer, WIPLimit: 4})
+
+	if err := orc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if len(killer.killed) != 1 || killer.killed[0] != domain.SessionID("old-sess") {
+		t.Fatalf("killed = %v, want [old-sess]", killer.killed)
+	}
+	if len(spawner.spawned) != 1 {
+		t.Fatalf("spawner.Spawn called %d times, want 1 (the replacement)", len(spawner.spawned))
+	}
+}
+
+func TestTickReplacementSpawnProceedsWhenKillFails(t *testing.T) {
+	store := newFakeStore()
+	store.cards["card-1"] = domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", Status: domain.CardStatusRunning,
+		CodingAgent: "hermes",
+	}
+	store.activeSessions["card-1"] = ActiveSessionRecord{
+		CardID: "card-1", SessionID: "old-sess", Phase: "coding", Agent: "hermes",
+		CreatedAt: time.Now().Add(-31 * time.Minute),
+	}
+	spawner := &fakeSpawner{store: store}
+	killer := &fakeKiller{err: errors.New("session already gone")}
+	orc := New(Config{Store: store, Spawner: spawner, Killer: killer, WIPLimit: 4})
+
+	// A kill failure must not block the replacement spawn.
+	if err := orc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v, want nil (kill failure should not propagate)", err)
+	}
+	if len(spawner.spawned) != 1 {
+		t.Fatalf("spawner.Spawn called %d times, want 1 (replacement still proceeds)", len(spawner.spawned))
 	}
 }
 

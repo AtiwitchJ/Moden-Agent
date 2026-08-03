@@ -1,6 +1,11 @@
 -- name: InsertActiveSession :exec
 INSERT INTO active_session (card_id, session_id, phase, agent, created_at)
-VALUES (?, ?, ?, ?, ?);
+VALUES (?, ?, ?, ?, ?)
+ON CONFLICT(card_id) DO UPDATE SET
+  session_id = excluded.session_id,
+  phase = excluded.phase,
+  agent = excluded.agent,
+  created_at = excluded.created_at;
 
 -- name: GetActiveSession :one
 SELECT * FROM active_session WHERE card_id = ?;

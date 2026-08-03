@@ -19,21 +19,23 @@ import (
 )
 
 type fakeWorkboardService struct {
-	cards         []domain.WorkCard
-	createIn      workboardsvc.CreateInput
-	updateID      string
-	updateIn      workboardsvc.UpdateInput
-	deleteID      string
-	moveID        string
-	moveStatus    domain.CardStatus
-	movePos       int64
-	nudgeID       string
-	nudgeIn       workboardsvc.NudgeInput
-	retargetID    string
-	retargetIn    workboardsvc.RetargetInput
-	splitID       string
-	splitIn       workboardsvc.SplitInput
-	failure       workboardsvc.DispatchFailure
+	cards          []domain.WorkCard
+	createIn       workboardsvc.CreateInput
+	updateID       string
+	updateIn       workboardsvc.UpdateInput
+	deleteID       string
+	moveID         string
+	moveStatus     domain.CardStatus
+	movePos        int64
+	nudgeID        string
+	nudgeIn        workboardsvc.NudgeInput
+	retargetID     string
+	retargetIn     workboardsvc.RetargetInput
+	splitID        string
+	splitIn        workboardsvc.SplitInput
+	recordEventID  string
+	recordEventIn  workboardsvc.AgentEventInput
+	failure        workboardsvc.DispatchFailure
 	directorStatus workboardsvc.DirectorStatus
 }
 
@@ -107,6 +109,11 @@ func (f *fakeWorkboardService) Retarget(_ context.Context, id string, in workboa
 func (f *fakeWorkboardService) Split(_ context.Context, id string, in workboardsvc.SplitInput) (workboardsvc.SplitResult, error) {
 	f.splitID, f.splitIn = id, in
 	return workboardsvc.SplitResult{OldCard: f.cards[0], NewCard: f.cards[0]}, nil
+}
+
+func (f *fakeWorkboardService) RecordAgentEvent(_ context.Context, cardID string, in workboardsvc.AgentEventInput) (domain.WorkCard, error) {
+	f.recordEventID, f.recordEventIn = cardID, in
+	return f.cards[0], nil
 }
 
 func newWorkboardTestServer(t *testing.T, svc *fakeWorkboardService) *httptest.Server {

@@ -26,6 +26,7 @@ type WorkboardService interface {
 	Nudge(ctx context.Context, id string, in workboardsvc.NudgeInput) (domain.WorkCard, error)
 	Retarget(ctx context.Context, id string, in workboardsvc.RetargetInput) (domain.WorkCard, error)
 	Split(ctx context.Context, id string, in workboardsvc.SplitInput) (workboardsvc.SplitResult, error)
+	RecordAgentEvent(ctx context.Context, cardID string, in workboardsvc.AgentEventInput) (domain.WorkCard, error)
 	ListRedo(ctx context.Context, cardID string) ([]domain.RedoCycle, error)
 	LatestDispatchFailure(ctx context.Context, cardID string) (workboardsvc.DispatchFailure, error)
 	DirectorStatus(ctx context.Context, projectID string) (workboardsvc.DirectorStatus, error)
@@ -57,6 +58,7 @@ func (c *WorkboardController) Register(r chi.Router) {
 	r.Post("/workboard/cards/{cardId}/nudge", c.nudge)
 	r.Post("/workboard/cards/{cardId}/retarget", c.retarget)
 	r.Post("/workboard/cards/{cardId}/split", c.split)
+	r.Post("/workboard/cards/{cardId}/events", c.recordEvent)
 }
 
 func (c *WorkboardController) dispatchFailure(w http.ResponseWriter, r *http.Request) {
@@ -293,6 +295,27 @@ func (c *WorkboardController) split(w http.ResponseWriter, r *http.Request) {
 		OldCard: newWorkCardResponse(result.OldCard),
 		NewCard: newWorkCardResponse(result.NewCard),
 	})
+}
+
+func (c *WorkboardController) recordEvent(w http.ResponseWriter, r *http.Request) {
+	if c.Svc == nil {
+		apispec.NotImplemented(w, r, http.MethodPost, "/api/v1/workboard/cards/{cardId}/events")
+		return
+	}
+	var req RecordCardEventRequest
+	if err := decodeJSONStrict(r, &req); err != nil {
+		envelope.WriteAPIError(w, r, http.StatusBadRequest, "bad_request", "INVALID_JSON", "Invalid JSON body", nil)
+		return
+	}
+	card, err := c.Svc.RecordAgentEvent(r.Context(), chi.URLParam(r, "cardId"), workboardsvc.AgentEventInput{
+		Kind:    req.Kind,
+		Payload: req.Payload,
+	})
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, newWorkCardResponse(card))
 }
 
 func (c *WorkboardController) listGlobal(w http.ResponseWriter, r *http.Request) {

@@ -127,6 +127,7 @@ func TestOrchestratorWiring_PeriodicTickFires(t *testing.T) {
 		tickInterval: 100 * time.Millisecond,
 		stopCh:       make(chan struct{}),
 	}
+	wiring.wg.Add(1) // run()'s own defer wg.Done() requires a matching Add, same as WireOrchestrator does.
 
 	var wg sync.WaitGroup
 	wg.Add(1)

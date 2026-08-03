@@ -6,7 +6,6 @@ import (
 	"time"
 
 	"github.com/modernagent/modern-agent/backend/internal/commander"
-	"github.com/modernagent/modern-agent/backend/internal/commander/spawner"
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 )
 
@@ -36,7 +35,8 @@ func (o *ConfiguredOrchestrator) tickActiveCards(ctx context.Context, cards []do
 				if err := o.spawnCodingSession(ctx, card, nil); err != nil {
 					return err
 				}
-			} else if !o.isSessionLive(session, card, 30*time.Minute) {
+			} else if !o.isSessionLive(session, 30*time.Minute) {
+				o.killSupersededSession(ctx, session)
 				if err := o.spawnCodingSession(ctx, card, nil); err != nil {
 					return err
 				}
@@ -47,7 +47,8 @@ func (o *ConfiguredOrchestrator) tickActiveCards(ctx context.Context, cards []do
 				if err := o.spawnReviewSession(ctx, card); err != nil {
 					return err
 				}
-			} else if !o.isSessionLive(session, card, 10*time.Minute) {
+			} else if !o.isSessionLive(session, 10*time.Minute) {
+				o.killSupersededSession(ctx, session)
 				if err := o.spawnReviewSession(ctx, card); err != nil {
 					return err
 				}
@@ -58,7 +59,8 @@ func (o *ConfiguredOrchestrator) tickActiveCards(ctx context.Context, cards []do
 				if err := o.spawnTestingSession(ctx, card); err != nil {
 					return err
 				}
-			} else if !o.isSessionLive(session, card, 10*time.Minute) {
+			} else if !o.isSessionLive(session, 10*time.Minute) {
+				o.killSupersededSession(ctx, session)
 				if err := o.spawnTestingSession(ctx, card); err != nil {
 					return err
 				}
@@ -103,15 +105,25 @@ func (o *ConfiguredOrchestrator) checkActiveSession(ctx context.Context, card do
 	return true, session, nil
 }
 
-// isSessionLive checks whether the active session is still running and not orphaned.
-func (o *ConfiguredOrchestrator) isSessionLive(session ActiveSessionRecord, card domain.WorkCard, timeout time.Duration) bool {
-	if card.SessionID == "" || card.SessionID != session.SessionID {
-		return false
+// isSessionLive checks whether the active session is still within its
+// phase-appropriate timeout. active_session.card_id uniquely identifies the
+// row (it is the table's primary key), so GetActiveSession(ctx, card.ID)
+// already scopes to the right session — there is nothing to cross-check
+// against domain.WorkCard.SessionID, which tracks a different spawn system's
+// (dispatch.go's initial auto-dispatch) session, not the orchestrator's own
+// per-phase spawns.
+func (o *ConfiguredOrchestrator) isSessionLive(session ActiveSessionRecord, timeout time.Duration) bool {
+	return o.clock().Sub(session.CreatedAt) <= timeout
+}
+
+// killSupersededSession best-effort stops the session a replacement spawn is
+// about to replace. Nil killer or an already-gone session are both normal,
+// harmless cases — this never returns an error to its caller.
+func (o *ConfiguredOrchestrator) killSupersededSession(ctx context.Context, session ActiveSessionRecord) {
+	if o.killer == nil || session.SessionID == "" {
+		return
 	}
-	if o.clock().Sub(session.CreatedAt) > timeout {
-		return false
-	}
-	return true
+	_, _ = o.killer.Kill(ctx, domain.SessionID(session.SessionID))
 }
 
 // countActiveCards returns the count of cards in active phases for a project.
@@ -171,19 +183,13 @@ func (o *ConfiguredOrchestrator) spawnSession(ctx context.Context, card domain.W
 		CycleHistory: cycle,
 	}
 
-	handle, err := o.spawner.Spawn(ctx, spec)
-	if err != nil {
+	// spawner.Spawn already records the (card, session, phase, agent) fact in
+	// active_session on success — active_session.card_id is a PRIMARY KEY, so
+	// inserting it again here always fails and (before this fix) made every
+	// tick believe the spawn never happened, triggering an unbounded respawn
+	// loop. Do not re-insert.
+	if _, err := o.spawner.Spawn(ctx, spec); err != nil {
 		return fmt.Errorf("spawn %s agent %s for %s: %w", phase, agent, card.ID, err)
-	}
-
-	insert := spawner.InsertActiveSession{
-		CardID:    card.ID,
-		SessionID: handle.ID,
-		Phase:     spawner.Phase(phase),
-		Agent:     agent,
-	}
-	if err := o.store.InsertActiveSession(ctx, insert); err != nil {
-		return fmt.Errorf("insert active session for %s: %w", card.ID, err)
 	}
 
 	return nil

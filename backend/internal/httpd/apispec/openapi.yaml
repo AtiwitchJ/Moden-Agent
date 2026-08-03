@@ -2648,6 +2648,57 @@ paths:
       summary: Get the latest safe automatic dispatch failure for a work card
       tags:
       - workboard
+  /api/v1/workboard/cards/{cardId}/events:
+    post:
+      operationId: recordWorkCardEvent
+      parameters:
+      - description: Work card identifier.
+        in: path
+        name: cardId
+        required: true
+        schema:
+          description: Work card identifier.
+          type: string
+      requestBody:
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RecordCardEventRequest'
+        required: true
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/WorkCardResponse'
+          description: OK
+        "400":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Bad Request
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Record an agent report against a work card
+      tags:
+      - workboard
   /api/v1/workboard/cards/{cardId}/move:
     post:
       operationId: moveWorkCard
@@ -4110,6 +4161,16 @@ components:
       - path
       - kind
       - sessionPrefix
+      type: object
+    RecordCardEventRequest:
+      properties:
+        kind:
+          type: string
+        payload:
+          type: string
+      required:
+      - kind
+      - payload
       type: object
     RedoCycleResponse:
       properties:

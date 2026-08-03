@@ -40,6 +40,21 @@ surface (`npm run sqlc`, `npm run api`).
   Running auto-start with asynchronous dispatch trigger, individual card spawn
   failures recorded as `dispatch_failed` events without blocking later eligible
   cards, and a manual `POST /projects/{id}/workboard/dispatch` retry action.
+- Hermes Director orchestrator: the daemon constructs and wires a real
+  orchestrator that subscribes to work-card CDC events and ticks every 30s,
+  spawning a real agent session per phase through the session service.
+  `POST /workboard/cards/{cardId}/events` is mounted, so the
+  `ao workboard card set-verdict|set-finding|set-test-result|fail-attempt|transition`
+  commands work end-to-end. Phase advancement is agent-initiated today via
+  `ao workboard card transition` (and friends), not automatic — see "In
+  flight" below for the not-yet-built automatic-advancement path. Verified
+  safe under sustained live load (nine consecutive timeout-triggered session
+  replacements, zero bookkeeping errors, every superseded session correctly
+  terminated); see `memory-bank/progress.md` for the four respawn-collision/
+  leak bugs found and fixed during verification, and one known, accepted
+  limitation (a one-time, bounded double-spawn the first time a card enters
+  `running`, from an unrelated pre-existing coordination gap between the
+  auto-dispatcher above and the orchestrator).
 - PR action engine wired into the API: `POST /prs/{id}/merge` and
   `/prs/{id}/resolve-comments`.
 - Review routes registered: `GET /reviews`, `POST /reviews/execute`,
@@ -87,6 +102,13 @@ surface (`npm run sqlc`, `npm run api`).
 
 ## In flight / not yet a runtime feature
 
+- **Automatic, signal-driven phase advancement for the Hermes Director
+  orchestrator** (PR/CI watcher, reviewer invoker, testing invoker): the
+  orchestrator itself is shipped (see "Shipped" above), but today phase
+  advancement is agent-initiated only, via `ao workboard card transition`
+  and friends. The three `TestLifecycleDispatcherIsUnwired_*` tests in
+  `internal/service/workboard/lifecycle_dispatcher_test.go` stay red by
+  design until this lands.
 - **Tracker lane**: GitHub tracker adapter exists, but there is no daemon
   observer loop or agent-lifecycle→issue mirroring yet, so the tracker does
   nothing at runtime ([#112](https://github.com/modernagent/modern-agent/issues/112)).

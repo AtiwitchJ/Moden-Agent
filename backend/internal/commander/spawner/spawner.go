@@ -192,48 +192,40 @@ func (s *Spawner) Spawn(ctx context.Context, spec SpawnSpec) (SessionHandle, err
 	return handle, nil
 }
 
-// RegistryLauncher looks up the harness adapter from the agent registry and
-// delegates to the adapter's launch command.
-type RegistryLauncher struct {
-	Reg *adapters.Registry
+// SessionSpawner is the session-service operation that actually starts a
+// worker process (worktree creation, runtime launch, everything). It is the
+// exact shape *sessionsvc.Service.Spawn already implements — the same one
+// service/workboard's non-Hermes dispatch path uses.
+type SessionSpawner interface {
+	Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Session, error)
 }
 
-// Spawn implements AgentLauncher. It resolves the harness adapter, builds the
-// launch argv via GetLaunchCommand, and returns a handle with the session ID.
-// The actual process start is handled by the session runtime (tmux/pty) which
-// is owned by the session service — RegistryLauncher only produces the argv.
-// TODO(Task 6): replace the CardID placeholder with the real session-service
-// handle once the orchestrator is wired to session creation.
-func (l *RegistryLauncher) Spawn(ctx context.Context, spec SpawnSpec) (SessionHandle, error) {
+// SessionServiceLauncher starts a real worker session through the session
+// service for each phase spawn the orchestrator requests.
+type SessionServiceLauncher struct {
+	Sessions SessionSpawner
+}
+
+// Spawn implements AgentLauncher by delegating to the session service, so a
+// commander spawn request produces an actual running process instead of a
+// fabricated handle.
+func (l *SessionServiceLauncher) Spawn(ctx context.Context, spec SpawnSpec) (SessionHandle, error) {
 	if spec.Agent == "" {
 		return SessionHandle{}, errors.New("agent harness is required")
 	}
-	a, ok := l.Reg.Get(string(domain.AgentHarness(spec.Agent)))
-	if !ok {
-		return SessionHandle{}, fmt.Errorf("agent harness %q not found", spec.Agent)
+	var targetPath string
+	if spec.ParentCard != nil {
+		targetPath = spec.ParentCard.TargetPath
 	}
-	agent, ok := a.(ports.Agent)
-	if !ok {
-		return SessionHandle{}, fmt.Errorf("adapter for %q is not an agent", spec.Agent)
-	}
-
-	argv, err := agent.GetLaunchCommand(ctx, ports.LaunchConfig{
-		SessionID: spec.CardID,
-		Prompt:    spec.Briefing,
-		WorkspacePath: func() string {
-			if spec.ParentCard != nil {
-				return spec.ParentCard.TargetPath
-			}
-			return ""
-		}(),
+	session, err := l.Sessions.Spawn(ctx, ports.SpawnConfig{
+		ProjectID:  domain.ProjectID(spec.ProjectID),
+		Kind:       domain.KindWorker,
+		Harness:    domain.AgentHarness(spec.Agent),
+		Prompt:     spec.Briefing,
+		TargetPath: targetPath,
 	})
 	if err != nil {
-		return SessionHandle{}, fmt.Errorf("build launch command for %s: %w", spec.Agent, err)
+		return SessionHandle{}, fmt.Errorf("spawn %s session for card %s: %w", spec.Phase, spec.CardID, err)
 	}
-
-	_ = argv // argv is produced but the actual process spawn is handled by the session runtime
-	return SessionHandle{
-		ID:       spec.CardID,
-		NativeID: "",
-	}, nil
+	return SessionHandle{ID: string(session.ID)}, nil
 }
