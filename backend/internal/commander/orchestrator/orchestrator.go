@@ -140,36 +140,45 @@ func (o *ConfiguredOrchestrator) OnAgentFailed(ctx context.Context, cardID strin
 		}); err != nil {
 			return fmt.Errorf("append agent_exhausted event for %s: %w", cardID, err)
 		}
-	}
+		// Last agent failed with a fallback available — transition to redo.
+		updatedCard, err := o.createRedoCycleAndTransition(ctx, card, phase, attempt, now)
+		if err != nil {
+			return err
+		}
+		card = updatedCard
+		if err := o.store.UpdateWorkCard(ctx, card); err != nil {
+			return fmt.Errorf("persist card %s after redo transition: %w", cardID, err)
+		}
+	} else {
+		briefing, err := generateBriefing(card, phase, cycle)
+		if err != nil {
+			return fmt.Errorf("generate briefing for %s: %w", cardID, err)
+		}
 
-	briefing, err := generateBriefing(card, phase, cycle)
-	if err != nil {
-		return fmt.Errorf("generate briefing for %s: %w", cardID, err)
-	}
+		spec := commander.SpawnSpec{
+			CardID:       cardID,
+			ProjectID:    card.ProjectID,
+			Phase:        phase,
+			Agent:        nextAgent,
+			Briefing:     briefing,
+			ParentCard:   &card,
+			CycleHistory: cycle,
+		}
 
-	spec := commander.SpawnSpec{
-		CardID:       cardID,
-		ProjectID:    card.ProjectID,
-		Phase:        phase,
-		Agent:        nextAgent,
-		Briefing:     briefing,
-		ParentCard:   &card,
-		CycleHistory: cycle,
-	}
+		handle, err := o.spawner.Spawn(ctx, spec)
+		if err != nil {
+			return fmt.Errorf("spawn fallback agent %s for %s: %w", nextAgent, cardID, err)
+		}
 
-	handle, err := o.spawner.Spawn(ctx, spec)
-	if err != nil {
-		return fmt.Errorf("spawn fallback agent %s for %s: %w", nextAgent, cardID, err)
-	}
-
-	insert := spawner.InsertActiveSession{
-		CardID:    cardID,
-		SessionID: handle.ID,
-		Phase:     spawner.Phase(phase),
-		Agent:     nextAgent,
-	}
-	if err := o.store.InsertActiveSession(ctx, insert); err != nil {
-		return fmt.Errorf("insert active session for %s: %w", cardID, err)
+		insert := spawner.InsertActiveSession{
+			CardID:    cardID,
+			SessionID: handle.ID,
+			Phase:     spawner.Phase(phase),
+			Agent:     nextAgent,
+		}
+		if err := o.store.InsertActiveSession(ctx, insert); err != nil {
+			return fmt.Errorf("insert active session for %s: %w", cardID, err)
+		}
 	}
 
 	return nil

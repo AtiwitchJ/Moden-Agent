@@ -272,6 +272,8 @@ func TestOnAgentFailed_ReviewerExhausted_FallsBackToHermes(t *testing.T) {
 		WIPLimit: 4,
 	})
 
+	// Use hermes-reviewer as reviewer (last in its chain), which triggers
+	// redo on failure since hermes is the final fallback.
 	c := card("c1", "p1", "review")
 	c.ReviewerAgent = "hermes-reviewer"
 	store.cards[c.ID] = c
@@ -295,12 +297,14 @@ func TestOnAgentFailed_ReviewerExhausted_FallsBackToHermes(t *testing.T) {
 		t.Fatalf("OnAgentFailed: %v", err)
 	}
 
-	// Should have spawned the next agent
-	if len(sp.spawned) != 1 {
-		t.Fatalf("spawned count = %d, want 1", len(sp.spawned))
+	// hermes-reviewer is last in [hermes-reviewer, hermes]; hermes is the
+	// fallback and is also last, so this transitions to redo, no spawn.
+	if len(sp.spawned) != 0 {
+		t.Fatalf("spawned count = %d, want 0 (hermes is last, transitions to redo)", len(sp.spawned))
 	}
-	if sp.spawned[0].Spec.Agent != "hermes" {
-		t.Fatalf("fallback agent = %q, want hermes", sp.spawned[0].Spec.Agent)
+	updated := store.cards["c1"]
+	if updated.Status != domain.CardStatusRedo {
+		t.Fatalf("card status = %q, want redo (hermes-reviewer exhausted)", updated.Status)
 	}
 }
 
