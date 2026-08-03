@@ -40,6 +40,7 @@ func newWorkboardCommand(ctx *commandContext) *cobra.Command {
 	cmd := &cobra.Command{Use: "workboard", Short: "Inspect and update work cards"}
 	cmd.AddCommand(newWorkboardGetCommand(ctx))
 	cmd.AddCommand(newWorkboardStatusCommand(ctx))
+	cmd.AddCommand(newWorkboardCardCmd(ctx))
 	return cmd
 }
 
