@@ -4,6 +4,7 @@ import { type FormEvent, useEffect, useId, useState } from "react";
 import type { components } from "../../api/schema";
 import {
 	useDispatchProject,
+	useDirectorStatus,
 	useWorkCardDispatchFailure,
 	useWorkCardRedo,
 	workboardQueryKey,
@@ -58,10 +59,11 @@ export function WorkCardFocusPanel({
 	const [scheduleError, setScheduleError] = useState<string>();
 	const [scheduledAtLocal, setScheduledAtLocal] = useState("");
 	const [livePreviewOpen, setLivePreviewOpen] = useState(false);
-	// A commander remains responsible after the implementation phase. Do not
-	// unmount its terminal merely because the card moves into review/testing:
-	// doing so made an active commander look as if it had been stopped.
-	const canShowTerminal = LIVE_WORKFLOW_STATUSES.has(card.status) && Boolean(card.sessionId && session);
+	// A commander is coordinated with, not watched: its terminal is a raw agent
+	// log, and a crashed agent leaves a live-looking shell behind it (the tmux
+	// runtime keeps the pane alive after the process exits). Show its state as
+	// facts instead; the terminal stays reachable from Sessions.
+	const canShowTerminal = LIVE_WORKFLOW_STATUSES.has(card.status) && Boolean(card.sessionId && session) && session?.kind !== "orchestrator";
 	const showTerminal = livePreviewOpen && canShowTerminal;
 	const isRunning = card.status === "running";
 	const isScheduled = card.status === "scheduled";
@@ -176,6 +178,7 @@ export function WorkCardFocusPanel({
 
 	const redoQuery = useWorkCardRedo(card.id, (card.redoCount ?? 0) > 0 || card.status === "redo");
 	const failureQuery = useWorkCardDispatchFailure(card.id, card.status === "todo");
+	const directorStatus = useDirectorStatus(isCommander ? projectId : undefined);
 	const dispatchMutation = useDispatchProject(projectId);
 
 	return (
@@ -222,12 +225,43 @@ export function WorkCardFocusPanel({
 							<span className="rounded bg-accent/10 px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-accent">{card.status}</span>
 						</div>
 						{card.sessionId ? (
-							<div className="mt-3 border-t border-border pt-3">
-								<p className="font-mono text-[10px] uppercase tracking-[0.08em] text-passive">{isCommander ? "Work owner" : "Linked session"}</p>
-								<p className="mt-1 text-[12px] leading-[1.45] text-foreground">
-									{session ? (isCommander ? <>{session.harness} coordinates this task <span className="text-muted-foreground">· {card.sessionId}</span></> : <>Session {card.sessionId}</>) : "The linked session is unavailable."}
-								</p>
-								{isCommander ? <p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground">The commander stays responsible through review and testing. Its terminal remains available until the card reaches a terminal state.</p> : null}
+							<div className="mt-3 space-y-1 border-t border-border pt-3">
+								<p className="font-mono text-[10px] uppercase tracking-[0.08em] text-passive">{isCommander ? "Commander" : "Linked session"}</p>
+								{session ? (
+									isCommander ? (
+										<>
+											<p className="text-[12px] leading-[1.45] text-foreground">
+												{session.harness} <span className="text-muted-foreground">· {card.sessionId}</span>
+											</p>
+											<dl className="mt-2 grid grid-cols-[auto_1fr] gap-x-3 gap-y-1 text-[11px]">
+												<dt className="text-passive">Phase</dt>
+												<dd className="text-foreground">{card.status}</dd>
+												<dt className="text-passive">Waiting on you</dt>
+												<dd className="text-foreground">{card.waitingForInput ? "Yes" : "No"}</dd>
+												{directorStatus.data ? (
+													<>
+														<dt className="text-passive">Board</dt>
+														<dd className="text-foreground">{directorStatus.data.runningCount} running · {directorStatus.data.todoCount} to do · WIP {directorStatus.data.wipLimit}</dd>
+														{directorStatus.data.lastDispatchAttempt?.result ? (
+															<>
+																<dt className="text-passive">Last dispatch</dt>
+																<dd className={directorStatus.data.lastDispatchAttempt.result === "error" ? "text-destructive" : "text-foreground"}>
+																	{directorStatus.data.lastDispatchAttempt.result}
+																	{directorStatus.data.lastDispatchAttempt.attemptedAt ? ` · ${new Date(directorStatus.data.lastDispatchAttempt.attemptedAt).toLocaleTimeString()}` : ""}
+																</dd>
+															</>
+														) : null}
+													</>
+												) : null}
+											</dl>
+											<p className="mt-2 text-[11px] leading-[1.45] text-muted-foreground">The commander stays responsible through review and testing. Open its terminal from Sessions.</p>
+										</>
+									) : (
+										<p className="text-[12px] leading-[1.45] text-foreground">Session {card.sessionId}</p>
+									)
+								) : (
+									<p className="text-[12px] leading-[1.45] text-foreground">The linked session is unavailable.</p>
+								)}
 							</div>
 						) : <p className="mt-3 border-t border-border pt-3 text-[11px] leading-[1.45] text-passive">No session is linked to this card yet.</p>}
 					</section>
@@ -239,7 +273,7 @@ export function WorkCardFocusPanel({
 									<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-destructive">Failed to start</p>
 									<p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground">
 										{failureQuery.data.reason === "hermes_unavailable"
-											? "Hermes commander unavailable"
+											? "Commander unavailable"
 											: failureQuery.data.reason === "non_hermes_orchestrator"
 											? "A non-Hermes orchestrator is active"
 											: "Worker spawn failed"}
@@ -294,7 +328,7 @@ export function WorkCardFocusPanel({
 					) : null}
 					{card.sessionId && session ? (
 						<div className="flex flex-wrap gap-2 pt-1">
-							{canShowTerminal ? <Button onClick={() => setLivePreviewOpen((open) => !open)} size="sm" variant="outline">{showTerminal ? "Hide live terminal" : isCommander ? "Show commander terminal" : "Show live terminal"}</Button> : null}
+							{canShowTerminal ? <Button onClick={() => setLivePreviewOpen((open) => !open)} size="sm" variant="outline">{showTerminal ? "Hide live terminal" : "Show live terminal"}</Button> : null}
 							{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">View all sessions</Button> : null}
 						</div>
 					) : null}
@@ -316,8 +350,8 @@ export function WorkCardFocusPanel({
 			{showTerminal ? (
 				<div className="border-t border-border p-4">
 					<div className="mb-2 flex items-center justify-between gap-3">
-						<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">{isCommander ? "Commander terminal" : "Live terminal"}</p>
-						<p className="text-[10px] text-passive">{isCommander ? "Commander stays available through this workflow" : "Interactive session output"}</p>
+						<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">Live terminal</p>
+						<p className="text-[10px] text-passive">Interactive session output</p>
 					</div>
 					<div className="h-[300px] overflow-hidden rounded-md border border-border">
 						<TerminalPane session={session} theme={theme} daemonReady={daemonReady} fontSize={TERMINAL_FONT_SIZE} />
@@ -388,7 +422,7 @@ function NudgeSheet({
 				<form onSubmit={submit}>
 					<SheetHeader>
 						<SheetTitle>{commander ? "Nudge commander" : "Nudge agent"}</SheetTitle>
-					<SheetDescription>{commander ? "Send an instruction to Hermes without changing the card column." : "Send a message to the linked coding session without changing the card column."}</SheetDescription>
+					<SheetDescription>{commander ? "Send an instruction to the commander without changing the card column." : "Send a message to the linked coding session without changing the card column."}</SheetDescription>
 					</SheetHeader>
 					<div className="px-4 py-4">
 						<Label htmlFor={messageId}>Message</Label>
@@ -435,7 +469,7 @@ function RetargetSheet({
 				<form onSubmit={submit}>
 					<SheetHeader>
 						<SheetTitle>Retarget goal</SheetTitle>
-						<SheetDescription>Update the card goal and hand off to Hermes while keeping the card running.</SheetDescription>
+						<SheetDescription>Update the card goal and hand it to the commander while keeping the card running.</SheetDescription>
 					</SheetHeader>
 					<div className="space-y-4 px-4 py-4">
 						<div className="space-y-2">

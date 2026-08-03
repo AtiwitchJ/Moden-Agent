@@ -5,15 +5,17 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import type { WorkCard } from "../hooks/useWorkboardQuery";
 import type { WorkspaceSession } from "../types/workspace";
 
-const { deleteMock, patchMock } = vi.hoisted(() => ({
+const { deleteMock, patchMock, getMock } = vi.hoisted(() => ({
 	deleteMock: vi.fn(),
 	patchMock: vi.fn(),
+	getMock: vi.fn(),
 }));
 
 vi.mock("../lib/api-client", () => ({
 	apiClient: {
 		DELETE: (...args: unknown[]) => deleteMock(...args),
 		PATCH: (...args: unknown[]) => patchMock(...args),
+		GET: (...args: unknown[]) => getMock(...args),
 		POST: vi.fn(),
 	},
 	apiErrorMessage: (error: unknown, fallback = "Request failed") =>
@@ -54,10 +56,10 @@ const scheduledCard: WorkCard = {
 	updatedAt: "2026-07-17T08:00:00.000Z",
 };
 
-function renderPanel(card: WorkCard = scheduledCard) {
+function renderPanel(card: WorkCard = scheduledCard, session?: WorkspaceSession) {
 	render(
 		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
-			<WorkCardFocusPanel card={card} projectId="proj-1" theme="dark" daemonReady onClose={vi.fn()} />
+			<WorkCardFocusPanel card={card} projectId="proj-1" session={session} theme="dark" daemonReady onClose={vi.fn()} />
 		</QueryClientProvider>,
 	);
 }
@@ -65,6 +67,10 @@ function renderPanel(card: WorkCard = scheduledCard) {
 beforeEach(() => {
 	deleteMock.mockReset().mockResolvedValue({ error: undefined });
 	patchMock.mockReset().mockResolvedValue({ error: undefined });
+	getMock.mockReset().mockResolvedValue({
+		data: { projectId: "proj-1", daemonReady: true, runningCount: 1, todoCount: 2, wipLimit: 4 },
+		error: undefined,
+	});
 });
 
 describe("WorkCardFocusPanel schedule edit", () => {
@@ -92,9 +98,10 @@ it("identifies a linked Hermes orchestrator as the commander", async () => {
 			<WorkCardFocusPanel card={card} projectId="proj-1" session={session} theme="dark" daemonReady onClose={vi.fn()} />
 		</QueryClientProvider>,
 	);
-	expect(screen.getByText("hermes coordinates this task")).toBeInTheDocument();
+	expect(screen.getByText("Commander")).toBeInTheDocument();
+	expect(screen.getByText("hermes")).toBeInTheDocument();
 	expect(screen.getByText(/stays responsible through review and testing/i)).toBeInTheDocument();
-	expect(screen.getByRole("button", { name: "Show commander terminal" })).toBeInTheDocument();
+	expect(screen.queryByRole("button", { name: /commander terminal/i })).not.toBeInTheDocument();
 	await userEvent.setup().click(screen.getByRole("button", { name: "Card actions" }));
 	expect(screen.getByText("Nudge commander")).toBeInTheDocument();
 });
@@ -133,11 +140,11 @@ it("renders commander UI for a Director session, not just Hermes", () => {
 			<WorkCardFocusPanel card={card} projectId="proj-1" session={session} theme="dark" daemonReady onClose={vi.fn()} />
 		</QueryClientProvider>,
 	);
-	expect(screen.getByText("Work owner")).toBeInTheDocument();
+	expect(screen.getByText("Commander")).toBeInTheDocument();
 	expect(screen.queryByText("Linked session")).not.toBeInTheDocument();
 });
 
-it("shows the card brief before opening a live terminal", async () => {
+it("shows the card brief for a commander session without a terminal button", async () => {
 	const card: WorkCard = { ...scheduledCard, status: "running", sessionId: "hermes-1", notes: "Update the palette and verify the contrast." };
 	const session: WorkspaceSession = {
 		id: "hermes-1", workspaceId: "proj-1", workspaceName: "Project", title: "Hermes",
@@ -151,9 +158,34 @@ it("shows the card brief before opening a live terminal", async () => {
 
 	expect(screen.getByText("Task details")).toBeInTheDocument();
 	expect(screen.getByText("Update the palette and verify the contrast.")).toBeInTheDocument();
-	expect(screen.getByText("hermes coordinates this task")).toBeInTheDocument();
+	expect(screen.getByText("hermes")).toBeInTheDocument();
 	expect(screen.queryByText("live terminal preview")).not.toBeInTheDocument();
+	expect(screen.queryByRole("button", { name: /commander terminal/i })).not.toBeInTheDocument();
+	expect(screen.queryByRole("button", { name: /live terminal/i })).not.toBeInTheDocument();
+});
 
-	await userEvent.setup().click(screen.getByRole("button", { name: "Show commander terminal" }));
-	expect(screen.getByText("live terminal preview")).toBeInTheDocument();
+describe("WorkCardFocusPanel commander display", () => {
+	const runningCard: WorkCard = { ...scheduledCard, id: "card_2", status: "running", scheduledAt: undefined, sessionId: "test-13" };
+
+	it("shows a Director status summary instead of a commander terminal", async () => {
+		renderPanel(runningCard, { id: "test-13", kind: "orchestrator", harness: "director" } as WorkspaceSession);
+
+		expect(await screen.findByText("Commander")).toBeInTheDocument();
+		expect(screen.getByText("director")).toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: /commander terminal/i })).not.toBeInTheDocument();
+		expect(screen.queryByRole("button", { name: /live terminal/i })).not.toBeInTheDocument();
+	});
+
+	it("reports the project's board counts for a commander", async () => {
+		renderPanel(runningCard, { id: "test-13", kind: "orchestrator", harness: "director" } as WorkspaceSession);
+
+		await waitFor(() => expect(screen.getByText(/1 running · 2 to do · WIP 4/)).toBeInTheDocument());
+	});
+
+	it("still offers a live terminal for a worker session", async () => {
+		const workerCard: WorkCard = { ...runningCard, sessionId: "test-11" };
+		renderPanel(workerCard, { id: "test-11", kind: "worker", harness: "codex" } as WorkspaceSession);
+
+		expect(await screen.findByRole("button", { name: /show live terminal/i })).toBeInTheDocument();
+	});
 });
