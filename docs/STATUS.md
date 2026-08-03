@@ -96,16 +96,22 @@ surface (`npm run sqlc`, `npm run api`).
   commands work end-to-end against a live daemon — phase advancement today
   is agent-initiated via `ao workboard card transition` (and friends), not
   automatic; the PR/CI-driven watcher, reviewer invoker, and testing invoker
-  that would make advancement automatic are separate, unbuilt work. **A live
-  smoke test found a blocking bug and this loop is not yet verified safe to
-  use**: the orchestrator's per-tick spawn path double-writes the
-  `active_session` table and never syncs the spawned session id back onto
-  the work card, so it cannot recognize its own successful spawn as "live"
-  and respawns a brand-new real agent session on every tick — 6 real
-  sessions were produced for one card within 12 seconds in testing. Do not
-  enable this against a real coding-agent harness until fixed; see
+  that would make advancement automatic are separate, unbuilt work. A fix
+  (commit `cfa8327a`) resolved the original immediate-runaway bug (verified:
+  a card's first phase now holds a flat session count with zero
+  `UNIQUE constraint failed` errors across 90+ seconds of ticking). **A
+  second live smoke test then found a second, still-blocking bug and this
+  loop remains not yet verified safe to use**: a card's `active_session` row
+  from a completed phase is never cleaned up when advanced via
+  `ao workboard card transition` (the cleanup, `DeleteActiveSession`, is
+  only wired to the not-yet-built signal-driven completion handlers), so
+  once that stale row's phase timeout elapses the orchestrator spawns a
+  brand-new real agent session on every 30s tick, forever, each failing the
+  same `UNIQUE constraint failed` bookkeeping insert — 4-5 additional real
+  sessions were produced, one per tick, in a live test. Do not enable this
+  against a real coding-agent harness until fixed; see
   `memory-bank/progress.md` Known Issues and
-  `.superpowers/sdd/task-7-report.md` for the full repro and root cause.
+  `.superpowers/sdd/task-9-report.md` for the full repro and root cause.
 - **Tracker lane**: GitHub tracker adapter exists, but there is no daemon
   observer loop or agent-lifecycle→issue mirroring yet, so the tracker does
   nothing at runtime ([#112](https://github.com/modernagent/modern-agent/issues/112)).
