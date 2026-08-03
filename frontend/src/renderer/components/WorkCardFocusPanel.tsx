@@ -58,14 +58,16 @@ export function WorkCardFocusPanel({
 	const [scheduleError, setScheduleError] = useState<string>();
 	const [scheduledAtLocal, setScheduledAtLocal] = useState("");
 	const [livePreviewOpen, setLivePreviewOpen] = useState(false);
-	// A Hermes commander remains responsible after the implementation phase. Do
-	// not unmount its terminal merely because the card moves into review/testing:
+	// A commander remains responsible after the implementation phase. Do not
+	// unmount its terminal merely because the card moves into review/testing:
 	// doing so made an active commander look as if it had been stopped.
 	const canShowTerminal = LIVE_WORKFLOW_STATUSES.has(card.status) && Boolean(card.sessionId && session);
 	const showTerminal = livePreviewOpen && canShowTerminal;
 	const isRunning = card.status === "running";
 	const isScheduled = card.status === "scheduled";
-	const isHermesCommander = session?.kind === "orchestrator" && session.harness === "hermes";
+	// Any orchestrator-kind session is this card's commander — Hermes, the
+	// Director agent, or anything else configured for the role.
+	const isCommander = session?.kind === "orchestrator";
 
 	useEffect(() => {
 		setScheduledAtLocal(card.scheduledAt ? formatDatetimeLocalValue(new Date(card.scheduledAt)) : "");
@@ -193,7 +195,7 @@ export function WorkCardFocusPanel({
 							{isRunning ? <>
 							<DropdownMenuItem onSelect={() => setNudgeOpen(true)}>
 								<Zap className="size-3.5" aria-hidden="true" />
-								{isHermesCommander ? "Nudge commander" : "Nudge agent"}
+								{isCommander ? "Nudge commander" : "Nudge agent"}
 							</DropdownMenuItem>
 							<DropdownMenuItem onSelect={() => setRetargetOpen(true)}>
 								<Target className="size-3.5" aria-hidden="true" />
@@ -221,11 +223,11 @@ export function WorkCardFocusPanel({
 						</div>
 						{card.sessionId ? (
 							<div className="mt-3 border-t border-border pt-3">
-								<p className="font-mono text-[10px] uppercase tracking-[0.08em] text-passive">{isHermesCommander ? "Work owner" : "Linked session"}</p>
+								<p className="font-mono text-[10px] uppercase tracking-[0.08em] text-passive">{isCommander ? "Work owner" : "Linked session"}</p>
 								<p className="mt-1 text-[12px] leading-[1.45] text-foreground">
-									{session ? (isHermesCommander ? <>Hermes coordinates this task <span className="text-muted-foreground">· {card.sessionId}</span></> : <>Session {card.sessionId}</>) : "The linked session is unavailable."}
+									{session ? (isCommander ? <>{session.harness} coordinates this task <span className="text-muted-foreground">· {card.sessionId}</span></> : <>Session {card.sessionId}</>) : "The linked session is unavailable."}
 								</p>
-								{isHermesCommander ? <p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground">Hermes stays responsible through review and testing. Its terminal remains available until the card reaches a terminal state.</p> : null}
+								{isCommander ? <p className="mt-1 text-[11px] leading-[1.45] text-muted-foreground">The commander stays responsible through review and testing. Its terminal remains available until the card reaches a terminal state.</p> : null}
 							</div>
 						) : <p className="mt-3 border-t border-border pt-3 text-[11px] leading-[1.45] text-passive">No session is linked to this card yet.</p>}
 					</section>
@@ -292,7 +294,7 @@ export function WorkCardFocusPanel({
 					) : null}
 					{card.sessionId && session ? (
 						<div className="flex flex-wrap gap-2 pt-1">
-							{canShowTerminal ? <Button onClick={() => setLivePreviewOpen((open) => !open)} size="sm" variant="outline">{showTerminal ? "Hide live terminal" : isHermesCommander ? "Show Hermes terminal" : "Show live terminal"}</Button> : null}
+							{canShowTerminal ? <Button onClick={() => setLivePreviewOpen((open) => !open)} size="sm" variant="outline">{showTerminal ? "Hide live terminal" : isCommander ? "Show commander terminal" : "Show live terminal"}</Button> : null}
 							{onShowSessions ? <Button onClick={onShowSessions} size="sm" variant="ghost">View all sessions</Button> : null}
 						</div>
 					) : null}
@@ -314,8 +316,8 @@ export function WorkCardFocusPanel({
 			{showTerminal ? (
 				<div className="border-t border-border p-4">
 					<div className="mb-2 flex items-center justify-between gap-3">
-						<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">{isHermesCommander ? "Hermes terminal" : "Live terminal"}</p>
-						<p className="text-[10px] text-passive">{isHermesCommander ? "Commander stays available through this workflow" : "Interactive session output"}</p>
+						<p className="font-mono text-[10px] font-semibold uppercase tracking-[0.08em] text-accent">{isCommander ? "Commander terminal" : "Live terminal"}</p>
+						<p className="text-[10px] text-passive">{isCommander ? "Commander stays available through this workflow" : "Interactive session output"}</p>
 					</div>
 					<div className="h-[300px] overflow-hidden rounded-md border border-border">
 						<TerminalPane session={session} theme={theme} daemonReady={daemonReady} fontSize={TERMINAL_FONT_SIZE} />
@@ -326,7 +328,7 @@ export function WorkCardFocusPanel({
 				open={nudgeOpen}
 				onOpenChange={setNudgeOpen}
 				pending={nudge.isPending}
-				commander={isHermesCommander}
+				commander={isCommander}
 				onSubmit={(message) => nudge.mutate({ message })}
 			/>
 			<RetargetSheet

@@ -92,9 +92,9 @@ it("identifies a linked Hermes orchestrator as the commander", async () => {
 			<WorkCardFocusPanel card={card} projectId="proj-1" session={session} theme="dark" daemonReady onClose={vi.fn()} />
 		</QueryClientProvider>,
 	);
-	expect(screen.getByText("Hermes coordinates this task")).toBeInTheDocument();
+	expect(screen.getByText("hermes coordinates this task")).toBeInTheDocument();
 	expect(screen.getByText(/stays responsible through review and testing/i)).toBeInTheDocument();
-	expect(screen.getByRole("button", { name: "Show Hermes terminal" })).toBeInTheDocument();
+	expect(screen.getByRole("button", { name: "Show commander terminal" })).toBeInTheDocument();
 	await userEvent.setup().click(screen.getByRole("button", { name: "Card actions" }));
 	expect(screen.getByText("Nudge commander")).toBeInTheDocument();
 });
@@ -122,6 +122,21 @@ it("requires confirmation before deleting a card", async () => {
 	}));
 });
 
+it("renders commander UI for a Director session, not just Hermes", () => {
+	const card: WorkCard = { ...scheduledCard, status: "running", sessionId: "director-1" };
+	const session: WorkspaceSession = {
+		id: "director-1", workspaceId: "proj-1", workspaceName: "Project", title: "Director",
+		provider: "codex", harness: "director", kind: "orchestrator", branch: "main", status: "working", updatedAt: "2026-07-17T08:00:00.000Z", prs: [],
+	};
+	render(
+		<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+			<WorkCardFocusPanel card={card} projectId="proj-1" session={session} theme="dark" daemonReady onClose={vi.fn()} />
+		</QueryClientProvider>,
+	);
+	expect(screen.getByText("Work owner")).toBeInTheDocument();
+	expect(screen.queryByText("Linked session")).not.toBeInTheDocument();
+});
+
 it("shows the card brief before opening a live terminal", async () => {
 	const card: WorkCard = { ...scheduledCard, status: "running", sessionId: "hermes-1", notes: "Update the palette and verify the contrast." };
 	const session: WorkspaceSession = {
@@ -136,9 +151,9 @@ it("shows the card brief before opening a live terminal", async () => {
 
 	expect(screen.getByText("Task details")).toBeInTheDocument();
 	expect(screen.getByText("Update the palette and verify the contrast.")).toBeInTheDocument();
-	expect(screen.getByText("Hermes coordinates this task")).toBeInTheDocument();
+	expect(screen.getByText("hermes coordinates this task")).toBeInTheDocument();
 	expect(screen.queryByText("live terminal preview")).not.toBeInTheDocument();
 
-	await userEvent.setup().click(screen.getByRole("button", { name: "Show Hermes terminal" }));
+	await userEvent.setup().click(screen.getByRole("button", { name: "Show commander terminal" }));
 	expect(screen.getByText("live terminal preview")).toBeInTheDocument();
 });
