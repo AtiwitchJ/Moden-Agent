@@ -63,3 +63,7 @@ func (a orchestratorStoreAdapter) ListRedoCycles(ctx context.Context, cardID str
 func (a orchestratorStoreAdapter) ListSessions(ctx context.Context, projectID domain.ProjectID) ([]domain.SessionRecord, error) {
 	return a.store.ListSessions(ctx, projectID)
 }
+
+func (a orchestratorStoreAdapter) GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error) {
+	return a.store.GetProject(ctx, id)
+}

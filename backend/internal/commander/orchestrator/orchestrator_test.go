@@ -12,6 +12,8 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/domain"
 )
 
+var ctx = context.Background()
+
 // --- Fakes ---
 
 type fakeStore struct {
@@ -20,6 +22,7 @@ type fakeStore struct {
 	redoCycles      map[string][]domain.RedoCycle
 	events          []domain.WorkCardEvent
 	listSessionsOut []domain.SessionRecord
+	projects        map[string]domain.ProjectRecord
 }
 
 func newFakeStore() *fakeStore {
@@ -82,6 +85,11 @@ func (s *fakeStore) ListRedoCycles(_ context.Context, cardID string) ([]domain.R
 
 func (s *fakeStore) ListSessions(_ context.Context, _ domain.ProjectID) ([]domain.SessionRecord, error) {
 	return s.listSessionsOut, nil
+}
+
+func (s *fakeStore) GetProject(_ context.Context, id string) (domain.ProjectRecord, bool, error) {
+	rec, ok := s.projects[id]
+	return rec, ok, nil
 }
 
 type fakeSpawner struct {
@@ -687,6 +695,44 @@ func TestTickReplacementSpawnProceedsWhenKillFails(t *testing.T) {
 	}
 	if len(spawner.spawned) != 1 {
 		t.Fatalf("spawner.Spawn called %d times, want 1 (replacement still proceeds)", len(spawner.spawned))
+	}
+}
+
+func TestTick_SkipsProjectsCommandedByTheDirector(t *testing.T) {
+	st := newFakeStore()
+	st.projects = map[string]domain.ProjectRecord{
+		"p": {ID: "p", Config: domain.ProjectConfig{
+			Director: domain.RoleOverride{Harness: domain.HarnessDirector},
+		}},
+	}
+	st.cards["c1"] = domain.WorkCard{ID: "c1", ProjectID: "p", Status: domain.CardStatusRunning}
+	sp := &fakeSpawner{}
+	o := New(Config{Spawner: sp, Store: st, WIPLimit: 4})
+
+	if err := o.Tick(ctx, "p"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if len(sp.spawned) != 0 {
+		t.Fatalf("spawned = %d, want 0 — the Director owns this project's cards", len(sp.spawned))
+	}
+}
+
+func TestTick_StillRunsForHermesProjects(t *testing.T) {
+	st := newFakeStore()
+	st.projects = map[string]domain.ProjectRecord{
+		"p": {ID: "p", Config: domain.ProjectConfig{
+			Orchestrator: domain.RoleOverride{Harness: domain.HarnessHermes},
+		}},
+	}
+	st.cards["c1"] = domain.WorkCard{ID: "c1", ProjectID: "p", Status: domain.CardStatusRunning}
+	sp := &fakeSpawner{}
+	o := New(Config{Spawner: sp, Store: st, WIPLimit: 4})
+
+	if err := o.Tick(ctx, "p"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+	if len(sp.spawned) != 1 {
+		t.Fatalf("spawned = %d, want 1", len(sp.spawned))
 	}
 }
 

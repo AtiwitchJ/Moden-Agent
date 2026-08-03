@@ -46,6 +46,7 @@ type OrchestratorStore interface {
 	AppendWorkCardEvent(ctx context.Context, event domain.WorkCardEvent) error
 	ListRedoCycles(ctx context.Context, cardID string) ([]domain.RedoCycle, error)
 	ListSessions(ctx context.Context, projectID domain.ProjectID) ([]domain.SessionRecord, error)
+	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
 }
 
 // ActiveSessionRecord is the in-memory projection of an active_session row.
@@ -92,15 +93,41 @@ func New(cfg Config) *ConfiguredOrchestrator {
 // Tick is called periodically (every 30s) and on every card state change event.
 // It lists all cards in active phases (running, review, testing, redo) and
 // ensures each has a live session.
+//
+// A project whose cards are commanded by the Director is skipped entirely: the
+// Director spawns and sequences its own phase workers, so ticking here would
+// put a second commander on every card.
 func (o *ConfiguredOrchestrator) Tick(ctx context.Context, projectID string) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+	commanded, err := o.directorCommanded(ctx, projectID)
+	if err != nil {
+		return err
+	}
+	if commanded {
+		return nil
 	}
 	cards, err := o.store.ListWorkCards(ctx, projectID, defaultBoardID)
 	if err != nil {
 		return fmt.Errorf("list work cards: %w", err)
 	}
 	return o.tickActiveCards(ctx, cards)
+}
+
+// directorCommanded reports whether the project opted into AO's Director
+// harness. Deliberately a local predicate rather than a shared one: the two
+// commander mechanisms share no state, and workboard's directorEnabled makes
+// the same point from the other side.
+func (o *ConfiguredOrchestrator) directorCommanded(ctx context.Context, projectID string) (bool, error) {
+	project, ok, err := o.store.GetProject(ctx, projectID)
+	if err != nil {
+		return false, fmt.Errorf("get project %s: %w", projectID, err)
+	}
+	if !ok {
+		return false, nil
+	}
+	return project.Config.Director.Harness == domain.HarnessDirector, nil
 }
 
 // OnAgentFailed is called when an agent session terminates with a non-zero exit
