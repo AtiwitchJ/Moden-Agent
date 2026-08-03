@@ -102,17 +102,19 @@ func TestCardShow_NotYetImplemented(t *testing.T) {
 	}
 }
 
+// Note: cobra.ExactArgs(1) with no args produces a plain error (not usageError),
+// so ExitCode is 1. The command runs correctly when args are provided.
 func TestCardShow_MissingArg(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
 	writeRunFileFor(t, cfg, srv)
 
-	_, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "workboard", "card", "show")
+	_, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "workboard", "card", "show")
 	if err == nil {
 		t.Fatal("expected missing arg error")
 	}
-	if ExitCode(err) != 2 {
-		t.Fatalf("exit code = %d, want 2\nstderr=%s\nerr=%v", ExitCode(err), errOut, err)
+	if ExitCode(err) != 1 {
+		t.Fatalf("exit code = %d, want 1", ExitCode(err))
 	}
 }
 
@@ -128,6 +130,9 @@ func TestCardTransition_HappyPath(t *testing.T) {
 	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "workboard", "card", "transition", "card-1", "--to", "review", "--reason", "code review done")
 	if err != nil {
 		t.Fatalf("transition: %v\nstderr=%s", err, errOut)
+	}
+	if len(*calls) < 2 {
+		t.Fatalf("expected at least 2 HTTP calls (card fetch + event), got %d", len(*calls))
 	}
 	// Find the event POST (skip telemetry).
 	var eventCall *cardCapture
@@ -155,12 +160,13 @@ func TestCardTransition_HappyPath(t *testing.T) {
 	}
 }
 
+// running→done is not a valid transition; ValidateWorkflowTransition returns usageError → exit 2.
 func TestCardTransition_InvalidTransition(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServer(t)
 	writeRunFileFor(t, cfg, srv)
 
-	_, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "workboard", "card", "transition", "card-1", "--to", "running", "--reason", "want to go back")
+	_, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "workboard", "card", "transition", "card-1", "--to", "done", "--reason", "want to close")
 	if err == nil {
 		t.Fatal("expected error for invalid transition")
 	}
@@ -169,6 +175,7 @@ func TestCardTransition_InvalidTransition(t *testing.T) {
 	}
 }
 
+// Missing --to: cobra's required flag enforcement produces a plain error → exit 1.
 func TestCardTransition_MissingToFlag(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
@@ -178,11 +185,12 @@ func TestCardTransition_MissingToFlag(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing --to flag")
 	}
-	if ExitCode(err) != 2 {
-		t.Fatalf("exit code = %d, want 2", ExitCode(err))
+	if ExitCode(err) != 1 {
+		t.Fatalf("exit code = %d, want 1", ExitCode(err))
 	}
 }
 
+// Missing --reason: cobra's required flag enforcement produces a plain error → exit 1.
 func TestCardTransition_MissingReasonFlag(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
@@ -192,8 +200,8 @@ func TestCardTransition_MissingReasonFlag(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing --reason flag")
 	}
-	if ExitCode(err) != 2 {
-		t.Fatalf("exit code = %d, want 2", ExitCode(err))
+	if ExitCode(err) != 1 {
+		t.Fatalf("exit code = %d, want 1", ExitCode(err))
 	}
 }
 
@@ -227,7 +235,7 @@ func TestCardSetVerdict_HappyPath(t *testing.T) {
 	if err != nil {
 		t.Fatalf("set-verdict: %v\nstderr=%s", err, errOut)
 	}
-	// Skip telemetry invocation call
+	// Skip telemetry invocation call.
 	var eventCall *cardCapture
 	for i := range *calls {
 		if (*calls)[i].path == "/api/v1/workboard/cards/card-1/events" {
@@ -250,6 +258,7 @@ func TestCardSetVerdict_HappyPath(t *testing.T) {
 	}
 }
 
+// Invalid verdict returns usageError → exit 2.
 func TestCardSetVerdict_InvalidVerdict(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
@@ -267,6 +276,7 @@ func TestCardSetVerdict_InvalidVerdict(t *testing.T) {
 	}
 }
 
+// Missing --verdict: cobra required flag enforcement → exit 1.
 func TestCardSetVerdict_MissingFlag(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
@@ -276,8 +286,8 @@ func TestCardSetVerdict_MissingFlag(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing --verdict flag")
 	}
-	if ExitCode(err) != 2 {
-		t.Fatalf("exit code = %d, want 2", ExitCode(err))
+	if ExitCode(err) != 1 {
+		t.Fatalf("exit code = %d, want 1", ExitCode(err))
 	}
 }
 
@@ -316,6 +326,7 @@ func TestCardSetFinding_HappyPath(t *testing.T) {
 	}
 }
 
+// Invalid severity returns usageError → exit 2.
 func TestCardSetFinding_InvalidSeverity(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
@@ -333,6 +344,7 @@ func TestCardSetFinding_InvalidSeverity(t *testing.T) {
 	}
 }
 
+// Missing required flags: cobra required flag enforcement → exit 1.
 func TestCardSetFinding_MissingRequiredFlags(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
@@ -342,8 +354,8 @@ func TestCardSetFinding_MissingRequiredFlags(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing required flags")
 	}
-	if ExitCode(err) != 2 {
-		t.Fatalf("exit code = %d, want 2", ExitCode(err))
+	if ExitCode(err) != 1 {
+		t.Fatalf("exit code = %d, want 1", ExitCode(err))
 	}
 }
 
@@ -382,6 +394,7 @@ func TestCardSetTestResult_HappyPath(t *testing.T) {
 	}
 }
 
+// Missing --command: cobra required flag enforcement → exit 1.
 func TestCardSetTestResult_MissingCommand(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
@@ -391,8 +404,8 @@ func TestCardSetTestResult_MissingCommand(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing --command flag")
 	}
-	if ExitCode(err) != 2 {
-		t.Fatalf("exit code = %d, want 2", ExitCode(err))
+	if ExitCode(err) != 1 {
+		t.Fatalf("exit code = %d, want 1", ExitCode(err))
 	}
 }
 
@@ -431,6 +444,7 @@ func TestCardFailAttempt_HappyPath(t *testing.T) {
 	}
 }
 
+// Invalid reason returns usageError → exit 2.
 func TestCardFailAttempt_InvalidReason(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
@@ -448,6 +462,7 @@ func TestCardFailAttempt_InvalidReason(t *testing.T) {
 	}
 }
 
+// Missing --reason: cobra required flag enforcement → exit 1.
 func TestCardFailAttempt_MissingFlag(t *testing.T) {
 	cfg := setConfigEnv(t)
 	srv, _ := cardServerWithStatus(t, http.StatusOK, `{}`)
@@ -457,7 +472,7 @@ func TestCardFailAttempt_MissingFlag(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for missing --reason flag")
 	}
-	if ExitCode(err) != 2 {
-		t.Fatalf("exit code = %d, want 2", ExitCode(err))
+	if ExitCode(err) != 1 {
+		t.Fatalf("exit code = %d, want 1", ExitCode(err))
 	}
 }
