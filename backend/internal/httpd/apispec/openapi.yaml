@@ -5163,6 +5163,14 @@ components:
           type: integer
         autonomous:
           $ref: '#/components/schemas/WorkboardAutonomousConfig'
+        defaultReviewerAgents:
+          items:
+            type: string
+          type: array
+        defaultTestingAgents:
+          items:
+            type: string
+          type: array
         fallbackAgents:
           items:
             type: string
