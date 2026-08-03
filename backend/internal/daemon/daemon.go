@@ -34,6 +34,7 @@ import (
 	orgsvc "github.com/modernagent/modern-agent/backend/internal/service/org"
 	projectsvc "github.com/modernagent/modern-agent/backend/internal/service/project"
 	workboardsvc "github.com/modernagent/modern-agent/backend/internal/service/workboard"
+	"github.com/modernagent/modern-agent/backend/internal/directorassets"
 	"github.com/modernagent/modern-agent/backend/internal/skillassets"
 	"github.com/modernagent/modern-agent/backend/internal/storage/sqlite"
 	"github.com/modernagent/modern-agent/backend/internal/terminal"
@@ -77,6 +78,13 @@ func Run() error {
 	// Non-fatal: the skill is an enhancement over `ao --help`, not required.
 	if err := skillassets.Install(cfg.DataDir); err != nil {
 		log.Warn("install using-ao skill", "err", err)
+	}
+
+	// Same rationale as the skill above: sessions need a stable absolute path to
+	// the Director bundle, and a failure is non-fatal — only projects that opt
+	// into the Director harness need it.
+	if err := directorassets.Install(cfg.DataDir); err != nil {
+		log.Warn("install director bundle", "err", err)
 	}
 
 	telemetrySink := newTelemetrySink(cfg, store, log)
