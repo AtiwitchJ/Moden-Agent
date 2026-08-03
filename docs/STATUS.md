@@ -103,22 +103,11 @@ surface (`npm run sqlc`, `npm run api`).
 ## In flight / not yet a runtime feature
 
 - **Director Agent** (`feat/live-terminals`,
-  `docs/superpowers/plans/2026-08-03-director-agent.md`): Tasks 1-12
-  implemented and unit-test-clean. Task 13 (live verification) found two
-  compounding issues in the deployment approach:
-  1. `tsc` does not bundle — `dist/index.js` retained bare imports. Fix:
-     replaced `tsc` with `esbuild --bundle` + downgraded `deepagents@1.12.1` →
-     `deepagents@1.8.8`. Bundle is now self-contained (~102K lines).
-  2. `@langchain/anthropic`'s internal code dynamically imports
-     `@anthropic-ai/sdk` via a bare specifier. With a flat `node_modules` dir
-     + `NODE_PATH`, Node.js cannot resolve this transitive peer dependency —
-     `@anthropic-ai/sdk` is present in the tar's `node_modules` but resolution
-     fails because the flat structure cannot satisfy scoped peer imports.
-     **The Director harness cannot start as designed.** Fix requires either
-     (a) making `esbuild` fully bundle ALL dependencies (no `nodemodules.tar`),
-     or (b) switching the Director to use `@langchain/core`'s `ChatAnthropic`
-     directly without `langchain`'s `universal.js` dynamic-import wrapper.
-     Full report: `.superpowers/sdd/task-13-report.md`.
+  `docs/superpowers/plans/2026-08-03-director-agent.md`): Tasks 1-12 are
+  implemented. Its OpenAI, Anthropic, and OpenRouter model constructors are
+  statically bundled, so it no longer depends on LangChain's dynamic provider
+  import or the embedded flat `node_modules` archive at launch. Live provider
+  verification remains pending.
 
 - **Automatic, signal-driven phase advancement for the Hermes Director
   orchestrator** (PR/CI watcher, reviewer invoker, testing invoker): the

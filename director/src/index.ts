@@ -4,6 +4,7 @@ import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { IterationBudget } from "./budget.js";
 import { loadConfig } from "./config.js";
+import { createDirectorModel } from "./model.js";
 import { directorSystemPrompt } from "./prompt.js";
 import {
 	buildSendWorkerAnswerArgv,
@@ -99,7 +100,7 @@ async function main(): Promise<void> {
 	);
 
 	const agent = await createDeepAgent({
-		model: cfg.model,
+		model: createDirectorModel(cfg.model, process.env),
 		tools: [showCard, transitionCard, spawnWorker, answerWorker],
 		systemPrompt: directorSystemPrompt(cfg.cardId),
 	});
