@@ -104,17 +104,21 @@ surface (`npm run sqlc`, `npm run api`).
 
 - **Director Agent** (`feat/live-terminals`,
   `docs/superpowers/plans/2026-08-03-director-agent.md`): Tasks 1-12
-  implemented and unit-test-clean. Task 13 (live verification) found that
-  `tsc` does not bundle — `dist/index.js` retained bare imports that Node.js
-  couldn't resolve outside the `director/` package dir. **Fix applied:**
-  replaced `tsc` with `esbuild --bundle` + downgraded `deepagents@1.12.1` →
-  `deepagents@1.8.8` (root-export-compatible `langchain` dep). Bundle is now
-  self-contained (~102K lines, no bare imports). Confirmed:
-  `node backend/internal/directorassets/bundle/index.js` runs without
-  `ERR_PACKAGE_PATH_NOT_EXPORTED`. Full e2e verification (Director session
-  spawn, card transition) requires running outside sandbox with a real LLM API —
-  MiniMax API key is configured in `.env`. Full report:
-  `.superpowers/sdd/task-13-report.md`.
+  implemented and unit-test-clean. Task 13 (live verification) found two
+  compounding issues in the deployment approach:
+  1. `tsc` does not bundle — `dist/index.js` retained bare imports. Fix:
+     replaced `tsc` with `esbuild --bundle` + downgraded `deepagents@1.12.1` →
+     `deepagents@1.8.8`. Bundle is now self-contained (~102K lines).
+  2. `@langchain/anthropic`'s internal code dynamically imports
+     `@anthropic-ai/sdk` via a bare specifier. With a flat `node_modules` dir
+     + `NODE_PATH`, Node.js cannot resolve this transitive peer dependency —
+     `@anthropic-ai/sdk` is present in the tar's `node_modules` but resolution
+     fails because the flat structure cannot satisfy scoped peer imports.
+     **The Director harness cannot start as designed.** Fix requires either
+     (a) making `esbuild` fully bundle ALL dependencies (no `nodemodules.tar`),
+     or (b) switching the Director to use `@langchain/core`'s `ChatAnthropic`
+     directly without `langchain`'s `universal.js` dynamic-import wrapper.
+     Full report: `.superpowers/sdd/task-13-report.md`.
 
 - **Automatic, signal-driven phase advancement for the Hermes Director
   orchestrator** (PR/CI watcher, reviewer invoker, testing invoker): the
