@@ -20,6 +20,12 @@ func TestDirectorEnabled(t *testing.T) {
 	if !directorEnabled(on) {
 		t.Fatal("directorEnabled = false for a project with a director configured")
 	}
+	wrongHarness := domain.ProjectRecord{Config: domain.ProjectConfig{
+		Director: domain.RoleOverride{Harness: domain.HarnessCodex},
+	}}
+	if directorEnabled(wrongHarness) {
+		t.Fatal("directorEnabled = true for a non-Director harness")
+	}
 }
 
 func TestDispatchOnceRollsBackDirectorWhenCardLinkFails(t *testing.T) {

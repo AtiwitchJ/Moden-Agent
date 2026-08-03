@@ -5,7 +5,7 @@ import { memo, useEffect, useState } from "react";
 import type { components } from "../../api/schema";
 import { agentsQueryKey, agentsQueryOptions, refreshAgents } from "../hooks/useAgentsQuery";
 import { AGENT_OPTIONS } from "../lib/agent-options";
-import { WORKBOARD_ORCHESTRATOR_AGENT } from "../lib/workboard-config";
+import { WORKBOARD_DIRECTOR_HARNESS } from "../lib/workboard-config";
 import { buildIntake, type IntakeForm, IntakeFields, intakeNeedsRule } from "./IntakeFields";
 import { Button } from "./ui/button";
 import { Label } from "./ui/label";
@@ -17,7 +17,7 @@ type AgentInfo = components["schemas"]["AgentInfo"];
 
 export type CreateProjectAgentSelection = {
 	workerAgent: string;
-	orchestratorAgent: string;
+	directorAgent: string;
 	trackerIntake?: TrackerIntakeConfig;
 	companyId?: string;
 	asWorkspace?: boolean;
@@ -130,7 +130,7 @@ export function CreateProjectAgentSheet({
 							if (!canSubmit) return;
 							void onSubmit({
 								workerAgent: effectiveWorkerAgent,
-								orchestratorAgent: WORKBOARD_ORCHESTRATOR_AGENT,
+								directorAgent: WORKBOARD_DIRECTOR_HARNESS,
 								trackerIntake: simple ? undefined : buildIntake(intake),
 								companyId: targetCompanyId,
 								asWorkspace: simple ? undefined : asWorkspace || undefined,
@@ -150,7 +150,7 @@ export function CreateProjectAgentSheet({
 									disabled={isLoadingAgents}
 									onChange={setWorkerAgent}
 								/>
-								<ReadonlyAgentField id="newProjectOrchestratorAgent" label="Orchestrator agent" value={WORKBOARD_ORCHESTRATOR_AGENT} />
+								<ReadonlyAgentField id="newProjectOrchestratorAgent" label="Workboard Director" value={WORKBOARD_DIRECTOR_HARNESS} />
 							</div>
 						)}
 

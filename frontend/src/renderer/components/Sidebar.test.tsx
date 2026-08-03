@@ -59,7 +59,7 @@ const session: WorkspaceSession = {
 	prs: [],
 };
 
-type CreateProjectHandler = (input: { path: string; workerAgent: string; orchestratorAgent: string }) => Promise<{
+type CreateProjectHandler = (input: { path: string; workerAgent: string; directorAgent: string }) => Promise<{
 	projectId: string;
 	sessionId: string;
 }>;
@@ -391,7 +391,7 @@ describe("CreateProjectFlow", () => {
 		expect(screen.getByLabelText("Multi-repo workspace")).toBeChecked();
 		expect(screen.getByText("Detected repos: svc-a, svc-b")).toBeInTheDocument();
 		await chooseOption(screen.getByRole("combobox", { name: "Worker agent" }), "Codex");
-		expect(screen.getByLabelText("Orchestrator agent")).toHaveTextContent("hermes");
+		expect(screen.getByLabelText("Workboard Director")).toHaveTextContent("director");
 		await user.click(screen.getByRole("button", { name: "Create and start" }));
 
 		await waitFor(() =>
@@ -401,7 +401,7 @@ describe("CreateProjectFlow", () => {
 		);
 	});
 
-	it("requires explicit worker and orchestrator agents when creating a project", async () => {
+	it("requires a worker agent while fixing the Workboard owner to Director", async () => {
 		const user = userEvent.setup();
 		const onCreateProject = vi.fn().mockResolvedValue({ projectId: "p1", sessionId: "s1" }) as CreateProjectHandler;
 		window.ao!.app.chooseDirectory = vi.fn().mockResolvedValue("/repo/new-project");
@@ -416,7 +416,7 @@ describe("CreateProjectFlow", () => {
 		const dialog = screen.getByRole("dialog", { name: "Project agents" });
 		expect(dialog).toHaveClass("left-1/2", "top-1/2", "-translate-x-1/2", "-translate-y-1/2");
 		await chooseOption(screen.getByRole("combobox", { name: "Worker agent" }), "Codex");
-		expect(screen.getByLabelText("Orchestrator agent")).toHaveTextContent("hermes");
+		expect(screen.getByLabelText("Workboard Director")).toHaveTextContent("director");
 		await user.click(screen.getByRole("button", { name: "Create and start" }));
 
 		await waitFor(() =>
@@ -424,7 +424,7 @@ describe("CreateProjectFlow", () => {
 				expect.objectContaining({
 					path: "/repo/new-project",
 					workerAgent: "codex",
-					orchestratorAgent: "hermes",
+					directorAgent: "director",
 				}),
 			),
 		);
@@ -472,7 +472,7 @@ describe("CreateProjectFlow", () => {
 		await user.keyboard("{Escape}");
 
 		await chooseOption(screen.getByRole("combobox", { name: "Worker agent" }), "Claude Code");
-		expect(screen.getByLabelText("Orchestrator agent")).toHaveTextContent("hermes");
+		expect(screen.getByLabelText("Workboard Director")).toHaveTextContent("director");
 		await user.click(screen.getByRole("button", { name: "Create and start" }));
 
 		await waitFor(() =>
@@ -526,7 +526,7 @@ describe("CreateProjectFlow", () => {
 		});
 
 		await chooseOption(screen.getByRole("combobox", { name: "Worker agent" }), "Codex");
-		expect(screen.getByLabelText("Orchestrator agent")).toHaveTextContent("hermes");
+		expect(screen.getByLabelText("Workboard Director")).toHaveTextContent("director");
 		await user.click(screen.getByRole("button", { name: "Create and start" }));
 
 		await waitFor(() =>
@@ -534,7 +534,7 @@ describe("CreateProjectFlow", () => {
 				expect.objectContaining({
 					path: "/repo/new-project",
 					workerAgent: "codex",
-					orchestratorAgent: "hermes",
+					directorAgent: "director",
 				}),
 			),
 		);
@@ -554,14 +554,14 @@ describe("CreateProjectFlow", () => {
 		expect(await screen.findByText("/repo/new-project")).toBeInTheDocument();
 		expect(screen.getByLabelText("Multi-repo workspace")).not.toBeChecked();
 		await chooseOption(screen.getByRole("combobox", { name: "Worker agent" }), "Codex");
-		expect(screen.getByLabelText("Orchestrator agent")).toHaveTextContent("hermes");
+		expect(screen.getByLabelText("Workboard Director")).toHaveTextContent("director");
 		await user.click(screen.getByRole("button", { name: "Create and start" }));
 
 		await waitFor(() =>
 			expect(onCreateProject).toHaveBeenCalledWith({
 				path: "/repo/new-project",
 				workerAgent: "codex",
-				orchestratorAgent: "hermes",
+				directorAgent: "director",
 				trackerIntake: undefined,
 				companyId: undefined,
 				asWorkspace: undefined,

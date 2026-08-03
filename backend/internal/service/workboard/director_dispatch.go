@@ -10,9 +10,11 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/ports"
 )
 
-// directorEnabled reports whether the project opted into AO's Director agent.
+// directorEnabled reports whether the project opted into AO's first-party
+// Director harness. A different configured harness must not silently take the
+// card-control role.
 func directorEnabled(project domain.ProjectRecord) bool {
-	return project.Config.Director.Harness != ""
+	return project.Config.Director.Harness == domain.HarnessDirector
 }
 
 // isProjectDirector reports whether a session is this project's live Director.

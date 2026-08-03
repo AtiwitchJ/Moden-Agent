@@ -9,7 +9,7 @@ import { apiClient, apiErrorMessage } from "../lib/api-client";
 import { useShell } from "../lib/shell-context";
 import { assignProjectCompany, createCompany } from "../lib/companies";
 import { spawnOrchestrator } from "../lib/spawn-orchestrator";
-import { isWorkboardEnabled, WORKBOARD_ORCHESTRATOR_AGENT } from "../lib/workboard-config";
+import { isWorkboardEnabled, WORKBOARD_DIRECTOR_HARNESS } from "../lib/workboard-config";
 import { newestActiveOrchestrator } from "../types/workspace";
 import { RequiredAgentField } from "./CreateProjectAgentSheet";
 import { DashboardSubhead } from "./DashboardSubhead";
@@ -87,7 +87,7 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 		defaultBranch: config.defaultBranch ?? project.defaultBranch ?? "",
 		sessionPrefix: config.sessionPrefix ?? "",
 		workerAgent: config.worker?.agent ?? "",
-		orchestratorAgent: workboardEnabled ? WORKBOARD_ORCHESTRATOR_AGENT : config.orchestrator?.agent ?? "",
+		orchestratorAgent: config.orchestrator?.agent ?? "",
 		model: config.agentConfig?.model ?? "",
 		permissions: config.agentConfig?.permissions ?? "",
 		reviewerHarness: config.reviewers?.[0]?.harness ?? "",
@@ -130,7 +130,7 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 
 	const mutation = useMutation({
 		mutationFn: async () => {
-			const desiredOrchestratorAgent = workboardEnabled ? WORKBOARD_ORCHESTRATOR_AGENT : form.orchestratorAgent;
+			const desiredOrchestratorAgent = form.orchestratorAgent;
 			// PUT replaces the whole config; merge the edited fields over what loaded
 			// so we don't drop env/symlinks/postCreate the form doesn't expose.
 			const next: ProjectConfig = {
@@ -139,6 +139,7 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 				sessionPrefix: form.sessionPrefix || undefined,
 				worker: { ...config.worker, agent: form.workerAgent },
 				orchestrator: { ...config.orchestrator, agent: desiredOrchestratorAgent },
+				director: workboardEnabled ? { ...config.director, agent: WORKBOARD_DIRECTOR_HARNESS } : config.director,
 				agentConfig: blankToUndefined({
 					...config.agentConfig,
 					model: form.model || undefined,
@@ -152,10 +153,10 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 				body: { config: next },
 			});
 			if (error) throw new Error(apiErrorMessage(error));
-			if (
+			if (!workboardEnabled && (
 				desiredOrchestratorAgent !== initialOrchestratorAgent ||
 				(activeOrchestrator && activeOrchestrator.provider !== desiredOrchestratorAgent)
-			) {
+			)) {
 				try {
 					await spawnOrchestrator(projectId, true);
 				} catch (error) {
@@ -268,7 +269,7 @@ function SettingsBody({ project, projectId, onSaved }: { project: Project; proje
 						onChange={(v) => setForm((f) => ({ ...f, workerAgent: v }))}
 					/>
 					{workboardEnabled ? (
-						<ReadonlySettingField label="Default orchestrator agent" value={WORKBOARD_ORCHESTRATOR_AGENT} />
+						<ReadonlySettingField label="Workboard Director" value={WORKBOARD_DIRECTOR_HARNESS} />
 					) : (
 						<RequiredAgentField
 							id="orchestratorAgent"

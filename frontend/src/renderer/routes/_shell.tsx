@@ -68,7 +68,7 @@ function ShellLayout() {
 		async (input: {
 			path: string;
 			workerAgent: string;
-			orchestratorAgent: string;
+			directorAgent: string;
 			trackerIntake?: components["schemas"]["TrackerIntakeConfig"];
 			companyId?: string;
 			asWorkspace?: boolean;
@@ -92,6 +92,7 @@ function ShellLayout() {
 					config: {
 						worker: { agent: input.workerAgent },
 						orchestrator: { agent: WORKBOARD_ORCHESTRATOR_AGENT },
+						director: { agent: input.directorAgent },
 						workboard: DEFAULT_WORKBOARD_CONFIG,
 						trackerIntake: input.trackerIntake,
 					},
@@ -124,7 +125,7 @@ function ShellLayout() {
 				path: data.project.path,
 				type: "main",
 				companyId: input.companyId,
-				orchestratorAgent: WORKBOARD_ORCHESTRATOR_AGENT as WorkspaceSummary["orchestratorAgent"],
+				orchestratorAgent: input.directorAgent as WorkspaceSummary["orchestratorAgent"],
 				sessions: [],
 			};
 			void captureRendererEvent("ao.renderer.project_add_succeeded", { project_id: workspace.id });

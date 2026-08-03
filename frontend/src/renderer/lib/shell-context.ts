@@ -9,7 +9,7 @@ export type ShellContextValue = {
 	createProject: (input: {
 		path: string;
 		workerAgent: string;
-		orchestratorAgent: string;
+		directorAgent: string;
 		trackerIntake?: any;
 		companyId?: string;
 		asWorkspace?: boolean;

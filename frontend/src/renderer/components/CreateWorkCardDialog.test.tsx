@@ -49,7 +49,7 @@ beforeEach(() => {
 });
 
 describe("CreateWorkCardDialog", () => {
-	it("registers a selected folder with Hermes when no project exists", async () => {
+	it("registers a selected folder with Director when no project exists", async () => {
 		render(
 			<QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
 				<CreateWorkCardDialog open onCreated={vi.fn()} onOpenChange={vi.fn()} />
@@ -69,24 +69,25 @@ describe("CreateWorkCardDialog", () => {
 			body: {
 				path: "/repo/project",
 				config: {
-					worker: { agent: "hermes" },
+					worker: { agent: "codex" },
 					orchestrator: { agent: "hermes" },
+					director: { agent: "director" },
 					workboard: { wipLimit: 4 },
 				},
 			},
 		});
 		expect(postMock).toHaveBeenNthCalledWith(2, "/api/v1/workboard/cards", {
-			body: expect.objectContaining({ projectId: "folder-project", targetPath: "/repo/project", codingAgent: "hermes" }),
+			body: expect.objectContaining({ projectId: "folder-project", targetPath: "/repo/project", codingAgent: "codex" }),
 		});
 	});
 
-	it("keeps Hermes as commander while allowing review and testing delegates", async () => {
+	it("assigns Director ownership while allowing each worker phase to be selected", async () => {
 		renderDialog();
 
-		expect(screen.getByLabelText("Coding Agent: Hermes")).toHaveTextContent("hermes");
-		await waitFor(() => expect(screen.getByRole("combobox", { name: "Review agent" })).toHaveTextContent("Hermes"));
-		expect(screen.getByRole("combobox", { name: "Testing agent" })).toHaveTextContent("Hermes");
-		expect(screen.queryByRole("combobox", { name: "Coding Agent" })).not.toBeInTheDocument();
+		await waitFor(() => expect(screen.getByRole("combobox", { name: "Coding agent" })).toHaveTextContent("Codex"));
+		expect(screen.getByRole("combobox", { name: "Review agent" })).toHaveTextContent("Codex");
+		expect(screen.getByRole("combobox", { name: "Testing agent" })).toHaveTextContent("Codex");
+		expect(screen.getByText(/Director owns the card/i)).toBeInTheDocument();
 	});
 
 	it("creates a scheduled card when schedule for later is enabled", async () => {
@@ -135,8 +136,8 @@ describe("CreateWorkCardDialog", () => {
 				targetPath: "/repo/project",
 				labels: ["frontend"],
 				priority: "normal",
-				agent: "hermes",
-				codingAgent: "hermes",
+				agent: "codex",
+				codingAgent: "codex",
 				reviewerMode: "separate",
 				reviewerAgent: "claude-code",
 				testingAgent: "codex",

@@ -217,7 +217,7 @@ describe("ProjectSettingsForm", () => {
 		expect(await screen.findByText("Saved.")).toBeInTheDocument();
 	}, 20_000);
 
-	it("locks workboard projects to the hermes orchestrator", async () => {
+	it("configures workboard projects to use Director", async () => {
 		mockProject({
 			id: "proj-1",
 			name: "Project One",
@@ -236,7 +236,7 @@ describe("ProjectSettingsForm", () => {
 
 		expect(await screen.findByText("git@github.com:acme/project-one.git")).toBeInTheDocument();
 		expect(screen.queryByRole("combobox", { name: "Default orchestrator agent" })).not.toBeInTheDocument();
-		expect(screen.getByText("hermes")).toBeInTheDocument();
+		expect(screen.getByText("director")).toBeInTheDocument();
 
 		await userEvent.click(screen.getByRole("button", { name: "Save changes" }));
 
@@ -248,15 +248,14 @@ describe("ProjectSettingsForm", () => {
 				body: {
 					config: expect.objectContaining({
 						worker: { agent: "codex" },
-						orchestrator: { agent: "hermes" },
+						orchestrator: { agent: "goose" },
+						director: { agent: "director" },
 						workboard: { wipLimit: 3 },
 					}),
 				},
 			}),
 		);
-		await waitFor(() => expect(postMock).toHaveBeenCalledWith("/api/v1/orchestrators", {
-			body: { projectId: "proj-1", clean: true },
-		}));
+		expect(postMock).not.toHaveBeenCalledWith("/api/v1/orchestrators", expect.anything());
 	});
 
 	it("shows the daemon validation message when save fails", async () => {

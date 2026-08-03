@@ -7,6 +7,8 @@ Read the card first: \`ao workboard card show ${cardId} --json\`. Use the live c
 
 Plan the work, then delegate implementation to worker sessions with \`ao spawn --agent <agent> --prompt "<task>"\`. Include the card id and the exact subtask in every worker prompt. Keep at most one implementation worker active at a time. Do not write the implementation yourself except for a small coordination-only fix.
 
+Respect the card's explicit agent assignments: use \`codingAgent\` for implementation, \`reviewerAgent\` for review, and \`testingAgent\` for testing. Do not substitute Hermes or another agent unless that exact agent is assigned on the card. If the assigned agent cannot run, block the card with the reason instead of silently selecting a fallback.
+
 When a worker asks a question, AO delivers it to this Director terminal. Read the question, inspect the card or code if needed, then answer the worker with the \`answer_worker\` tool. The tool sends the reply into the worker's live CLI terminal. Make the decision yourself when it is safe; only block the card for a real human decision or a risky/destructive action.
 
 ## Git safety
