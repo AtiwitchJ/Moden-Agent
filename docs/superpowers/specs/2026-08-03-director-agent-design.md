@@ -4,92 +4,218 @@
 
 Today, only Hermes can act as a project's card-driving commander (the
 "Hermes commanding" path in `internal/service/workboard/dispatch.go`, gated
-by `project.Config.Orchestrator.Harness == domain.HarnessHermes`). This spec
-adds a second, independent commander path — the **Director agent** — that
-lets a project use any already-installed CLI harness (Claude Code, Codex, or
-OpenCode) — on a configurable engine/model — to drive a work card through
-`Todo → Running → Review → Testing → Redo → Done`, with Hermes reduced to an
-ordinary worker-capable harness, on equal footing with Claude
-Code/Codex/OpenCode, for projects that opt in.
+by `project.Config.Orchestrator.Harness == domain.HarnessHermes`). Every
+other harness in the registry is a thin wrapper around an installed CLI
+(`claude`, `codex`, `hermes`, …), so "which model drives the card" is
+whatever that CLI happens to be configured for — not something AO controls.
 
-**Scope note:** this covers the full path to a usable feature — the daemon
-dispatch logic, the config plumbing needed to actually turn it on, and the
-Director-page UI that has to recognize a non-Hermes commander. All three are
-required; shipping only the first would leave the feature unreachable and
-invisible.
+This spec adds the **Director agent**: a first-party agent harness, written
+in TypeScript on [LangChain DeepAgents]
+(https://docs.langchain.com/oss/javascript/deepagents/overview), that AO owns
+end to end. It drives a work card through `Todo → Running → Review → Testing
+→ Redo → Done`, delegates implementation to worker sessions, and — unlike
+every existing harness — lets the user choose its engine explicitly
+(`openai:gpt-5`, `anthropic:claude-sonnet-4-6`, `openrouter:…` for MiniMax /
+Qwen / Kimi, `ollama:…` for local models).
 
-**Motivation:** the existing Hermes commander got stuck on a real card —
-it hit its 60-iteration response budget while waiting on human clarification
-for an ambiguous review finding, instead of transitioning the card to
-`blocked` and recording exactly what it needed. The user wants an
-alternative commander, driven by a harness they already use daily, and
-explicitly does not want the new path to touch, rename, or extend any of the
-existing Hermes-specific code — it must be additive only.
+Hermes is not modified, not removed, and not special-cased by any of this. It
+remains one ordinary harness among the others, usable as a worker (or as the
+legacy commander, unchanged, for projects that still configure it that way).
+
+**Motivation:** the existing Hermes commander got stuck on a real card — it
+hit its 60-iteration response budget while waiting on human clarification for
+an ambiguous review finding, instead of transitioning the card to `blocked`
+and recording what it needed. Because Hermes is an opaque external CLI, that
+behavior can only be requested via prompt, never guaranteed. Owning the agent
+loop means the budget/blocked rule becomes enforceable code, not a polite
+instruction.
+
+## Why TypeScript, not Python
+
+DeepAgents ships both a [Python](https://docs.langchain.com/oss/python/deepagents/overview)
+and a [JavaScript/TypeScript](https://docs.langchain.com/oss/javascript/deepagents/overview)
+library with the same feature set (subagents, custom tools, planning
+middleware, virtual filesystem, and the same provider list). TypeScript is
+the right choice for this repo:
+
+- **No new runtime.** Node 22 and npm are already required — the Electron
+  frontend, the root `package.json` scripts, and the `openapi-typescript`
+  codegen all depend on them. Python appears nowhere in the repo (one
+  prototype file aside) and would add a runtime every user must install.
+- **Existing toolchain.** The repo already has TypeScript config, typecheck,
+  and build wiring to extend.
+- **Free type-safe API access.** `npm run api` already generates
+  `frontend/src/api/schema.ts` from the daemon's OpenAPI spec. A TypeScript
+  Director can consume those exact generated types to call daemon endpoints;
+  a Python Director would need a hand-maintained client.
 
 ## Non-Goals
 
-- **Do not modify, rename, or extend any existing Hermes-specific
-  *backend* file or identifier.** `dispatch.go`'s `commanding` branch,
+- **Do not modify, rename, or extend any existing Hermes-specific *backend*
+  file or identifier.** `dispatch.go`'s `commanding` branch,
   `isHermesCommander` (the Go one in `actions.go`), `HermesSender`,
-  `PrepareHermesAnswerAttempt`, `hermesWorkboardPrompt`,
-  `hermesCardBriefing`, `stall_nudge.go`, `switch_agent.go`'s
-  commander-exclusion logic, and the public wire enum
-  (`hermes_unavailable`/`non_hermes_orchestrator`) are all left completely
-  unmodified. Hermes keeps working exactly as it does today for any project
-  that still configures it as `Orchestrator.Harness`.
+  `PrepareHermesAnswerAttempt`, `hermesWorkboardPrompt`, `hermesCardBriefing`,
+  `stall_nudge.go`, `switch_agent.go`'s commander-exclusion logic, and the
+  public wire enum (`hermes_unavailable`/`non_hermes_orchestrator`) are left
+  completely unmodified. Hermes keeps working exactly as it does today.
   **One deliberate exception, frontend only:** the renderer's local
   `isHermesCommander` constant in `WorkCardFocusPanel.tsx` *is* generalized
-  (see "Frontend" below). It is a display-only predicate with no backend
+  (see "Frontend" below) — it is a display-only predicate with no backend
   counterpart, and leaving it Hermes-only would make a Director-driven card
-  render as having no commander — i.e. the feature would visibly not work.
-  The Go `isHermesCommander` in `service/workboard/actions.go` is a
-  different, untouched identifier that happens to share the name.
-- **Not a generalization of the existing commanding path.** This is a
-  parallel, independent mechanism, not a parameterized version of the
-  Hermes one. The two paths do not share code beyond the already
-  harness-agnostic session-spawn primitives (`session_manager`, `session`
-  service) both already build on.
+  render as having no commander, i.e. the feature would visibly not work.
+- **Not a generalization of the existing commanding path.** The Director is a
+  parallel, independent mechanism, not a parameterized version of the Hermes
+  one.
 - **No parity with Hermes's auxiliary behaviors in this pass.** Auto-answer
-  on an unresponsive commander (`answer.go`), stall-nudging an idle
-  commander (`stall_nudge.go`), and commander-aware rate-limit switching
-  (`switch_agent.go`) are Hermes-only today and are **not** built for the
-  Director agent in this spec — see "Out of Scope" below. The MVP is the
-  core drive loop only.
-- **The new `commander/orchestrator` Go package (wired up earlier this
-  session) is untouched and unrelated.** That system has the daemon itself
-  decide phase transitions and spawn short-lived per-phase sessions with no
-  long-lived AI commander at all. This spec is about the *other* pattern —
-  one long-lived AI session that self-drives a card via CLI calls — mirroring
-  Hermes's existing shape, just with a swappable harness.
+  (`answer.go`), stall-nudging (`stall_nudge.go`), and commander-aware
+  rate-limit switching (`switch_agent.go`) are Hermes-only today and are not
+  built for the Director here. The MVP is the core drive loop.
+- **The `commander/orchestrator` Go package is untouched and unrelated.**
+  That system has the daemon itself decide phase transitions with no
+  long-lived AI commander. This spec is the *other* pattern — one long-lived
+  agent that self-drives a card.
 
 ## Architecture
 
-A project opts in by setting a new config field. When set, `DispatchOnce`
-gains one additive branch — checked *before* the existing `commanding`
-check, so a project cannot accidentally have both paths active — that
-spawns or reuses a single long-lived "director" session for the project,
-using the configured harness, with a director-specific system prompt. The
-director session drives cards through the workflow itself, by shelling out
-to the same `ao workboard card ...` CLI commands (mounted this session,
-already harness-agnostic) that any agent uses to report progress.
+Three pieces, in dependency order:
+
+```
+┌──────────────────────────────────────────────────────────┐
+│ director/  (new TypeScript package)                      │
+│   DeepAgents loop: model, system prompt, tools,          │
+│   subagents, budget/blocked enforcement                  │
+│   ↓ tools call                                           │
+│   `ao workboard card ...` / `ao spawn` (CLI subprocess)   │
+└──────────────────────────────────────────────────────────┘
+             ▲ launched as a normal session process
+┌──────────────────────────────────────────────────────────┐
+│ internal/adapters/agent/director/  (new Go adapter)      │
+│   HarnessDirector = "director"; builds the argv           │
+│   (`node <installed-path>/index.js`), passes model +      │
+│   prompt + card context via env                          │
+└──────────────────────────────────────────────────────────┘
+             ▲ selected by config
+┌──────────────────────────────────────────────────────────┐
+│ Config.Director (RoleOverride) + dispatch branch          │
+│   opt-in per project; spawns/reuses one Director session  │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Flow:**
 
 ```
 Card enters Todo
   → DispatchOnce sees project.Config.Director.Harness is set
-  → spawns/resumes the one Director session for this project (Claude Code / Codex / OpenCode)
-  → Director session reads the card (`ao workboard card show`), works or delegates to worker sessions
-  → Director calls `ao workboard card transition <id> --to <next>` itself as phases complete
-  → repeats until the card reaches a terminal state (Done / Blocked)
+  → spawns/resumes the project's one Director session (the Go adapter runs the TS agent)
+  → Director reads the card, plans, delegates implementation via `ao spawn` worker sessions
+  → Director calls `ao workboard card transition <id> --to <next>` as phases complete
+  → repeats until terminal state (Done / Blocked)
 ```
+
+**Why the Director talks to AO through the `ao` CLI rather than the HTTP API:**
+the five `ao workboard card ...` commands already exist, are already wired to
+the daemon, and were verified end-to-end during this session's live testing.
+Shelling out reuses that tested path and inherits the daemon's validation
+(`ValidateWorkflowTransition`) for free. The generated TypeScript API types
+remain available if a later pass wants direct HTTP calls; this spec does not
+need them.
+
+## The `director/` TypeScript package
+
+New top-level directory (sibling to `backend/` and `frontend/`) — it is a
+daemon-side agent, not renderer code, so it does not belong under
+`frontend/`.
+
+```
+director/
+  package.json          deepagents, langchain, @langchain/core
+  tsconfig.json
+  src/
+    index.ts            entrypoint: read env config, build agent, run loop
+    prompt.ts           the Director system prompt
+    tools.ts            ao-CLI-backed tools (transition, show, spawn worker, …)
+    budget.ts           iteration-budget tracking + forced-blocked rule
+```
+
+### Engine selection
+
+DeepAgents takes the model as a `provider:model-name` string, which maps
+directly onto the existing `AgentConfig.Model` field — no new config shape:
+
+```jsonc
+{
+  "director": {
+    "agent": "director",
+    "agentConfig": { "model": "openrouter:minimax/minimax-m2" }
+  }
+}
+```
+
+Supported provider prefixes per the DeepAgents docs: `openai`, `anthropic`,
+`google`, `openrouter`, `fireworks`, `baseten`, `ollama`. This is what makes
+"pick the Director's engine — MiniMax, Qwen, Kimi, GPT" work: MiniMax/Qwen/
+Kimi are reachable through `openrouter:` (or `ollama:` when self-hosted), GPT
+through `openai:`, Claude through `anthropic:`.
+
+**Unlike every other harness, the Director genuinely honors this field** —
+verified, only `claude-code` forwards `AgentConfig.Model` today (`--model`,
+`claudecode.go:162-164`); `codex`, `opencode`, `kimi`, `qwen`, and `hermes`
+all ignore it. The Director owning its own loop is precisely what makes
+engine selection real rather than advisory.
+
+The plan must define a default model for when `agentConfig.model` is unset,
+and fail with a clear error (not a silent fallback) when the configured
+provider's API key is missing.
+
+### API keys
+
+LangChain reads provider keys from conventional environment variables
+(`OPENAI_API_KEY`, `ANTHROPIC_API_KEY`, `OPENROUTER_API_KEY`, …). The
+existing per-project `Config.Env` map is already passed into session
+processes, so keys flow through the mechanism that exists. The plan must
+confirm this end to end and must not log key values.
+
+### Budget and the blocked rule (the motivating fix)
+
+The Director tracks its own iteration count. On approaching the limit, or on
+hitting genuine ambiguity requiring a human decision, it must call
+`ao workboard card transition <id> --to blocked --reason "<exact question>"`
+**before** continuing to deliberate — enforced in `budget.ts`, not merely
+requested in the prompt. A blocked card carrying a clear question is always
+a better outcome than a silently exhausted session. This is the concrete
+improvement over the Hermes commander, and is directly testable.
+
+## Go adapter: `internal/adapters/agent/director/`
+
+Follows the shape of the existing adapters (closest template: `command`,
+which launches a configured argv and passes prompt via `AO_PROMPT` /
+`AO_SYSTEM_PROMPT`, reporting activity through `ao hooks command <event>`).
+
+- `domain.HarnessDirector AgentHarness = "director"`, added to
+  `AllHarnesses` in `internal/domain/harness.go`.
+- Registered in `internal/adapters/agent/registry/`'s `Constructors()` — the
+  single edit that makes it appear everywhere (`ao spawn --agent director`,
+  the agent catalog, `ao doctor`).
+- `GetLaunchCommand` builds `node <dir>/index.js` with the resolved model and
+  prompt; `GetRestoreCommand` resumes an existing agent session (mirroring
+  how `claudecode`/`codex`/`hermes` resume by native session id) so a
+  long-lived commander survives a daemon restart.
+- `AuthStatus` reports whether the configured provider's key is present.
+
+**Where the built package lives at runtime** is an open implementation
+decision the plan must settle: the adapter needs a stable absolute path to
+the built JS. `internal/skillassets` already solves an equivalent problem —
+it embeds assets in the Go binary and installs them into the data dir at
+boot, giving sessions a stable path. Reusing that pattern (embed the built
+Director bundle, install under `~/.ao/`) avoids requiring a separate install
+step and keeps the daemon a single distributable binary. The plan should
+evaluate that against simply requiring `npm install` in `director/`, and pick
+one — but bundle size and build wiring must be considered before committing.
 
 ## Config Schema
 
-Add a new field to `domain.ProjectConfig`, reusing the existing
-`RoleOverride` type (already shaped exactly right — `Harness` +
-`AgentConfig` — no new type needed):
-
 ```go
-// projectconfig.go
+// internal/domain/projectconfig.go
 type ProjectConfig struct {
 	Worker       RoleOverride `json:"worker,omitempty"`
 	Orchestrator RoleOverride `json:"orchestrator,omitempty"`
@@ -98,234 +224,187 @@ type ProjectConfig struct {
 }
 ```
 
-`Director.Harness == ""` means the project has not opted in — every existing
-project is unaffected with zero config migration needed. Validation mirrors
-the existing `Worker`/`Orchestrator` loop in `projectconfig.go` (unknown
-harness → error), extended to include `"director"` in the role map.
+`RoleOverride` is already `{Harness, AgentConfig}` — exactly what is needed,
+no new type. `Director.Harness == ""` means not opted in, so every existing
+project is unaffected with zero migration. Validation mirrors the existing
+`Worker`/`Orchestrator` loop (unknown harness → error), extended with
+`"director"`.
 
-**Guard:** if a project sets both `Director.Harness` and
-`Orchestrator.Harness == HarnessHermes`, the Director path takes priority
-(checked first in `DispatchOnce`) — a project should realistically only use
-one commander mechanism, but this spec does not need to forbid the
-combination, just define a deterministic precedence.
+**Precedence:** if a project sets both `Director.Harness` and
+`Orchestrator.Harness == HarnessHermes`, the Director path wins (checked
+first in `DispatchOnce`). Deterministic, not forbidden.
 
-## Choosing the Director's Engine (model / provider)
+## Dispatch integration (one additive change)
 
-The Director must be configurable to run on a chosen engine (e.g. MiniMax,
-Qwen, Kimi, GPT) rather than being locked to one model. Because
-`Config.Director` is a `RoleOverride`, it already carries an `AgentConfig`,
-and `domain.AgentConfig` already has a `Model` field
-(`internal/domain/agentconfig.go:29-30`). So engine selection needs **no new
-config structure** — it is expressed as:
-
-```jsonc
-{
-  "director": {
-    "agent": "claude-code",              // which harness (CLI) runs the Director
-    "agentConfig": { "model": "gpt-5" }  // which model that harness runs on
-  }
-}
-```
-
-**Critical caveat — model-flag support is not universal.** Only some
-adapters actually forward `AgentConfig.Model` to their CLI. Verified by
-inspection:
-
-| Adapter | Honors `AgentConfig.Model`? | How |
-|---|---|---|
-| `claude-code` | Yes | appends `--model <model>` (`claudecode.go:162-164`) |
-| `codex` | No | never reads `cfg.Config.Model` |
-| `opencode` | No | never reads `cfg.Config.Model` |
-| `kimi` | No | never reads `cfg.Config.Model` |
-| `qwen` | No | never reads `cfg.Config.Model` |
-| `hermes` | No | model comes from its own `providers.json` |
-
-Consequences the implementation plan must respect:
-
-1. For adapters that ignore `Model`, the engine is chosen by picking that
-   **harness** (`director.agent`), and the model within it comes from that
-   CLI's own configuration — not from AO. Setting `director.agentConfig.model`
-   for those harnesses does nothing today.
-2. Silently ignoring a configured model is a bad failure mode. The Director
-   dispatch path must detect "a model was configured for a harness that
-   cannot apply it" and surface it — at minimum a daemon warning log naming
-   the harness and model, so the user is not left wondering why their engine
-   choice had no effect. Deciding between warn-only and hard-reject is an
-   implementation-plan decision; do not silently drop it.
-3. Extending `codex`/`opencode`/`kimi`/`qwen` to forward `--model` is
-   **out of scope for this spec** — each needs its own CLI-flag research.
-   Track separately if the user needs model selection on those harnesses.
-
-## New Files
-
-### `internal/service/workboard/director_prompt.go`
-
-`directorWorkboardPrompt() string` — the system prompt appended for a
-Director session. Content mirrors the *intent* of `hermesWorkboardPrompt`
-(read the card, plan, delegate to workers via `ao spawn`, drive the card
-through phases via CLI, escalate to `blocked` when stuck) but is written
-harness-neutral (no "Hermes" wording) and fixes the two real problems this
-spec exists to solve:
-
-1. Uses the **current** command name: `ao workboard card transition <id>
-   --to <status> --reason <text>` (not the older `ao workboard status`
-   Hermes's prompt still references).
-2. **Budget-safety rule, stated explicitly and early in the prompt:** the
-   Director must track its own remaining iteration budget. If a phase
-   cannot be resolved with clear confidence — ambiguous finding, missing
-   input, anything requiring a human decision — it must call
-   `ao workboard card transition <id> --to blocked --reason "<exact
-   question for the human>"` **immediately**, before continuing to converse
-   about the ambiguity, not after exhausting its budget waiting for an
-   answer that never comes. A blocked card with a clear, recorded question
-   is always the correct outcome over a silently exhausted session.
-
-### `internal/service/workboard/director_dispatch.go`
-
-- `directorEnabled(project domain.ProjectRecord) bool` — `project.Config.Director.Harness != ""`.
-- `isProjectDirector(session domain.SessionRecord, harness domain.AgentHarness) bool` — `!session.IsTerminated && session.Kind == domain.KindOrchestrator && session.Harness == harness`. A small, self-contained predicate; does not touch or reuse `isHermesCommander`.
-- Dispatch logic: given a project with `directorEnabled == true`, find its existing live director session (`ListSessions` + `isProjectDirector`) or spawn a new one with `Kind: domain.KindOrchestrator`, `Harness: project.Config.Director.Harness` (explicit, not resolved implicitly), and `directorWorkboardPrompt()` as the prompt.
-  **Implementation note, verify against real code before writing this:** `sessionsvc.Service.SpawnOrchestrator` resolves its harness implicitly from `project.Config.Orchestrator.Harness` (confirmed: it takes no harness parameter) and internally calls `verifyOrchestratorReplacement`, which also reads `Config.Orchestrator.Harness`. Both of those read the *wrong* config field for a Director spawn. The Director path most likely needs to call the lower-level `Service.Spawn(ctx, ports.SpawnConfig{Kind: KindOrchestrator, Harness: project.Config.Director.Harness, ...})` directly instead of `SpawnOrchestrator`, and — since that skips `verifyOrchestratorReplacement` — determine during planning whether an equivalent check is needed for the Director path or whether it's safe to omit (Director sessions aren't subject to the same "exactly one Hermes commander" invariant that check enforces). Do not assume `SpawnOrchestrator` can be reused as-is without resolving this.
-
-### `internal/service/workboard/dispatch.go` (one additive change)
-
-In `DispatchOnce`, before the existing `commanding := ...` line, add:
+In `DispatchOnce`, before the existing `commanding := ...` line:
 
 ```go
 if directorEnabled(project) {
-	return d.dispatchToDirector(ctx, project, cards, now) // new function in director_dispatch.go
+	return d.dispatchToDirector(ctx, project, cards, now)
 }
 ```
 
-Nothing else in this file changes. `commanding`, `hasActiveNonHermesOrchestrator`, `hermesCardBriefing`, and every existing branch remain byte-for-byte identical.
+Nothing else in `dispatch.go` changes. `commanding`,
+`hasActiveNonHermesOrchestrator`, `hermesCardBriefing`, and every existing
+branch stay byte-for-byte identical.
 
-## Making the Config Actually Settable (blocker)
+New file `internal/service/workboard/director_dispatch.go`:
 
-Adding `Config.Director` to the domain is not enough — there is currently
-**no working way for a user to set it**, so the feature would ship unusable.
-Two gaps, both must be closed:
+- `directorEnabled(project) bool` — `project.Config.Director.Harness != ""`.
+- `isProjectDirector(session, harness) bool` — `!session.IsTerminated &&
+  session.Kind == domain.KindOrchestrator && session.Harness == harness`.
+  Self-contained; does not touch `isHermesCommander`.
+- `dispatchToDirector(...)` — find the project's live Director session or
+  spawn one.
 
-### 1. The CLI drops unknown config fields (root-caused)
+**Implementation note, verify before writing:** `sessionsvc.Service.SpawnOrchestrator`
+takes no harness parameter — it resolves the harness implicitly from
+`project.Config.Orchestrator.Harness`, and internally calls
+`verifyOrchestratorReplacement`, which also reads that field. Both read the
+*wrong* config field for a Director spawn. The Director path most likely
+needs `Service.Spawn(ctx, ports.SpawnConfig{Kind: KindOrchestrator, Harness:
+project.Config.Director.Harness, ...})` directly. Since that skips
+`verifyOrchestratorReplacement`, the plan must decide whether an equivalent
+guard is needed for the Director path. Do not assume `SpawnOrchestrator` is
+reusable as-is.
 
-`ao project set-config --config-json` reports success but silently discards
-fields. Root cause, verified: `internal/cli/project.go` hand-mirrors the
-config DTOs, and its `agentConfig` (line 77-80) declares only
-`Model`/`Permissions` — it is missing `Command []string`, which
-`domain.AgentConfig` has. `encoding/json` ignores unknown fields by default,
-so any `command` in the supplied JSON is dropped during unmarshal, and the
-CLI then PUTs a config without it. (This is exactly the bug hit during live
-testing today, worked around by calling
-`PUT /api/v1/projects/{id}/config` directly.)
+## Making the config settable (blocker)
 
-The same failure will silently swallow `director` unless the CLI DTO is
-updated. Required changes in `internal/cli/project.go`:
+Adding `Config.Director` to the domain is not enough — there is currently no
+working way to set it, so the feature would ship unreachable.
+
+### The CLI silently drops unknown config fields (root-caused)
+
+`ao project set-config --config-json` reports success but discards fields.
+Verified root cause: `internal/cli/project.go` hand-mirrors the config DTOs,
+and its `agentConfig` (lines 77-80) declares only `Model`/`Permissions` —
+it is missing `Command []string`, which `domain.AgentConfig` has.
+`encoding/json` ignores unknown fields by default, so `command` is dropped
+during unmarshal and the CLI PUTs a config without it. (This is the bug hit
+during live testing today, worked around by calling
+`PUT /api/v1/projects/{id}/config` directly.) `director` would be swallowed
+identically.
+
+Required in `internal/cli/project.go`:
 
 - Add the missing `Command []string \`json:"command,omitempty"\`` to
-  `agentConfig` (fixes the pre-existing bug).
-- Add `Director roleOverride \`json:"director,omitempty"\`` to
-  `projectConfig`.
-- Consider rejecting unknown fields (`json.Decoder.DisallowUnknownFields`)
-  for `--config-json` so future DTO drift fails loudly instead of silently.
-  This is the durable fix for the whole class of bug; the plan should weigh
-  it against breaking any caller that currently passes extra keys.
+  `agentConfig` — fixes the pre-existing bug.
+- Add `Director roleOverride \`json:"director,omitempty"\`` to `projectConfig`.
+- Evaluate `json.Decoder.DisallowUnknownFields` for `--config-json` so future
+  DTO drift fails loudly instead of silently. This is the durable fix for the
+  whole class of bug; weigh it against breaking callers that pass extra keys.
 
-### 2. A first-class way to set it
+### First-class flags
 
-`--config-json` requires hand-writing the whole config object. Add dedicated
-flags to `ao project set-config`, mirroring the existing
-`--worker-agent`/`--orchestrator-agent` pattern:
+`--config-json` requires hand-writing the whole object. Add, mirroring the
+existing `--worker-agent`/`--orchestrator-agent` pattern:
 
 - `--director-agent <harness>` → `Config.Director.Harness`
-- `--director-model <model>` → `Config.Director.AgentConfig.Model`
+- `--director-model <provider:model>` → `Config.Director.AgentConfig.Model`
 
-This is the minimum for the feature to be usable from the CLI. A desktop-UI
-control for it is **out of scope** for this spec.
+A desktop-UI control is out of scope.
 
-## Frontend: Director page must recognize a non-Hermes commander
+## Frontend: the Director page must recognize a non-Hermes commander
 
-The Director page currently hardcodes Hermes as the only possible commander,
-so a Director-driven card would render with the wrong UI and wrong labels.
-Verified in `frontend/src/renderer/components/WorkCardFocusPanel.tsx`:
+`frontend/src/renderer/components/WorkCardFocusPanel.tsx` hardcodes Hermes as
+the only possible commander:
 
 ```ts
 // line 68
 const isHermesCommander = session?.kind === "orchestrator" && session.harness === "hermes";
 ```
 
-That flag gates the commander-specific UI — the "Work owner" vs "Linked
-session" label (line 224), the "Hermes coordinates this task" text (line
-226), and the "Nudge commander" vs "Nudge agent" action (line 196). With a
-Director session (`kind === "orchestrator"`, `harness === "claude-code"`),
-every one of those falls to the plain-worker branch, and the card looks like
-it has no commander at all.
+That flag gates the "Work owner" vs "Linked session" label (line 224), the
+"Hermes coordinates this task" text (line 226), and "Nudge commander" vs
+"Nudge agent" (line 196). A Director session (`kind === "orchestrator"`,
+`harness === "director"`) falls to the plain-worker branch on all of them, so
+the card renders as having no commander.
 
-**Required change — generalize the predicate, don't add a second one.** The
-`harness === "hermes"` clause is the only Hermes-specific part; `kind ===
-"orchestrator"` alone already identifies a commander session correctly for
+**Change:** generalize the predicate rather than adding a second one —
+`kind === "orchestrator"` alone already identifies a commander session for
 both paths:
 
 ```ts
 const isCommander = session?.kind === "orchestrator";
 ```
 
-Rename the variable to `isCommander` and replace the Hermes-specific copy
-with neutral wording (e.g. "Commander coordinates this task", and where the
-agent should be named, use `session.harness` rather than the literal
-"Hermes"). Same treatment for the two dispatch-failure strings at lines
-240-242 ("Hermes commander unavailable" / "A non-Hermes orchestrator is
-active") — these render from the existing wire enum, so keep the enum values
-untouched (see Non-Goals) and only neutralize the display text.
+Rename to `isCommander` and replace Hermes-specific copy with neutral wording
+(name the agent from `session.harness` where an agent name is shown). Same
+for the dispatch-failure strings at lines 240-242 — those render from the
+existing wire enum, so keep enum values untouched (see Non-Goals) and
+neutralize only display text.
 
-Also note `CreateWorkCardDialog.tsx:290` renders a hardcoded `hermes` chip
-as the coding-agent label. That is about the card's *coding* agent, not the
-commander, so it is **out of scope** here — flagged only so it is not
-mistaken for part of this change.
+`CreateWorkCardDialog.tsx:290`'s hardcoded `hermes` chip is about the card's
+*coding* agent, not the commander — out of scope, noted so it is not confused
+for part of this change.
 
-## Teaching the Director its commands
+## Error handling
 
-The Director's ability to drive a card depends on it actually knowing the
-`ao workboard card ...` commands. Two mechanisms already exist and the plan
-must confirm which applies:
-
-1. `directorWorkboardPrompt()` (this spec) states the commands inline.
-2. `internal/skillassets/using-ao/` is installed into the data dir at daemon
-   boot and read by sessions as a skill catalog; it contains workboard
-   command docs that currently reference Hermes.
-
-The prompt (1) is the load-bearing mechanism for this spec and must be
-self-sufficient — the Director must work whether or not it reads the skill
-asset. Updating the skill asset's Hermes-specific wording is out of scope.
-
-## Error Handling
-
-- No installed/authenticated harness for the configured `Director.Harness`: spawn fails, recorded as a `dispatch_failed` event with a new, generic reason (e.g. `director_unavailable`) — mirrors the existing `hermes_unavailable` pattern but as its own independent reason, not reusing the Hermes-named constant.
-- Director session itself crashes/terminates: next `DispatchOnce` pass finds no live director session (`isProjectDirector` returns nothing live) and spawns a fresh one — same recovery shape as today's orchestrator respawn, no new logic needed.
-- A card stuck in a non-terminal phase with a live director session: out of scope for this MVP (no stall-nudge equivalent) — the director's own budget-safety prompt rule (see above) is the mitigation, not a daemon-side timeout.
+- **Provider key missing / model string invalid:** the Director exits with a
+  clear, non-secret error; dispatch records a `dispatch_failed` event with a
+  new generic reason (e.g. `director_unavailable`), independent of the
+  Hermes-named constants.
+- **Node or the Director bundle missing:** surfaced by the adapter's
+  `AuthStatus`/launch error and by `ao doctor`, the same way a missing CLI
+  binary is for other harnesses.
+- **Director session crashes:** the next `DispatchOnce` pass finds no live
+  Director session and spawns a fresh one — same recovery shape as today's
+  orchestrator respawn, no new logic.
+- **Card stuck in a non-terminal phase with a live Director:** out of scope
+  (no stall-nudge equivalent in this pass). The enforced budget/blocked rule
+  is the mitigation.
 
 ## Testing
 
-**Backend**
-- Table tests for `director_dispatch.go` covering: project with `Director.Harness` unset (existing Hermes/plain worker path runs, completely unaffected), project with it set to each of `claude-code`/`codex`/`opencode` (director path spawns correctly, one session per project, resumed not re-spawned on a later tick).
-- A regression test asserting `dispatch.go`'s existing `commanding`-path tests still pass unmodified — proves the new branch is additive, not a behavior change to the existing path.
-- `directorWorkboardPrompt()`'s output is asserted (string-contains) to include the `ao workboard card transition` command and NOT include `ao workboard status` (guards against reintroducing the stale-command bug) and to include explicit blocked-before-budget language.
-- A test that a model configured against a harness which cannot apply it produces the warning/rejection decided in "Choosing the Director's Engine", rather than being silently dropped.
+**Director package (TypeScript)**
+- Budget enforcement: a run that approaches the iteration limit issues the
+  `--to blocked` transition with a non-empty reason before exhausting itself.
+  This is the regression test for the motivating bug.
+- Tool layer: each `ao`-backed tool builds the expected argv and surfaces a
+  non-zero exit as a tool error rather than silently continuing.
+- Engine selection: a configured `provider:model` string reaches the agent
+  constructor; a missing provider key produces a clear error, not a silent
+  fallback.
+
+**Go adapter**
+- `GetLaunchCommand` includes the resolved model and prompt; `GetRestoreCommand`
+  resumes by native session id.
+- The adapter is registered — `registry.Constructors()` yields `director`, and
+  `domain.HarnessDirector.IsKnown()` is true.
+
+**Dispatch**
+- Project with `Director.Harness` unset → existing Hermes/plain-worker path
+  runs, completely unaffected.
+- Project with it set → Director path spawns one session per project, and a
+  later tick resumes rather than re-spawns.
+- Existing `commanding`-path tests pass unmodified, proving the new branch is
+  additive.
 
 **Config plumbing**
-- A CLI test that `--config-json` round-trips a `director` block *and* an `agentConfig.command` array without dropping either — this is the regression test for the hand-mirrored-DTO bug root-caused above, and would have caught it.
-- A CLI test for the new `--director-agent` / `--director-model` flags.
+- `--config-json` round-trips a `director` block *and* an
+  `agentConfig.command` array without dropping either — the regression test
+  for the hand-mirrored-DTO bug root-caused above.
+- The new `--director-agent` / `--director-model` flags set the right fields.
 
 **Frontend**
-- `WorkCardFocusPanel` test asserting a session with `kind === "orchestrator"` and `harness === "claude-code"` renders the commander UI (work-owner label, "Nudge commander") — this fails before the predicate change and passes after.
-- Existing Hermes-session tests must still pass unmodified, proving the generalized predicate did not regress the Hermes path.
+- `WorkCardFocusPanel` renders commander UI for a session with
+  `kind === "orchestrator"` and `harness === "director"` — fails before the
+  predicate change, passes after.
+- Existing Hermes-session tests pass unmodified.
 
-## Out of Scope (explicit follow-ups, not built here)
+## Out of scope (explicit follow-ups)
 
-- Auto-answer routing when a Director session goes idle waiting on a human (Hermes-only today, `answer.go`).
-- Stall-nudging an idle Director commander (Hermes-only today, `stall_nudge.go`).
-- Excluding the Director session from rate-limit auto-switch/kill (Hermes-only today, `switch_agent.go`).
-- Renaming any existing Hermes-specific identifier, or generalizing the wire-level `hermes_unavailable`/`non_hermes_orchestrator` failure reasons (display text is neutralized; enum values stay).
-- Any change to `commander/orchestrator/*` (the separate, already-wired Go-orchestrator system).
-- Adding `--model` forwarding to the `codex`/`opencode`/`kimi`/`qwen` adapters (each needs its own CLI-flag research).
-- A desktop-UI control for setting the Director config (CLI flags only in this pass).
-- The hardcoded `hermes` coding-agent chip in `CreateWorkCardDialog.tsx:290` (about the card's coding agent, not the commander).
+- Auto-answer routing for an idle Director (`answer.go` is Hermes-only).
+- Stall-nudging an idle Director (`stall_nudge.go` is Hermes-only).
+- Excluding the Director from rate-limit auto-switch/kill (`switch_agent.go`).
+- Renaming backend Hermes identifiers, or changing the wire-level
+  `hermes_unavailable`/`non_hermes_orchestrator` enum values.
+- Any change to `commander/orchestrator/*`.
+- Adding `--model` forwarding to the `codex`/`opencode`/`kimi`/`qwen`
+  adapters (each needs its own CLI-flag research).
+- A desktop-UI control for the Director config.
+- `CreateWorkCardDialog.tsx:290`'s hardcoded coding-agent chip.
 - Updating `internal/skillassets/using-ao/`'s Hermes-specific wording.
+- DeepAgents' filesystem/sandbox backends and MCP tool support — the Director
+  delegates implementation to worker sessions rather than editing code
+  itself, so these are not needed for the MVP.
