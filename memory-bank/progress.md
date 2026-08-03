@@ -35,12 +35,14 @@
 
 ## In Progress
 
-- **Director Agent Task 13 (`feat/live-terminals`): Bundle FIXED, e2e pending.**
-  `esbuild --bundle` + `deepagents@1.8.8` produces a self-contained
-  `index.js` (~102K lines). Verified: `node bundle/index.js` runs without
-  `ERR_PACKAGE_PATH_NOT_EXPORTED`. Steps 5-6 (live Director session spawn,
-  card transition) require running outside sandbox with real LLM API. Steps
-  7-9 completed. See `.superpowers/sdd/task-13-report.md`.
+- **Director Agent Task 13 (`feat/live-terminals`): Module resolution BLOCKED.**
+  `esbuild --bundle` + `deepagents@1.8.8` fixed the Director's own bare imports,
+  but `@langchain/anthropic`'s internal dynamic import of `@anthropic-ai/sdk`
+  fails to resolve via `NODE_PATH` with a flat `node_modules`. The Director
+  harness cannot start as designed. Fix options: (a) fully bundle ALL deps via
+  esbuild, or (b) use `@langchain/core`'s `ChatAnthropic` directly without
+  `langchain`'s `universal.js` wrapper. Steps 7-9 completed. See
+  `.superpowers/sdd/task-13-report.md`.
 
 ## Planned
 
@@ -55,10 +57,11 @@
 
 ## Known Issues
 
-- **RESOLVED (was P0 Blocker — Director Agent):** Bundle now self-contained via
-  `esbuild --bundle` + `deepagents@1.8.8`. `node bundle/index.js` confirmed
-  working without `ERR_PACKAGE_PATH_NOT_EXPORTED`. Remaining gap: e2e verification
-  requires running outside sandbox with real LLM API (MiniMax API key in `.env`).
+- **P0 Blocker — Director Agent (INCOMPLETE):** `esbuild --bundle` fixed the
+  Director's own imports but `@langchain/anthropic`'s transitive dynamic import of
+  `@anthropic-ai/sdk` remains unresolvable via `NODE_PATH` with a flat
+  `node_modules`. The Director harness cannot start as designed. See
+  `.superpowers/sdd/task-13-report.md`.
 
 - **Fixed (Task 8, `cfa8327a`)**: the orchestrator's tick loop redundantly
   double-wrote `active_session` on every successful spawn (always failing

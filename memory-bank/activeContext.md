@@ -2,16 +2,16 @@
 
 ## Current Focus
 
-**Director Agent (Task 13, `feat/live-terminals`): Bundle FIXED, full e2e pending outside sandbox.**
-Root cause: `tsc` does not bundle — `dist/index.js` still had bare `import`
-specifiers that Node.js couldn't resolve outside the `director/` package dir.
-Fix: replaced `tsc` with `esbuild --bundle` + downgraded `deepagents@1.12.1` →
-`deepagents@1.8.8` (which depends on `langchain@^1.2.39` that has a root
-export). Bundle is now self-contained (~102K lines, no bare imports).
-Confirmed: `node backend/internal/directorassets/bundle/index.js` runs without
-`ERR_PACKAGE_PATH_NOT_EXPORTED`. Steps 5-6 require a live daemon + real LLM
-API outside sandbox (MiniMax API key available in `.env`). Steps 7-9 done
-(cleanup, memory-bank, docs updated). Full report: `.superpowers/sdd/task-13-report.md`.
+**Director Agent (Task 13, `feat/live-terminals`): Module resolution INCOMPLETE.**
+Fix 1 (bundle self-contained via esbuild + deepagents@1.8.8) solved the
+immediate `ERR_PACKAGE_PATH_NOT_EXPORTED`. But Fix 2 is blocked: the
+esbuild bundle still contains bare `import` specifiers for `@langchain/anthropic`
+(from `langchain`'s `universal.js` dynamic-import layer), which Node.js cannot
+resolve via `NODE_PATH` alone — the transitive `@anthropic-ai/sdk` peer dep fails
+to resolve. **The Director harness cannot start as designed.** Options: (a) fully
+bundle ALL deps via esbuild (no `nodemodules.tar`), or (b) use
+`@langchain/core`'s `ChatAnthropic` directly without `langchain`'s
+`universal.js` wrapper. Full report: `.superpowers/sdd/task-13-report.md`.
 
 Prior work on `feat/live-terminals`: The Hermes Director Orchestrator
 (`docs/superpowers/plans/2026-08-03-director-agent.md`) was being
@@ -78,12 +78,17 @@ verification) is the first to exercise the full entrypoint.
 
 ## Blockers
 
-### Blocker 1 (RESOLVED — Director Bundle Fixed)
+### Blocker 1 (P0 — Director Bundle Peer Dep Resolution)
 
-Bundle now self-contained via `esbuild --bundle` + `deepagents@1.8.8`.
-`node backend/internal/directorassets/bundle/index.js` runs without
-module resolution errors. Full e2e verification (Steps 5-6) requires
-running outside sandbox with real API key — see below.
+**`@langchain/anthropic`'s dynamic import of `@anthropic-ai/sdk` unresolvable.**
+The esbuild bundle fixed the Director's own bare imports but the deeper
+dependency chain (`langchain` → `universal.js` → `@langchain/anthropic` →
+`@anthropic-ai/sdk`) uses bare specifiers that Node.js cannot resolve via
+`NODE_PATH` with a flat `node_modules` dir. **The Director harness cannot
+start.** Fix requires either (a) fully bundling all deps via esbuild with no
+`nodemodules.tar`, or (b) replacing `langchain`'s `universal.js` dynamic-import
+wrapper with direct `@langchain/core`'s `ChatAnthropic` calls. Full details:
+`.superpowers/sdd/task-13-report.md`.
 
 ### Blocker 2 (Known-Red Tests)
 
