@@ -87,6 +87,25 @@ surface (`npm run sqlc`, `npm run api`).
 
 ## In flight / not yet a runtime feature
 
+- **Hermes Director orchestrator wiring**: the daemon now constructs and
+  wires a real orchestrator (`Orchestrator: nil` is gone) that subscribes to
+  work-card CDC events and ticks every 30s, spawning a real agent session
+  per phase through the session service (the old fake-handle bug is fixed).
+  `POST /workboard/cards/{cardId}/events` is mounted, so the
+  `ao workboard card set-verdict|set-finding|set-test-result|fail-attempt|transition`
+  commands work end-to-end against a live daemon — phase advancement today
+  is agent-initiated via `ao workboard card transition` (and friends), not
+  automatic; the PR/CI-driven watcher, reviewer invoker, and testing invoker
+  that would make advancement automatic are separate, unbuilt work. **A live
+  smoke test found a blocking bug and this loop is not yet verified safe to
+  use**: the orchestrator's per-tick spawn path double-writes the
+  `active_session` table and never syncs the spawned session id back onto
+  the work card, so it cannot recognize its own successful spawn as "live"
+  and respawns a brand-new real agent session on every tick — 6 real
+  sessions were produced for one card within 12 seconds in testing. Do not
+  enable this against a real coding-agent harness until fixed; see
+  `memory-bank/progress.md` Known Issues and
+  `.superpowers/sdd/task-7-report.md` for the full repro and root cause.
 - **Tracker lane**: GitHub tracker adapter exists, but there is no daemon
   observer loop or agent-lifecycle→issue mirroring yet, so the tracker does
   nothing at runtime ([#112](https://github.com/modernagent/modern-agent/issues/112)).
