@@ -58,6 +58,37 @@ func TestActiveSessionRoundTrip(t *testing.T) {
 	}
 }
 
+func TestInsertActiveSessionUpsertsOnConflict(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedProject(t, s, "mer")
+	seedWorkCard(t, s, "mer", "card-1")
+
+	first := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	if err := s.InsertActiveSession(ctx, "card-1", "sess-1", "coding", "hermes", first); err != nil {
+		t.Fatalf("first InsertActiveSession: %v", err)
+	}
+
+	second := first.Add(time.Minute)
+	if err := s.InsertActiveSession(ctx, "card-1", "sess-2", "review", "codex", second); err != nil {
+		t.Fatalf("second InsertActiveSession (same card_id) should upsert, not error: %v", err)
+	}
+
+	row, ok, err := s.GetActiveSession(ctx, "card-1")
+	if err != nil {
+		t.Fatalf("GetActiveSession: %v", err)
+	}
+	if !ok {
+		t.Fatal("ok = false, want true")
+	}
+	if row.SessionID != "sess-2" || row.Phase != "review" || row.Agent != "codex" {
+		t.Fatalf("row = %+v, want the SECOND insert's values (sess-2/review/codex), not the first", row)
+	}
+	if !row.CreatedAt.Equal(second) {
+		t.Fatalf("createdAt = %v, want %v (the second insert's timestamp)", row.CreatedAt, second)
+	}
+}
+
 func TestGetActiveSessionMissingReturnsNotOK(t *testing.T) {
 	s := newTestStore(t)
 
