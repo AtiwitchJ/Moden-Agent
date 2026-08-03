@@ -159,6 +159,7 @@ func Run() error {
 	orch := orchestrator.New(orchestrator.Config{
 		Spawner:  spawnerAdapter{spawner: orchSpawner},
 		Store:    orchStore,
+		Killer:   sessionSvc,
 		WIPLimit: domain.DefaultWorkboardConfig().WIPLimit,
 	})
 	orchWiring, err := WireOrchestrator(ctx, OrchestratorConfig{Orchestrator: orch}, cdcPipe.Broadcaster, store, log)

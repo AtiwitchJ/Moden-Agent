@@ -36,6 +36,7 @@ func (o *ConfiguredOrchestrator) tickActiveCards(ctx context.Context, cards []do
 					return err
 				}
 			} else if !o.isSessionLive(session, 30*time.Minute) {
+				o.killSupersededSession(ctx, session)
 				if err := o.spawnCodingSession(ctx, card, nil); err != nil {
 					return err
 				}
@@ -47,6 +48,7 @@ func (o *ConfiguredOrchestrator) tickActiveCards(ctx context.Context, cards []do
 					return err
 				}
 			} else if !o.isSessionLive(session, 10*time.Minute) {
+				o.killSupersededSession(ctx, session)
 				if err := o.spawnReviewSession(ctx, card); err != nil {
 					return err
 				}
@@ -58,6 +60,7 @@ func (o *ConfiguredOrchestrator) tickActiveCards(ctx context.Context, cards []do
 					return err
 				}
 			} else if !o.isSessionLive(session, 10*time.Minute) {
+				o.killSupersededSession(ctx, session)
 				if err := o.spawnTestingSession(ctx, card); err != nil {
 					return err
 				}
@@ -111,6 +114,16 @@ func (o *ConfiguredOrchestrator) checkActiveSession(ctx context.Context, card do
 // per-phase spawns.
 func (o *ConfiguredOrchestrator) isSessionLive(session ActiveSessionRecord, timeout time.Duration) bool {
 	return o.clock().Sub(session.CreatedAt) <= timeout
+}
+
+// killSupersededSession best-effort stops the session a replacement spawn is
+// about to replace. Nil killer or an already-gone session are both normal,
+// harmless cases — this never returns an error to its caller.
+func (o *ConfiguredOrchestrator) killSupersededSession(ctx context.Context, session ActiveSessionRecord) {
+	if o.killer == nil || session.SessionID == "" {
+		return
+	}
+	_, _ = o.killer.Kill(ctx, domain.SessionID(session.SessionID))
 }
 
 // countActiveCards returns the count of cards in active phases for a project.

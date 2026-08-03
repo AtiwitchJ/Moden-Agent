@@ -2,6 +2,7 @@ package orchestrator
 
 import (
 	"context"
+	"errors"
 	"testing"
 	"time"
 
@@ -122,6 +123,16 @@ func (s *fakeSpawner) Stop(_ context.Context, _ string) error {
 
 func (s *fakeSpawner) Inject(_ context.Context, _, _ string) error {
 	return nil
+}
+
+type fakeKiller struct {
+	killed []domain.SessionID
+	err    error
+}
+
+func (f *fakeKiller) Kill(_ context.Context, id domain.SessionID) (bool, error) {
+	f.killed = append(f.killed, id)
+	return f.err == nil, f.err
 }
 
 func card(id, projectID, status string) domain.WorkCard {
@@ -615,6 +626,56 @@ func TestTickDoesNotDoubleInsertActiveSession(t *testing.T) {
 	}
 	if store.activeSessions["card-1"].SessionID != firstSessionID {
 		t.Fatalf("active session changed across ticks: %s -> %s, want stable", firstSessionID, store.activeSessions["card-1"].SessionID)
+	}
+}
+
+func TestTickKillsSupersededSessionOnTimeoutReplacement(t *testing.T) {
+	store := newFakeStore()
+	store.cards["card-1"] = domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", Status: domain.CardStatusRunning,
+		CodingAgent: "hermes",
+	}
+	// Pre-seed a stale active session, older than the 30-minute Running timeout.
+	store.activeSessions["card-1"] = ActiveSessionRecord{
+		CardID: "card-1", SessionID: "old-sess", Phase: "coding", Agent: "hermes",
+		CreatedAt: time.Now().Add(-31 * time.Minute),
+	}
+	spawner := &fakeSpawner{store: store}
+	killer := &fakeKiller{}
+	orc := New(Config{Store: store, Spawner: spawner, Killer: killer, WIPLimit: 4})
+
+	if err := orc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if len(killer.killed) != 1 || killer.killed[0] != domain.SessionID("old-sess") {
+		t.Fatalf("killed = %v, want [old-sess]", killer.killed)
+	}
+	if len(spawner.spawned) != 1 {
+		t.Fatalf("spawner.Spawn called %d times, want 1 (the replacement)", len(spawner.spawned))
+	}
+}
+
+func TestTickReplacementSpawnProceedsWhenKillFails(t *testing.T) {
+	store := newFakeStore()
+	store.cards["card-1"] = domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", Status: domain.CardStatusRunning,
+		CodingAgent: "hermes",
+	}
+	store.activeSessions["card-1"] = ActiveSessionRecord{
+		CardID: "card-1", SessionID: "old-sess", Phase: "coding", Agent: "hermes",
+		CreatedAt: time.Now().Add(-31 * time.Minute),
+	}
+	spawner := &fakeSpawner{store: store}
+	killer := &fakeKiller{err: errors.New("session already gone")}
+	orc := New(Config{Store: store, Spawner: spawner, Killer: killer, WIPLimit: 4})
+
+	// A kill failure must not block the replacement spawn.
+	if err := orc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v, want nil (kill failure should not propagate)", err)
+	}
+	if len(spawner.spawned) != 1 {
+		t.Fatalf("spawner.Spawn called %d times, want 1 (replacement still proceeds)", len(spawner.spawned))
 	}
 }
 

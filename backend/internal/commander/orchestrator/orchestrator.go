@@ -22,6 +22,16 @@ type ConfiguredOrchestrator struct {
 	clock    func() time.Time
 	newID    func() string
 	wipLimit int
+	killer   SessionKiller
+}
+
+// SessionKiller stops a previously spawned session. Used when the
+// orchestrator supersedes a session on a phase-timeout-triggered
+// replacement, so the old real process doesn't leak. A Kill failure (the
+// old session may already be gone — a normal, harmless case) is handled by
+// the caller and never blocks the replacement spawn.
+type SessionKiller interface {
+	Kill(ctx context.Context, id domain.SessionID) (bool, error)
 }
 
 // OrchestratorStore is the durable surface required by the orchestrator tick
@@ -54,6 +64,7 @@ type Config struct {
 	Clock    func() time.Time
 	NewID    func() string
 	WIPLimit int
+	Killer   SessionKiller
 }
 
 // New returns a configured orchestrator that implements commander.Orchestrator
@@ -74,6 +85,7 @@ func New(cfg Config) *ConfiguredOrchestrator {
 		clock:    clock,
 		newID:    newID,
 		wipLimit: cfg.WIPLimit,
+		killer:   cfg.Killer,
 	}
 }
 
