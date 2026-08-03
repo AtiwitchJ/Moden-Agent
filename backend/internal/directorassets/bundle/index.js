@@ -102142,6 +102142,8 @@ Read the card first: \`ao workboard card show ${cardId} --json\`. Use the live c
 
 Plan the work, then delegate implementation to worker sessions with \`ao spawn --agent <agent> --prompt "<task>"\`. Include the card id and the exact subtask in every worker prompt. Keep at most one implementation worker active at a time. Do not write the implementation yourself except for a small coordination-only fix.
 
+When a worker asks a question, AO delivers it to this Director terminal. Read the question, inspect the card or code if needed, then answer the worker with the \`answer_worker\` tool. The tool sends the reply into the worker's live CLI terminal. Make the decision yourself when it is safe; only block the card for a real human decision or a risky/destructive action.
+
 Advance the card with \`ao workboard card transition ${cardId} --to <status> --reason "<why>"\` once a phase genuinely completes. Valid onward statuses are review, testing, done, redo, and blocked. The daemon validates every transition; an invalid one is rejected and you must read the error rather than retrying blindly.
 
 ## When you cannot proceed
@@ -102165,6 +102167,11 @@ function buildTransitionArgv(cardId, to, reason) {
 }
 function buildSpawnWorkerArgv(agent, prompt) {
   return ["spawn", "--agent", agent, "--prompt", prompt];
+}
+function buildSendWorkerAnswerArgv(sessionId, answer) {
+  if (sessionId.trim() === "") throw new Error("a worker session id is required");
+  if (answer.trim() === "") throw new Error("an answer is required");
+  return ["send", "--session", sessionId, "--message", answer];
 }
 async function runAo(run, argv) {
   const { code, stdout, stderr } = await run(argv);
@@ -102191,6 +102198,10 @@ var runner = (argv) => new Promise((resolve, reject) => {
 async function main() {
   const cfg = loadConfig(process.env);
   const budget = new IterationBudget(cfg.maxIterations);
+  let finish;
+  const finished = new Promise((resolve) => {
+    finish = resolve;
+  });
   const showCard = tool(
     async () => runAo(runner, buildShowCardArgv(cfg.cardId)),
     {
@@ -102199,8 +102210,13 @@ async function main() {
       schema: external_exports.object({})
     }
   );
+  let terminalCard = false;
   const transitionCard = tool(
-    async ({ to, reason }) => runAo(runner, buildTransitionArgv(cfg.cardId, to, reason)),
+    async ({ to, reason }) => {
+      const output = await runAo(runner, buildTransitionArgv(cfg.cardId, to, reason));
+      terminalCard = to === "done" || to === "blocked";
+      return output;
+    },
     {
       name: "transition_card",
       description: "Move the card to a new status (review, testing, done, redo, blocked). Always supply a reason explaining why.",
@@ -102211,7 +102227,15 @@ async function main() {
     }
   );
   const spawnWorker = tool(
-    async ({ agent: agent2, prompt }) => runAo(runner, buildSpawnWorkerArgv(agent2, prompt)),
+    async ({ agent: agent2, prompt }) => runAo(
+      runner,
+      buildSpawnWorkerArgv(
+        agent2,
+        `${prompt.trim()}
+
+You are supervised by Director session ${cfg.sessionId}. If your CLI asks a question or you are blocked, send the exact question to the Director with: ao send --session ${cfg.sessionId} --message "<question>". Wait for its answer before proceeding.`
+      )
+    ),
     {
       name: "spawn_worker",
       description: "Delegate an implementation subtask to a worker agent session.",
@@ -102221,32 +102245,74 @@ async function main() {
       })
     }
   );
+  const answerWorker = tool(
+    async ({ sessionId, answer }) => runAo(runner, buildSendWorkerAnswerArgv(sessionId, answer)),
+    {
+      name: "answer_worker",
+      description: "Answer a worker's question by sending the decision into its live agent CLI terminal.",
+      schema: external_exports.object({
+        sessionId: external_exports.string().describe("The worker session that asked the question"),
+        answer: external_exports.string().describe("A clear, actionable answer for that worker")
+      })
+    }
+  );
   const agent = await createDeepAgent({
     model: cfg.model,
-    tools: [showCard, transitionCard, spawnWorker],
+    tools: [showCard, transitionCard, spawnWorker, answerWorker],
     systemPrompt: directorSystemPrompt(cfg.cardId)
   });
-  const opening = cfg.prompt.trim() || `Drive work card ${cfg.cardId} to completion.`;
-  let messages = [
-    { role: "user", content: opening }
-  ];
-  while (true) {
-    if (budget.shouldForceBlock()) {
-      await runAo(
-        runner,
-        buildTransitionArgv(
-          cfg.cardId,
-          "blocked",
-          `Director stopped with ${budget.remaining} iterations left in its budget. Last state: ${summarize(messages)}`
-        )
-      );
-      return;
+  let messages = [];
+  const drive = async (instruction) => {
+    messages = [...messages, { role: "user", content: instruction }];
+    while (true) {
+      if (budget.shouldForceBlock()) {
+        await runAo(
+          runner,
+          buildTransitionArgv(
+            cfg.cardId,
+            "blocked",
+            `Director stopped with ${budget.remaining} iterations left in its budget. Last state: ${summarize(messages)}`
+          )
+        );
+        terminalCard = true;
+        finish?.();
+        return;
+      }
+      budget.recordIteration();
+      const result = await agent.invoke({ messages });
+      messages = result.messages ?? [];
+      if (terminalCard) {
+        finish?.();
+        return;
+      }
+      if (isFinished(result)) return;
     }
-    budget.recordIteration();
-    const result = await agent.invoke({ messages });
-    messages = result.messages ?? [];
-    if (isFinished(result)) return;
-  }
+  };
+  let queue2 = Promise.resolve();
+  const enqueue = (instruction) => {
+    queue2 = queue2.then(() => drive(instruction)).catch((err) => {
+      console.error(`director: ${err instanceof Error ? err.message : String(err)}`);
+    });
+  };
+  const opening = cfg.prompt.trim() || `Drive work card ${cfg.cardId} to completion.`;
+  enqueue(opening);
+  process.stdin.setEncoding("utf8");
+  let pendingInput = "";
+  process.stdin.on("data", (chunk) => {
+    pendingInput += chunk;
+    const lines = pendingInput.split(/\r?\n/);
+    pendingInput = lines.pop() ?? "";
+    for (const line of lines) {
+      const question = line.trim();
+      if (question !== "" && !terminalCard) {
+        enqueue(`A worker sent this terminal question. Resolve it and use answer_worker to reply:
+${question}`);
+      }
+    }
+  });
+  process.stdin.resume();
+  await finished;
+  process.stdin.pause();
 }
 function isFinished(result) {
   const msgs = result.messages ?? [];

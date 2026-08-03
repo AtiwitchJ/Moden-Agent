@@ -24,4 +24,8 @@ describe("directorSystemPrompt", () => {
 	it("tells the agent to delegate implementation rather than code directly", () => {
 		expect(prompt).toContain("ao spawn");
 	});
+
+	it("makes the Director answer worker terminal questions", () => {
+		expect(prompt).toContain("answer_worker");
+	});
 });

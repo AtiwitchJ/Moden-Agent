@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildShowCardArgv, buildSpawnWorkerArgv, buildTransitionArgv, runAo } from "./tools.js";
+import { buildSendWorkerAnswerArgv, buildShowCardArgv, buildSpawnWorkerArgv, buildTransitionArgv, runAo } from "./tools.js";
 
 describe("argv builders", () => {
 	it("builds the show-card argv with JSON output", () => {
@@ -16,6 +16,16 @@ describe("argv builders", () => {
 		expect(buildSpawnWorkerArgv("claude-code", "implement X")).toEqual([
 			"spawn", "--agent", "claude-code", "--prompt", "implement X",
 		]);
+	});
+
+	it("builds the terminal answer argv", () => {
+		expect(buildSendWorkerAnswerArgv("worker-1", "Run the focused tests.")).toEqual([
+			"send", "--session", "worker-1", "--message", "Run the focused tests.",
+		]);
+	});
+
+	it("rejects a blank worker answer", () => {
+		expect(() => buildSendWorkerAnswerArgv("worker-1", " ")).toThrow(/answer/);
 	});
 
 	it("rejects a transition with an empty reason", () => {

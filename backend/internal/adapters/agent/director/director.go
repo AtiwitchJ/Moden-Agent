@@ -82,12 +82,14 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	return []string{"node", directorassets.EntrypointPath(p.dataDir)}, nil
 }
 
-// GetPromptDeliveryStrategy reports that prompts arrive via env vars.
+// GetPromptDeliveryStrategy reports that prompts arrive in the launch
+// environment. The Director keeps stdin as its worker-question control channel,
+// so sending the initial prompt through the PTY would be misread as a question.
 func (p *Plugin) GetPromptDeliveryStrategy(ctx context.Context, _ ports.LaunchConfig) (ports.PromptDeliveryStrategy, error) {
 	if err := ctx.Err(); err != nil {
 		return "", err
 	}
-	return ports.PromptDeliveryAfterStart, nil
+	return ports.PromptDeliveryInCommand, nil
 }
 
 // GetAgentHooks is a no-op: the Director reports activity through `ao hooks`.

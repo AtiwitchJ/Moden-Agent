@@ -33,6 +33,10 @@ type SessionMetadata struct {
 	// TargetPath is the optional source path the worker launched from. It is
 	// projected into a recreated worktree when the session is restored.
 	TargetPath string `json:"targetPath,omitempty"`
+	// DirectorCardID is the work card owned by a Director harness session. It
+	// is durable so a daemon restart can relaunch the Director with the same
+	// work-card authority.
+	DirectorCardID string `json:"directorCardId,omitempty"`
 	// PreviewURL is the browser preview target the desktop app opens for this
 	// session. Set via `ao preview` (POST /sessions/{id}/preview); persisted so
 	// it survives a daemon restart. Empty means no preview has been requested.

@@ -25,4 +25,8 @@ type SpawnConfig struct {
 	// DisplayName is the user-facing sidebar label. Empty falls back to the
 	// session id in the read model (e.g. orchestrator sessions).
 	DisplayName string
+	// DirectorCardID scopes a Director harness launch to the work card it owns.
+	// It is intentionally harness-specific: ordinary agent sessions must not
+	// acquire workboard authority merely by receiving an environment variable.
+	DirectorCardID string
 }

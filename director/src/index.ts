@@ -6,6 +6,7 @@ import { IterationBudget } from "./budget.js";
 import { loadConfig } from "./config.js";
 import { directorSystemPrompt } from "./prompt.js";
 import {
+	buildSendWorkerAnswerArgv,
 	buildShowCardArgv,
 	buildSpawnWorkerArgv,
 	buildTransitionArgv,
@@ -33,6 +34,10 @@ const runner: Runner = (argv) =>
 async function main(): Promise<void> {
 	const cfg = loadConfig(process.env);
 	const budget = new IterationBudget(cfg.maxIterations);
+	let finish: (() => void) | undefined;
+	const finished = new Promise<void>((resolve) => {
+		finish = resolve;
+	});
 
 	const showCard = tool(
 		async () => runAo(runner, buildShowCardArgv(cfg.cardId)),
@@ -43,9 +48,13 @@ async function main(): Promise<void> {
 		},
 	);
 
+	let terminalCard = false;
 	const transitionCard = tool(
-		async ({ to, reason }: { to: string; reason: string }) =>
-			runAo(runner, buildTransitionArgv(cfg.cardId, to, reason)),
+		async ({ to, reason }: { to: string; reason: string }) => {
+			const output = await runAo(runner, buildTransitionArgv(cfg.cardId, to, reason));
+			terminalCard = to === "done" || to === "blocked";
+			return output;
+		},
 		{
 			name: "transition_card",
 			description:
@@ -59,7 +68,13 @@ async function main(): Promise<void> {
 
 	const spawnWorker = tool(
 		async ({ agent, prompt }: { agent: string; prompt: string }) =>
-			runAo(runner, buildSpawnWorkerArgv(agent, prompt)),
+			runAo(
+				runner,
+				buildSpawnWorkerArgv(
+					agent,
+					`${prompt.trim()}\n\nYou are supervised by Director session ${cfg.sessionId}. If your CLI asks a question or you are blocked, send the exact question to the Director with: ao send --session ${cfg.sessionId} --message "<question>". Wait for its answer before proceeding.`,
+				),
+			),
 		{
 			name: "spawn_worker",
 			description: "Delegate an implementation subtask to a worker agent session.",
@@ -70,18 +85,29 @@ async function main(): Promise<void> {
 		},
 	);
 
+	const answerWorker = tool(
+		async ({ sessionId, answer }: { sessionId: string; answer: string }) =>
+			runAo(runner, buildSendWorkerAnswerArgv(sessionId, answer)),
+		{
+			name: "answer_worker",
+			description: "Answer a worker's question by sending the decision into its live agent CLI terminal.",
+			schema: z.object({
+				sessionId: z.string().describe("The worker session that asked the question"),
+				answer: z.string().describe("A clear, actionable answer for that worker"),
+			}),
+		},
+	);
+
 	const agent = await createDeepAgent({
 		model: cfg.model,
-		tools: [showCard, transitionCard, spawnWorker],
+		tools: [showCard, transitionCard, spawnWorker, answerWorker],
 		systemPrompt: directorSystemPrompt(cfg.cardId),
 	});
 
-	const opening = cfg.prompt.trim() || `Drive work card ${cfg.cardId} to completion.`;
-	let messages: Array<{ role: string; content: string }> = [
-		{ role: "user", content: opening },
-	];
-
-	while (true) {
+	let messages: Array<{ role: string; content: string }> = [];
+	const drive = async (instruction: string): Promise<void> => {
+		messages = [...messages, { role: "user", content: instruction }];
+		while (true) {
 		if (budget.shouldForceBlock()) {
 			// Enforced, not requested: stop and record why while budget remains.
 			await runAo(
@@ -92,6 +118,8 @@ async function main(): Promise<void> {
 					`Director stopped with ${budget.remaining} iterations left in its budget. Last state: ${summarize(messages)}`,
 				),
 			);
+			terminalCard = true;
+			finish?.();
 			return;
 		}
 		budget.recordIteration();
@@ -105,8 +133,43 @@ async function main(): Promise<void> {
 		};
 		const result = await (agent as unknown as DeepAgentInvoke).invoke({ messages });
 		messages = (result.messages ?? []) as typeof messages;
+		if (terminalCard) {
+			finish?.();
+			return;
+		}
 		if (isFinished(result)) return;
-	}
+		}
+	};
+
+	let queue = Promise.resolve();
+	const enqueue = (instruction: string) => {
+		queue = queue.then(() => drive(instruction)).catch((err: unknown) => {
+			console.error(`director: ${err instanceof Error ? err.message : String(err)}`);
+		});
+	};
+
+	const opening = cfg.prompt.trim() || `Drive work card ${cfg.cardId} to completion.`;
+	enqueue(opening);
+
+	// The daemon's session messenger writes to this process's PTY. Keeping
+	// stdin open turns the Director terminal into a control channel: a worker's
+	// `ao send` question is a new model turn, not text lost at a shell prompt.
+	process.stdin.setEncoding("utf8");
+	let pendingInput = "";
+	process.stdin.on("data", (chunk: string) => {
+		pendingInput += chunk;
+		const lines = pendingInput.split(/\r?\n/);
+		pendingInput = lines.pop() ?? "";
+		for (const line of lines) {
+			const question = line.trim();
+			if (question !== "" && !terminalCard) {
+				enqueue(`A worker sent this terminal question. Resolve it and use answer_worker to reply:\n${question}`);
+			}
+		}
+	});
+	process.stdin.resume();
+	await finished;
+	process.stdin.pause();
 }
 
 /** DeepAgents returns when the model stops requesting tools; treat the absence

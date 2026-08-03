@@ -315,7 +315,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		m.rollbackSpawnSeedRow(ctx, id)
 		return domain.SessionRecord{}, fmt.Errorf("spawn %s: %w", id, err)
 	}
-	agentConfig := effectiveAgentConfig(cfg.Kind, project.Config)
+	agentConfig := effectiveAgentConfigForHarness(cfg.Kind, cfg.Harness, project.Config)
 	// AO session labels are allocated per project (for example, "test-6") and
 	// can be reused after a local data reset. Claude Code rejects a duplicate
 	// --session-id globally, so give every new Claude launch a random native id
@@ -354,7 +354,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		SessionID:     id,
 		WorkspacePath: launchPath,
 		Argv:          argv,
-		Env:           m.runtimeEnv(id, cfg.ProjectID, cfg.IssueID, project.Config.Env, cfg.Harness, prompt, systemPrompt, agentConfig),
+		Env:           m.runtimeEnv(id, cfg.ProjectID, cfg.IssueID, project.Config.Env, cfg.Harness, prompt, systemPrompt, agentConfig, cfg.DirectorCardID),
 	})
 	if err != nil {
 		_ = m.workspace.Destroy(ctx, ws)
@@ -362,7 +362,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		return domain.SessionRecord{}, fmt.Errorf("spawn %s: runtime: %w", id, err)
 	}
 
-	metadata := domain.SessionMetadata{Branch: ws.Branch, WorkspacePath: ws.Path, RuntimeHandleID: handle.ID, AgentSessionID: agentSessionID, Prompt: prompt, TargetPath: cfg.TargetPath}
+	metadata := domain.SessionMetadata{Branch: ws.Branch, WorkspacePath: ws.Path, RuntimeHandleID: handle.ID, AgentSessionID: agentSessionID, Prompt: prompt, TargetPath: cfg.TargetPath, DirectorCardID: cfg.DirectorCardID}
 	if err := m.lcm.MarkSpawned(ctx, id, metadata); err != nil {
 		_ = m.runtime.Destroy(ctx, handle)
 		_ = m.workspace.Destroy(ctx, ws)
@@ -494,6 +494,27 @@ func roleConfigName(kind domain.SessionKind) string {
 func effectiveAgentConfig(kind domain.SessionKind, cfg domain.ProjectConfig) ports.AgentConfig {
 	merged := cfg.AgentConfig
 	override := roleOverride(kind, cfg).AgentConfig
+	if override.Model != "" {
+		merged.Model = override.Model
+	}
+	if override.Permissions != "" {
+		merged.Permissions = override.Permissions
+	}
+	if len(override.Command) > 0 {
+		merged.Command = override.Command
+	}
+	return merged
+}
+
+// effectiveAgentConfigForHarness lets Director use its own role override even
+// though it intentionally runs as an orchestrator-kind session. Other
+// harnesses retain the existing worker/orchestrator role resolution.
+func effectiveAgentConfigForHarness(kind domain.SessionKind, harness domain.AgentHarness, cfg domain.ProjectConfig) ports.AgentConfig {
+	if harness != domain.HarnessDirector {
+		return effectiveAgentConfig(kind, cfg)
+	}
+	merged := cfg.AgentConfig
+	override := cfg.Director.AgentConfig
 	if override.Model != "" {
 		merged.Model = override.Model
 	}
@@ -773,7 +794,8 @@ func (m *Manager) Restore(ctx context.Context, id domain.SessionID) (domain.Sess
 	}
 	// Restore re-applies the project's resolved agent config so a configured
 	// model/permissions carry across a restore, matching fresh spawn.
-	argv, err := restoreArgv(ctx, agent, id, launchPath, meta, systemPrompt, effectiveAgentConfig(rec.Kind, project.Config), rec.Kind)
+	agentConfig := effectiveAgentConfigForHarness(rec.Kind, rec.Harness, project.Config)
+	argv, err := restoreArgv(ctx, agent, id, launchPath, meta, systemPrompt, agentConfig, rec.Kind)
 	if err != nil {
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: %w", id, err)
 	}
@@ -781,12 +803,12 @@ func (m *Manager) Restore(ctx context.Context, id domain.SessionID) (domain.Sess
 		SessionID:     id,
 		WorkspacePath: launchPath,
 		Argv:          argv,
-		Env:           m.runtimeEnv(id, rec.ProjectID, rec.IssueID, project.Config.Env, rec.Harness, meta.Prompt, systemPrompt, effectiveAgentConfig(rec.Kind, project.Config)),
+		Env:           m.runtimeEnv(id, rec.ProjectID, rec.IssueID, project.Config.Env, rec.Harness, meta.Prompt, systemPrompt, agentConfig, meta.DirectorCardID),
 	})
 	if err != nil {
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: runtime: %w", id, err)
 	}
-	metadata := domain.SessionMetadata{Branch: ws.Branch, WorkspacePath: ws.Path, RuntimeHandleID: handle.ID, AgentSessionID: meta.AgentSessionID, Prompt: meta.Prompt, TargetPath: meta.TargetPath}
+	metadata := domain.SessionMetadata{Branch: ws.Branch, WorkspacePath: ws.Path, RuntimeHandleID: handle.ID, AgentSessionID: meta.AgentSessionID, Prompt: meta.Prompt, TargetPath: meta.TargetPath, DirectorCardID: meta.DirectorCardID}
 	if err := m.lcm.MarkSpawned(ctx, id, metadata); err != nil {
 		_ = m.runtime.Destroy(ctx, handle)
 		return domain.SessionRecord{}, fmt.Errorf("restore %s: completed: %w", id, err)
@@ -1522,7 +1544,7 @@ func spawnEnv(id domain.SessionID, project domain.ProjectID, issue domain.IssueI
 // command, which fails every callback and silently kills activity tracking).
 // When the pin cannot be applied the inherited PATH is kept and a warning is
 // logged so the degradation isn't silent.
-func (m *Manager) runtimeEnv(id domain.SessionID, project domain.ProjectID, issue domain.IssueID, projectEnv map[string]string, harness domain.AgentHarness, prompt, systemPrompt string, agentConfig ports.AgentConfig) map[string]string {
+func (m *Manager) runtimeEnv(id domain.SessionID, project domain.ProjectID, issue domain.IssueID, projectEnv map[string]string, harness domain.AgentHarness, prompt, systemPrompt string, agentConfig ports.AgentConfig, directorCardID string) map[string]string {
 	env := spawnEnv(id, project, issue, m.dataDir, projectEnv)
 	if harness == domain.HarnessCommand || harness == domain.HarnessDirector {
 		if prompt != "" {
@@ -1534,11 +1556,12 @@ func (m *Manager) runtimeEnv(id domain.SessionID, project domain.ProjectID, issu
 	}
 	// AO_DIRECTOR_MODEL tells the Director which engine to use. The model comes
 	// from the agent config (merged from the role override) so it respects the
-	// project's configured engine. Card ID (AO_DIRECTOR_CARD_ID) is not set here
-	// because the Director dispatch path (Task 10) is what knows which card is being
-	// driven — it is threaded through the dispatcher rather than the spawn path.
+	// project's configured engine.
 	if harness == domain.HarnessDirector && agentConfig.Model != "" {
 		env["AO_DIRECTOR_MODEL"] = agentConfig.Model
+	}
+	if harness == domain.HarnessDirector && directorCardID != "" {
+		env["AO_DIRECTOR_CARD_ID"] = directorCardID
 	}
 	// NODE_PATH lets Node resolve the @langchain/* packages the Director's
 	// bundled deepagents loads via dynamic import(). The path points to the

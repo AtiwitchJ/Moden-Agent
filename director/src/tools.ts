@@ -17,6 +17,12 @@ export function buildSpawnWorkerArgv(agent: string, prompt: string): string[] {
 	return ["spawn", "--agent", agent, "--prompt", prompt];
 }
 
+export function buildSendWorkerAnswerArgv(sessionId: string, answer: string): string[] {
+	if (sessionId.trim() === "") throw new Error("a worker session id is required");
+	if (answer.trim() === "") throw new Error("an answer is required");
+	return ["send", "--session", sessionId, "--message", answer];
+}
+
 /** Runs an `ao` subcommand, returning stdout. A non-zero exit becomes a thrown
  * error so DeepAgents surfaces it to the model as a tool failure rather than
  * letting the agent proceed on a silently failed action. */

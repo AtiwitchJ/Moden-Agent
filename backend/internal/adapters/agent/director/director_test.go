@@ -26,7 +26,7 @@ func TestGetLaunchCommandRunsTheInstalledBundle(t *testing.T) {
 	if len(argv) != 2 || argv[0] != "node" {
 		t.Fatalf("argv = %v, want [node <path>]", argv)
 	}
-	if want := filepath.Join("/data", "director", "index.js"); argv[1] != want {
+	if want := filepath.Join("/data", "director", "dist", "index.js"); argv[1] != want {
 		t.Fatalf("entrypoint = %q, want %q", argv[1], want)
 	}
 }
@@ -41,12 +41,12 @@ func TestGetLaunchCommandRequiresDataDir(t *testing.T) {
 	}
 }
 
-func TestPromptDeliveryIsEnvBased(t *testing.T) {
+func TestPromptDeliveryIsInTheLaunchEnvironment(t *testing.T) {
 	got, err := director.New().GetPromptDeliveryStrategy(context.Background(), ports.LaunchConfig{})
 	if err != nil {
 		t.Fatalf("GetPromptDeliveryStrategy: %v", err)
 	}
-	if got != ports.PromptDeliveryAfterStart {
-		t.Fatalf("strategy = %v, want %v", got, ports.PromptDeliveryAfterStart)
+	if got != ports.PromptDeliveryInCommand {
+		t.Fatalf("strategy = %v, want %v", got, ports.PromptDeliveryInCommand)
 	}
 }
