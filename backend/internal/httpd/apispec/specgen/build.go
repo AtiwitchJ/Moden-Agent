@@ -151,6 +151,7 @@ var schemaNames = map[string]string{
 	"ControllersWorkboardProjectIDParam":          "WorkboardProjectIDParam",
 	"ControllersWorkCardIDParam":                  "WorkCardIDParam",
 	"ControllersWorkCardResponse":                 "WorkCardResponse",
+	"ControllersWorkCardHandoffResponse":          "WorkCardHandoffResponse",
 	"ControllersDeleteWorkCardResponse":           "DeleteWorkCardResponse",
 	"ControllersCreateWorkCardRequest":            "CreateWorkCardRequest",
 	"ControllersUpdateWorkCardRequest":            "UpdateWorkCardRequest",

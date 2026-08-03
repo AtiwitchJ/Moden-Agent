@@ -27,6 +27,7 @@ type WorkboardService interface {
 	Retarget(ctx context.Context, id string, in workboardsvc.RetargetInput) (domain.WorkCard, error)
 	Split(ctx context.Context, id string, in workboardsvc.SplitInput) (workboardsvc.SplitResult, error)
 	RecordAgentEvent(ctx context.Context, cardID string, in workboardsvc.AgentEventInput) (domain.WorkCard, error)
+	Handoffs(ctx context.Context, cardID string) ([]workboardsvc.Handoff, error)
 	ListRedo(ctx context.Context, cardID string) ([]domain.RedoCycle, error)
 	LatestDispatchFailure(ctx context.Context, cardID string) (workboardsvc.DispatchFailure, error)
 	DirectorStatus(ctx context.Context, projectID string) (workboardsvc.DirectorStatus, error)
@@ -184,7 +185,14 @@ func (c *WorkboardController) get(w http.ResponseWriter, r *http.Request) {
 		envelope.WriteError(w, r, err)
 		return
 	}
-	envelope.WriteJSON(w, http.StatusOK, newWorkCardResponse(card))
+	handoffs, err := c.Svc.Handoffs(r.Context(), card.ID)
+	if err != nil {
+		envelope.WriteError(w, r, err)
+		return
+	}
+	response := newWorkCardResponse(card)
+	response.Handoffs = workCardHandoffResponses(handoffs)
+	envelope.WriteJSON(w, http.StatusOK, response)
 }
 
 func (c *WorkboardController) delete(w http.ResponseWriter, r *http.Request) {

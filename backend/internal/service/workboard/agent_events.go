@@ -36,6 +36,7 @@ var agentEventKinds = map[string]bool{
 	"agent_verdict":    true,
 	"agent_finding":    true,
 	"test_result":      true,
+	"agent_handoff":    true,
 	"agent_failed":     true,
 }
 
@@ -60,6 +61,14 @@ func (s *Service) RecordAgentEvent(ctx context.Context, cardID string, in AgentE
 	}
 	if in.Payload != "" && !json.Valid([]byte(in.Payload)) {
 		return domain.WorkCard{}, apierr.Invalid("WORK_CARD_EVENT_PAYLOAD_INVALID", "Payload must be JSON", nil)
+	}
+	if kind == "agent_handoff" {
+		var handoff Handoff
+		if err := json.Unmarshal([]byte(in.Payload), &handoff); err != nil ||
+			(handoff.Phase != "coding" && handoff.Phase != "review" && handoff.Phase != "testing") ||
+			strings.TrimSpace(handoff.Summary) == "" {
+			return domain.WorkCard{}, apierr.Invalid("WORK_CARD_HANDOFF_INVALID", "Handoff needs a phase (coding, review, or testing) and summary", nil)
+		}
 	}
 	appender, ok := s.store.(workCardEventAppender)
 	if !ok {

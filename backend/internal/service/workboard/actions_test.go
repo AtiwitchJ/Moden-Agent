@@ -304,6 +304,16 @@ func (f *actionsStoreFake) AppendWorkCardEvent(_ context.Context, event domain.W
 	return nil
 }
 
+func (f *actionsStoreFake) ListWorkCardEvents(_ context.Context, cardID string) ([]domain.WorkCardEvent, error) {
+	var events []domain.WorkCardEvent
+	for _, event := range f.events {
+		if event.CardID == cardID {
+			events = append(events, event)
+		}
+	}
+	return events, nil
+}
+
 func (f *actionsStoreFake) DeleteActiveSession(_ context.Context, cardID string) error {
 	f.deletedActiveSessions = append(f.deletedActiveSessions, cardID)
 	return nil

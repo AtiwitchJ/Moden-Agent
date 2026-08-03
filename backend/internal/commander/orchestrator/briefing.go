@@ -43,17 +43,17 @@ func generateBriefing(card domain.WorkCard, phase commander.Phase, cycle *domain
 	case commander.PhaseCoding:
 		fmt.Fprintf(&b, "Coding agent: %s\n", firstNonEmpty(card.CodingAgent, card.Agent, "hermes"))
 		fmt.Fprintf(&b, "\nRead the latest card state:\nao workboard get %s --json\n\n", card.ID)
-		fmt.Fprintf(&b, "Then plan, implement, and open a PR.")
+		fmt.Fprintf(&b, "Then plan and implement. Before completing, record a handoff with changed files, checks/results, commit or PR, and the review focus: ao workboard card handoff %s --phase coding --summary \"...\".", card.ID)
 
 	case commander.PhaseReview:
 		fmt.Fprintf(&b, "Reviewer agent: %s\n", firstNonEmpty(card.ReviewerAgent, "hermes"))
 		fmt.Fprintf(&b, "\nRead the card and PR:\nao workboard get %s --json\n\n", card.ID)
-		fmt.Fprintf(&b, "Review the changes, run tests if applicable, and report a verdict: approved | changes_requested | inconclusive.")
+		fmt.Fprintf(&b, "The card JSON includes durable handoffs from earlier phases. Use the coding handoff to inspect the real diff and choose focused checks; if it is missing, inspect git diff, git status, and the repository test scripts first. Record your own handoff before reporting a verdict: approved | changes_requested | inconclusive.")
 
 	case commander.PhaseTesting:
 		fmt.Fprintf(&b, "Testing agent: %s\n", firstNonEmpty(card.TestingAgent, "hermes"))
 		fmt.Fprintf(&b, "\nRead the card and PR:\nao workboard get %s --json\n\n", card.ID)
-		fmt.Fprintf(&b, "Run the test suite and report: pass | fail.")
+		fmt.Fprintf(&b, "The card JSON includes durable coding and review handoffs. Use their changed files, prior checks, and remaining focus to select tests; if either is missing, inspect git diff, git status, and the repository test scripts first. Record your own handoff, then report: pass | fail.")
 	}
 
 	return b.String(), nil

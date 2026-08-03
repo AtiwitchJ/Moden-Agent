@@ -29,6 +29,12 @@ describe("directorSystemPrompt", () => {
 		expect(prompt).toContain("answer_worker");
 	});
 
+	it("requires durable phase handoffs before delegation continues", () => {
+		expect(prompt).toContain("workboard card handoff card-42");
+		expect(prompt).toContain("handoffs");
+		expect(prompt).toContain("git diff");
+	});
+
 	it("keeps Git workflow automation within destructive-action guardrails", () => {
 		expect(prompt).toContain("git reset --hard");
 		expect(prompt).toContain("force-push");

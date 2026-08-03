@@ -11,25 +11,26 @@ import (
 )
 
 type workCardDTO struct {
-	ID                 string   `json:"id"`
-	ProjectID          string   `json:"projectId"`
-	Title              string   `json:"title"`
-	Notes              string   `json:"notes"`
-	Priority           string   `json:"priority"`
-	Labels             []string `json:"labels"`
-	Status             string   `json:"status"`
-	Position           int64    `json:"position"`
-	TargetPath         string   `json:"targetPath"`
-	Agent              string   `json:"agent"`
-	CodingAgent        string   `json:"codingAgent"`
-	ReviewerMode       string   `json:"reviewerMode"`
-	ReviewerAgent      string   `json:"reviewerAgent"`
-	TestingAgent       string   `json:"testingAgent"`
-	SessionID          string   `json:"sessionId"`
-	WaitingForInput    bool     `json:"waitingForInput"`
-	PausedRetarget     bool     `json:"pausedRetarget"`
-	GoalVersion        int      `json:"goalVersion"`
-	SupersededByCardID string   `json:"supersededByCardId"`
+	ID                 string               `json:"id"`
+	ProjectID          string               `json:"projectId"`
+	Title              string               `json:"title"`
+	Notes              string               `json:"notes"`
+	Priority           string               `json:"priority"`
+	Labels             []string             `json:"labels"`
+	Status             string               `json:"status"`
+	Position           int64                `json:"position"`
+	TargetPath         string               `json:"targetPath"`
+	Agent              string               `json:"agent"`
+	CodingAgent        string               `json:"codingAgent"`
+	ReviewerMode       string               `json:"reviewerMode"`
+	ReviewerAgent      string               `json:"reviewerAgent"`
+	TestingAgent       string               `json:"testingAgent"`
+	SessionID          string               `json:"sessionId"`
+	WaitingForInput    bool                 `json:"waitingForInput"`
+	PausedRetarget     bool                 `json:"pausedRetarget"`
+	GoalVersion        int                  `json:"goalVersion"`
+	SupersededByCardID string               `json:"supersededByCardId"`
+	Handoffs           []cardHandoffPayload `json:"handoffs"`
 }
 
 type workCardStatusRequest struct {

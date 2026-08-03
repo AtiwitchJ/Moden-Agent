@@ -3,6 +3,7 @@ package orchestrator
 import (
 	"context"
 	"errors"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,11 +15,11 @@ import (
 // --- Fakes ---
 
 type fakeStore struct {
-	cards            map[string]domain.WorkCard
-	activeSessions   map[string]ActiveSessionRecord
+	cards           map[string]domain.WorkCard
+	activeSessions  map[string]ActiveSessionRecord
 	redoCycles      map[string][]domain.RedoCycle
 	events          []domain.WorkCardEvent
-	listSessionsOut  []domain.SessionRecord
+	listSessionsOut []domain.SessionRecord
 }
 
 func newFakeStore() *fakeStore {
@@ -84,9 +85,9 @@ func (s *fakeStore) ListSessions(_ context.Context, _ domain.ProjectID) ([]domai
 }
 
 type fakeSpawner struct {
-	spawned     []spawnedCall
-	spawnErr    error
-	stopErr     error
+	spawned  []spawnedCall
+	spawnErr error
+	stopErr  error
 	// store, when set, mirrors production spawner.Spawner.Spawn's behavior of
 	// recording the (card, session, phase, agent) fact in active_session on a
 	// successful launch. Left nil in tests that don't care about that
@@ -137,18 +138,18 @@ func (f *fakeKiller) Kill(_ context.Context, id domain.SessionID) (bool, error) 
 
 func card(id, projectID, status string) domain.WorkCard {
 	return domain.WorkCard{
-		ID:          id,
-		ProjectID:   projectID,
-		BoardID:     defaultBoardID,
-		Title:       "Test card " + id,
-		Status:      domain.CardStatus(status),
-		CodingAgent: "claude-code",
-		Agent:       "claude-code",
+		ID:            id,
+		ProjectID:     projectID,
+		BoardID:       defaultBoardID,
+		Title:         "Test card " + id,
+		Status:        domain.CardStatus(status),
+		CodingAgent:   "claude-code",
+		Agent:         "claude-code",
 		ReviewerAgent: "hermes-reviewer",
-		TestingAgent: "hermes-tester",
-		GoalVersion:  1,
-		CreatedAt:    time.Now(),
-		UpdatedAt:    time.Now(),
+		TestingAgent:  "hermes-tester",
+		GoalVersion:   1,
+		CreatedAt:     time.Now(),
+		UpdatedAt:     time.Now(),
 	}
 }
 
@@ -185,6 +186,16 @@ func TestTick_RunningCardWithNoSession_SpawnsHermes(t *testing.T) {
 	}
 	if sp.spawned[0].Spec.Phase != commander.PhaseCoding {
 		t.Fatalf("spawned phase = %v, want PhaseCoding", sp.spawned[0].Spec.Phase)
+	}
+}
+
+func TestGenerateBriefing_RequiresPriorPhaseHandoff(t *testing.T) {
+	briefing, err := generateBriefing(card("c1", "p1", "review"), commander.PhaseReview, nil)
+	if err != nil {
+		t.Fatalf("generateBriefing: %v", err)
+	}
+	if !strings.Contains(briefing, "durable handoffs") || !strings.Contains(briefing, "git diff") || !strings.Contains(briefing, "Record your own handoff") {
+		t.Fatalf("review briefing missing handoff protocol: %s", briefing)
 	}
 }
 

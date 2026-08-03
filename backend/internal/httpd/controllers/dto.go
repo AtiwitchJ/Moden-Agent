@@ -47,34 +47,46 @@ type WorkCardIDParam struct {
 // Waiting and retargeting flags remain independent durable facts; clients
 // derive any display badge from them at read time.
 type WorkCardResponse struct {
-	ID                 string     `json:"id"`
-	ProjectID          string     `json:"projectId"`
-	ProjectName        string     `json:"projectName,omitempty"`
-	BoardID            string     `json:"boardId"`
-	Title              string     `json:"title"`
-	Notes              string     `json:"notes"`
-	Priority           string     `json:"priority" enum:"low,normal,high,urgent"`
-	Labels             []string   `json:"labels"`
-	Status             string     `json:"status" enum:"triage,backlog,todo,scheduled,ready,running,review,testing,redo,blocked,done"`
-	ScheduledAt        *time.Time `json:"scheduledAt,omitempty"`
-	ReadyAt            *time.Time `json:"readyAt,omitempty"`
-	Position           int64      `json:"position"`
-	TargetPath         string     `json:"targetPath"`
-	RepoName           string     `json:"repoName,omitempty"`
-	Agent              string     `json:"agent"`
-	CodingAgent        string     `json:"codingAgent,omitempty"`
-	ReviewerMode       string     `json:"reviewerMode,omitempty" enum:"same,separate"`
-	ReviewerAgent      string     `json:"reviewerAgent,omitempty"`
-	TestingAgent       string     `json:"testingAgent,omitempty"`
-	RedoCount          int        `json:"redoCount"`
-	LatestRedoSummary  string     `json:"latestRedoSummary,omitempty"`
-	SessionID          string     `json:"sessionId,omitempty"`
-	WaitingForInput    bool       `json:"waitingForInput"`
-	PausedRetarget     bool       `json:"pausedRetarget"`
-	GoalVersion        int        `json:"goalVersion"`
-	SupersededByCardID string     `json:"supersededByCardId,omitempty"`
-	CreatedAt          time.Time  `json:"createdAt"`
-	UpdatedAt          time.Time  `json:"updatedAt"`
+	ID                 string                    `json:"id"`
+	ProjectID          string                    `json:"projectId"`
+	ProjectName        string                    `json:"projectName,omitempty"`
+	BoardID            string                    `json:"boardId"`
+	Title              string                    `json:"title"`
+	Notes              string                    `json:"notes"`
+	Priority           string                    `json:"priority" enum:"low,normal,high,urgent"`
+	Labels             []string                  `json:"labels"`
+	Status             string                    `json:"status" enum:"triage,backlog,todo,scheduled,ready,running,review,testing,redo,blocked,done"`
+	ScheduledAt        *time.Time                `json:"scheduledAt,omitempty"`
+	ReadyAt            *time.Time                `json:"readyAt,omitempty"`
+	Position           int64                     `json:"position"`
+	TargetPath         string                    `json:"targetPath"`
+	RepoName           string                    `json:"repoName,omitempty"`
+	Agent              string                    `json:"agent"`
+	CodingAgent        string                    `json:"codingAgent,omitempty"`
+	ReviewerMode       string                    `json:"reviewerMode,omitempty" enum:"same,separate"`
+	ReviewerAgent      string                    `json:"reviewerAgent,omitempty"`
+	TestingAgent       string                    `json:"testingAgent,omitempty"`
+	RedoCount          int                       `json:"redoCount"`
+	LatestRedoSummary  string                    `json:"latestRedoSummary,omitempty"`
+	SessionID          string                    `json:"sessionId,omitempty"`
+	WaitingForInput    bool                      `json:"waitingForInput"`
+	PausedRetarget     bool                      `json:"pausedRetarget"`
+	GoalVersion        int                       `json:"goalVersion"`
+	SupersededByCardID string                    `json:"supersededByCardId,omitempty"`
+	CreatedAt          time.Time                 `json:"createdAt"`
+	UpdatedAt          time.Time                 `json:"updatedAt"`
+	Handoffs           []WorkCardHandoffResponse `json:"handoffs,omitempty"`
+}
+
+// WorkCardHandoffResponse is the compact, durable report a completed phase
+// leaves for the next agent. It intentionally excludes raw terminal output.
+type WorkCardHandoffResponse struct {
+	Phase        string   `json:"phase"`
+	Summary      string   `json:"summary"`
+	ChangedFiles []string `json:"changedFiles,omitempty"`
+	Checks       []string `json:"checks,omitempty"`
+	Commit       string   `json:"commit,omitempty"`
+	Next         string   `json:"next,omitempty"`
 }
 
 // DeleteWorkCardResponse confirms that a durable work card was removed.
@@ -286,7 +298,7 @@ type SplitWorkCardResponse struct {
 
 // RecordCardEventRequest is the body of POST /api/v1/workboard/cards/{cardId}/events.
 // Kind is one of agent_transition, agent_verdict, agent_finding, test_result,
-// or agent_failed. Payload is the kind-specific JSON document, sent as a string
+// agent_handoff, or agent_failed. Payload is the kind-specific JSON document, sent as a string
 // so the daemon stores exactly what the agent reported.
 type RecordCardEventRequest struct {
 	Kind    string `json:"kind"`
@@ -370,6 +382,22 @@ func workCardResponses(cards []domain.WorkCard) []WorkCardResponse {
 	responses := make([]WorkCardResponse, len(cards))
 	for i, card := range cards {
 		responses[i] = newWorkCardResponse(card)
+	}
+	return responses
+}
+
+func workCardHandoffResponses(handoffs []workboardsvc.Handoff) []WorkCardHandoffResponse {
+	if len(handoffs) == 0 {
+		return nil
+	}
+	responses := make([]WorkCardHandoffResponse, len(handoffs))
+	for i, handoff := range handoffs {
+		responses[i] = WorkCardHandoffResponse{
+			Phase: handoff.Phase, Summary: handoff.Summary,
+			ChangedFiles: append([]string{}, handoff.ChangedFiles...),
+			Checks:       append([]string{}, handoff.Checks...),
+			Commit:       handoff.Commit, Next: handoff.Next,
+		}
 	}
 	return responses
 }

@@ -114799,6 +114799,23 @@ function loadConfig(env) {
   return { model, cardId, sessionId, prompt: (env.AO_PROMPT ?? "").trim(), maxIterations };
 }
 
+// src/git_workflow.ts
+import { readFile as readFile2 } from "node:fs/promises";
+import { join as join2 } from "node:path";
+async function loadGitWorkflowSkill(env, read = readFile2) {
+  const root = env.AO_DIRECTOR_SKILLS_DIR?.trim();
+  if (!root) return "";
+  try {
+    const skill = await read(join2(root, "git-workflow-and-versioning", "SKILL.md"), "utf8");
+    return `## Installed skill: Git Workflow and Versioning
+
+${skill}`;
+  } catch (error90) {
+    console.warn(`director: Git workflow skill unavailable: ${error90 instanceof Error ? error90.message : String(error90)}`);
+    return "";
+  }
+}
+
 // node_modules/@langchain/anthropic/dist/output_parsers.js
 init_types3();
 init_output_parsers();
@@ -134644,7 +134661,19 @@ Read the card first: \`ao workboard card show ${cardId} --json\`. Use the live c
 
 Plan the work, then delegate implementation to worker sessions with \`ao spawn --agent <agent> --prompt "<task>"\`. Include the card id and the exact subtask in every worker prompt. Keep at most one implementation worker active at a time. Do not write the implementation yourself except for a small coordination-only fix.
 
+Respect the card's explicit agent assignments: use \`codingAgent\` for implementation, \`reviewerAgent\` for review, and \`testingAgent\` for testing. Do not substitute Hermes or another agent unless that exact agent is assigned on the card. If the assigned agent cannot run, block the card with the reason instead of silently selecting a fallback.
+
+## Phase handoffs
+
+Each worker must finish its phase by recording \`ao workboard card handoff ${cardId} --phase <coding|review|testing> --summary "..."\` with changed files, checks and their results, commit/PR reference, and the next phase's focus. It must also send that same report to you. Do not advance the card or start the next phase until you have that report.
+
+When delegating review or testing, first read the card again: its \`handoffs\` list is the durable history. Put the relevant prior handoff directly in the next worker's prompt, including the exact checks already run and the remaining focus. A reviewer must inspect the actual diff and target the coding handoff; a tester must use both the coding and review handoffs to choose tests. If a handoff is missing, say so in the next prompt and require the worker to inspect \`git diff\`, \`git status\`, and the repository's test scripts before making a verdict.
+
 When a worker asks a question, AO delivers it to this Director terminal. Read the question, inspect the card or code if needed, then answer the worker with the \`answer_worker\` tool. The tool sends the reply into the worker's live CLI terminal. Make the decision yourself when it is safe; only block the card for a real human decision or a risky/destructive action.
+
+## Git safety
+
+Use the Git workflow skill for planning, branch hygiene, and reviewing changes. Its guidance never authorizes destructive actions: do not run or direct a worker to run \`git reset --hard\`, \`git clean -f\`, force-push, delete a branch, or remove a worktree without an explicit user request that identifies the exact target. Never force-delete a dirty registered worktree. Before any commit, inspect \`git status\` and the staged diff; do not stage unrelated user changes or secrets. Only commit, push, or open a PR when the card or the user asks for it.
 
 Advance the card with \`ao workboard card transition ${cardId} --to <status> --reason "<why>"\` once a phase genuinely completes. Valid onward statuses are review, testing, done, redo, and blocked. The daemon validates every transition; an invalid one is rejected and you must read the error rather than retrying blindly.
 
@@ -134699,7 +134728,10 @@ var runner = (argv) => new Promise((resolve4, reject) => {
 });
 async function main() {
   const cfg = loadConfig(process.env);
-  const adhdSkill = await loadADHDSkill(process.env);
+  const [adhdSkill, gitWorkflowSkill] = await Promise.all([
+    loadADHDSkill(process.env),
+    loadGitWorkflowSkill(process.env)
+  ]);
   const budget = new IterationBudget(cfg.maxIterations);
   let finish;
   const finished = new Promise((resolve4) => {
@@ -134736,7 +134768,7 @@ async function main() {
         agent2,
         `${prompt.trim()}
 
-You are supervised by Director session ${cfg.sessionId}. If your CLI asks a question or you are blocked, send the exact question to the Director with: ao send --session ${cfg.sessionId} --message "<question>". Wait for its answer before proceeding.`
+You are supervised by Director session ${cfg.sessionId}. If your CLI asks a question or you are blocked, send the exact question to the Director with: ao send --session ${cfg.sessionId} --message "<question>". Wait for its answer before proceeding. Before completing your assigned phase, record a durable handoff with \`ao workboard card handoff <card-id> --phase <coding|review|testing> --summary "<what you did or found>" --changed <file> --check "<command and result>" --commit <sha-or-pr> --next "<what the next phase must verify>". Then send the same concise report to the Director with \`ao send --session ${cfg.sessionId} --message "Handoff: <report>"\`.`
       )
     ),
     {
@@ -134762,7 +134794,7 @@ You are supervised by Director session ${cfg.sessionId}. If your CLI asks a ques
   const agent = await createDeepAgent({
     model: createDirectorModel(cfg.model, process.env),
     tools: [showCard, transitionCard, spawnWorker, answerWorker],
-    systemPrompt: [directorSystemPrompt(cfg.cardId), adhdSkill].filter(Boolean).join("\n\n")
+    systemPrompt: [directorSystemPrompt(cfg.cardId), adhdSkill, gitWorkflowSkill].filter(Boolean).join("\n\n")
   });
   let messages = [];
   const drive = async (instruction) => {

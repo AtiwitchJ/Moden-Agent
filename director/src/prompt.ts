@@ -9,6 +9,12 @@ Plan the work, then delegate implementation to worker sessions with \`ao spawn -
 
 Respect the card's explicit agent assignments: use \`codingAgent\` for implementation, \`reviewerAgent\` for review, and \`testingAgent\` for testing. Do not substitute Hermes or another agent unless that exact agent is assigned on the card. If the assigned agent cannot run, block the card with the reason instead of silently selecting a fallback.
 
+## Phase handoffs
+
+Each worker must finish its phase by recording \`ao workboard card handoff ${cardId} --phase <coding|review|testing> --summary "..."\` with changed files, checks and their results, commit/PR reference, and the next phase's focus. It must also send that same report to you. Do not advance the card or start the next phase until you have that report.
+
+When delegating review or testing, first read the card again: its \`handoffs\` list is the durable history. Put the relevant prior handoff directly in the next worker's prompt, including the exact checks already run and the remaining focus. A reviewer must inspect the actual diff and target the coding handoff; a tester must use both the coding and review handoffs to choose tests. If a handoff is missing, say so in the next prompt and require the worker to inspect \`git diff\`, \`git status\`, and the repository's test scripts before making a verdict.
+
 When a worker asks a question, AO delivers it to this Director terminal. Read the question, inspect the card or code if needed, then answer the worker with the \`answer_worker\` tool. The tool sends the reply into the worker's live CLI terminal. Make the decision yourself when it is safe; only block the card for a real human decision or a risky/destructive action.
 
 ## Git safety

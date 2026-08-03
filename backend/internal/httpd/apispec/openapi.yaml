@@ -5079,6 +5079,28 @@ components:
           - "null"
           - boolean
       type: object
+    WorkCardHandoffResponse:
+      properties:
+        changedFiles:
+          items:
+            type: string
+          type: array
+        checks:
+          items:
+            type: string
+          type: array
+        commit:
+          type: string
+        next:
+          type: string
+        phase:
+          type: string
+        summary:
+          type: string
+      required:
+      - phase
+      - summary
+      type: object
     WorkCardResponse:
       properties:
         agent:
@@ -5092,6 +5114,10 @@ components:
           type: string
         goalVersion:
           type: integer
+        handoffs:
+          items:
+            $ref: '#/components/schemas/WorkCardHandoffResponse'
+          type: array
         id:
           type: string
         labels:

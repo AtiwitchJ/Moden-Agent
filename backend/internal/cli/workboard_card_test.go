@@ -410,6 +410,41 @@ func TestCardSetTestResult_MissingCommand(t *testing.T) {
 }
 
 // ---------------------------------------------------------------------------
+// handoff
+// ---------------------------------------------------------------------------
+
+func TestCardHandoff_RecordsContextForNextPhase(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv, calls := cardServer(t)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "workboard", "card", "handoff", "card-1", "--phase", "coding", "--summary", "Updated SCB page", "--changed", "src/app.ts", "--check", "npm test: pass", "--next", "Review validation")
+	if err != nil {
+		t.Fatalf("handoff: %v\nstderr=%s", err, errOut)
+	}
+	var eventCall *cardCapture
+	for i := range *calls {
+		if (*calls)[i].path == "/api/v1/workboard/cards/card-1/events" {
+			eventCall = &(*calls)[i]
+			break
+		}
+	}
+	if eventCall == nil {
+		t.Fatalf("expected handoff event; calls=%v", *calls)
+	}
+	var req cardEventRequest
+	if err := json.Unmarshal(eventCall.body, &req); err != nil {
+		t.Fatalf("decode request: %v", err)
+	}
+	if req.Kind != "agent_handoff" || !strings.Contains(req.Payload, "Updated SCB page") || !strings.Contains(req.Payload, "src/app.ts") {
+		t.Fatalf("handoff request = %#v", req)
+	}
+	if !strings.Contains(out, "handoff recorded") {
+		t.Fatalf("output = %s", out)
+	}
+}
+
+// ---------------------------------------------------------------------------
 // fail-attempt
 // ---------------------------------------------------------------------------
 

@@ -1785,6 +1785,14 @@ export interface components {
             shortTimeoutMinutes?: null | number;
             sticky?: null | boolean;
         };
+        WorkCardHandoffResponse: {
+            changedFiles?: string[];
+            checks?: string[];
+            commit?: string;
+            next?: string;
+            phase: string;
+            summary: string;
+        };
         WorkCardResponse: {
             agent: string;
             boardId: string;
@@ -1792,6 +1800,7 @@ export interface components {
             /** Format: date-time */
             createdAt: string;
             goalVersion: number;
+            handoffs?: components["schemas"]["WorkCardHandoffResponse"][];
             id: string;
             labels: string[];
             latestRedoSummary?: string;

@@ -39,6 +39,49 @@ func TestRecordAgentEventAppendsVerdict(t *testing.T) {
 	}
 }
 
+func TestRecordAgentEventAppendsHandoff(t *testing.T) {
+	svc, store := newAgentEventService(domain.CardStatusRunning)
+	_, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_handoff",
+		Payload: `{"phase":"coding","summary":"Updated login form","changedFiles":["app.ts"],"checks":["npm test: pass"]}`,
+	})
+	if err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	if len(store.events) != 1 || store.events[0].Kind != "agent_handoff" {
+		t.Fatalf("events = %+v, want one agent_handoff", store.events)
+	}
+}
+
+func TestHandoffsReturnsDurablePhaseContext(t *testing.T) {
+	svc, _ := newAgentEventService(domain.CardStatusReview)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind: "agent_handoff", Payload: `{"phase":"coding","summary":"Updated login form","changedFiles":["app.ts"],"checks":["npm test: pass"],"next":"Review validation"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	handoffs, err := svc.Handoffs(context.Background(), "card-1")
+	if err != nil {
+		t.Fatalf("Handoffs: %v", err)
+	}
+	if len(handoffs) != 1 || handoffs[0].Summary != "Updated login form" || handoffs[0].Next != "Review validation" {
+		t.Fatalf("handoffs = %#v", handoffs)
+	}
+}
+
+func TestRecordAgentEventRejectsInvalidHandoff(t *testing.T) {
+	svc, store := newAgentEventService(domain.CardStatusRunning)
+	_, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind: "agent_handoff", Payload: `{"phase":"deployment","summary":"Done"}`,
+	})
+	if err == nil || !strings.Contains(err.Error(), "phase") {
+		t.Fatalf("RecordAgentEvent error = %v, want invalid handoff", err)
+	}
+	if len(store.events) != 0 {
+		t.Fatalf("events = %+v, want none", store.events)
+	}
+}
+
 func TestRecordAgentEventAppliesTransition(t *testing.T) {
 	svc, store := newAgentEventService(domain.CardStatusRunning)
 	card, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{

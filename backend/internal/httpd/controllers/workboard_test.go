@@ -35,6 +35,7 @@ type fakeWorkboardService struct {
 	splitIn        workboardsvc.SplitInput
 	recordEventID  string
 	recordEventIn  workboardsvc.AgentEventInput
+	handoffs       []workboardsvc.Handoff
 	failure        workboardsvc.DispatchFailure
 	directorStatus workboardsvc.DirectorStatus
 }
@@ -114,6 +115,10 @@ func (f *fakeWorkboardService) Split(_ context.Context, id string, in workboards
 func (f *fakeWorkboardService) RecordAgentEvent(_ context.Context, cardID string, in workboardsvc.AgentEventInput) (domain.WorkCard, error) {
 	f.recordEventID, f.recordEventIn = cardID, in
 	return f.cards[0], nil
+}
+
+func (f *fakeWorkboardService) Handoffs(context.Context, string) ([]workboardsvc.Handoff, error) {
+	return f.handoffs, nil
 }
 
 func newWorkboardTestServer(t *testing.T, svc *fakeWorkboardService) *httptest.Server {
@@ -210,6 +215,20 @@ func TestCreateWorkCard_Validation(t *testing.T) {
 
 	body, status, _ := doRequest(t, srv, http.MethodPost, "/api/v1/projects/proj/workboard/cards", `{"title":"Card","notes":"Details","priority":"normal","labels":["api"],"targetPath":"/repo","agent":""}`)
 	assertErrorCode(t, body, status, http.StatusBadRequest, "WORK_CARD_AGENT_REQUIRED")
+}
+
+func TestGetWorkCardIncludesHandoffs(t *testing.T) {
+	svc := &fakeWorkboardService{
+		cards: []domain.WorkCard{{ID: "card_1", Title: "Card"}},
+		handoffs: []workboardsvc.Handoff{{
+			Phase: "coding", Summary: "Implemented SCB page", ChangedFiles: []string{"src/app.ts"}, Checks: []string{"npm test: pass"}, Next: "Review validation",
+		}},
+	}
+	srv := newWorkboardTestServer(t, svc)
+	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/workboard/cards/card_1", "")
+	if status != http.StatusOK || !strings.Contains(string(body), `"handoffs":[{"phase":"coding"`) || !strings.Contains(string(body), "Review validation") {
+		t.Fatalf("get card = status %d body %s, want handoff", status, body)
+	}
 }
 
 func TestMoveWorkCard_RequiresPosition(t *testing.T) {

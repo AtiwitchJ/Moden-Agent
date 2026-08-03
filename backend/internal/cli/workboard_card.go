@@ -24,14 +24,15 @@ import (
 // ---------------------------------------------------------------------------
 
 type cardShowResponse struct {
-	ID        string   `json:"id"`
-	ProjectID string   `json:"projectId"`
-	Title     string   `json:"title"`
-	Status    string   `json:"status"`
-	Priority  string   `json:"priority"`
-	Labels    []string `json:"labels"`
-	Agent     string   `json:"agent"`
-	SessionID string   `json:"sessionId"`
+	ID        string               `json:"id"`
+	ProjectID string               `json:"projectId"`
+	Title     string               `json:"title"`
+	Status    string               `json:"status"`
+	Priority  string               `json:"priority"`
+	Labels    []string             `json:"labels"`
+	Agent     string               `json:"agent"`
+	SessionID string               `json:"sessionId"`
+	Handoffs  []cardHandoffPayload `json:"handoffs"`
 }
 
 type cardTransitionPayload struct {
@@ -67,6 +68,15 @@ type cardFailAttemptPayload struct {
 	Reason string `json:"reason"`
 }
 
+type cardHandoffPayload struct {
+	Phase        string   `json:"phase"`
+	Summary      string   `json:"summary"`
+	ChangedFiles []string `json:"changedFiles,omitempty"`
+	Checks       []string `json:"checks,omitempty"`
+	Commit       string   `json:"commit,omitempty"`
+	Next         string   `json:"next,omitempty"`
+}
+
 type cardEventRequest struct {
 	Kind    string `json:"kind"`
 	Payload string `json:"payload"`
@@ -86,6 +96,7 @@ func newWorkboardCardCmd(ctx *commandContext) *cobra.Command {
 	cmd.AddCommand(newCardSetVerdictCmd(ctx))
 	cmd.AddCommand(newCardSetFindingCmd(ctx))
 	cmd.AddCommand(newCardSetTestResultCmd(ctx))
+	cmd.AddCommand(newCardHandoffCmd(ctx))
 	cmd.AddCommand(newCardFailAttemptCmd(ctx))
 	return cmd
 }
@@ -193,9 +204,9 @@ func runCardTransition(ctx context.Context, c *commandContext, cmd *cobra.Comman
 // ---------------------------------------------------------------------------
 
 var validVerdicts = map[string]bool{
-	"approved":         true,
+	"approved":          true,
 	"changes_requested": true,
-	"inconclusive":     true,
+	"inconclusive":      true,
 }
 
 func newCardSetVerdictCmd(ctx *commandContext) *cobra.Command {
@@ -370,6 +381,54 @@ func runCardSetTestResult(ctx context.Context, c *commandContext, cmd *cobra.Com
 		return err
 	}
 	_, err := fmt.Fprintf(cmd.OutOrStdout(), "test result recorded for card %s\n", cardID)
+	return err
+}
+
+// ---------------------------------------------------------------------------
+// ao workboard card handoff
+// ---------------------------------------------------------------------------
+
+func newCardHandoffCmd(ctx *commandContext) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   "handoff <cardId> --phase <coding|review|testing> --summary <text> [--changed <path>] [--check <result>] [--commit <sha>] [--next <text>]",
+		Short: "Record context for the next work-card phase",
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runCardHandoff(cmd.Context(), ctx, cmd, args[0])
+		},
+	}
+	cmd.Flags().String("phase", "", "Phase that completed: coding, review, or testing (required)")
+	cmd.Flags().String("summary", "", "What was done or found (required)")
+	cmd.Flags().StringSlice("changed", nil, "Changed file (repeatable)")
+	cmd.Flags().StringSlice("check", nil, "Check command and result (repeatable)")
+	cmd.Flags().String("commit", "", "Commit or PR reference")
+	cmd.Flags().String("next", "", "What the next agent must verify")
+	cmd.MarkFlagRequired("phase")
+	cmd.MarkFlagRequired("summary")
+	return cmd
+}
+
+func runCardHandoff(ctx context.Context, c *commandContext, cmd *cobra.Command, cardID string) error {
+	phase := strings.TrimSpace(cmd.Flag("phase").Value.String())
+	summary := strings.TrimSpace(cmd.Flag("summary").Value.String())
+	if phase != "coding" && phase != "review" && phase != "testing" {
+		return usageError{fmt.Errorf("usage: invalid phase %q; must be coding, review, or testing", phase)}
+	}
+	if summary == "" {
+		return usageError{errors.New("usage: --summary <text> is required")}
+	}
+	changed, _ := cmd.Flags().GetStringSlice("changed")
+	checks, _ := cmd.Flags().GetStringSlice("check")
+	eventReq := cardEventRequest{Kind: "agent_handoff", Payload: mustMarshal(cardHandoffPayload{
+		Phase: phase, Summary: summary, ChangedFiles: changed, Checks: checks,
+		Commit: strings.TrimSpace(cmd.Flag("commit").Value.String()),
+		Next:   strings.TrimSpace(cmd.Flag("next").Value.String()),
+	})}
+	var eventResp map[string]interface{}
+	if err := c.postJSON(ctx, "workboard/cards/"+url.PathEscape(strings.TrimSpace(cardID))+"/events", eventReq, &eventResp); err != nil {
+		return err
+	}
+	_, err := fmt.Fprintf(cmd.OutOrStdout(), "handoff recorded for card %s\n", cardID)
 	return err
 }
 
