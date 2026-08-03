@@ -75,8 +75,12 @@ type workspaceRepoDetails struct {
 
 // agentConfig mirrors the daemon's typed domain.AgentConfig for the CLI client.
 type agentConfig struct {
-	Model       string `json:"model,omitempty"`
-	Permissions string `json:"permissions,omitempty"`
+	Model       string   `json:"model,omitempty"`
+	Permissions string   `json:"permissions,omitempty"`
+	// Command mirrors domain.AgentConfig.Command. Its absence silently dropped
+	// any command supplied via --config-json, because encoding/json discards
+	// fields the target struct does not declare.
+	Command []string `json:"command,omitempty"`
 }
 
 // roleOverride mirrors domain.RoleOverride.
@@ -105,6 +109,7 @@ type projectConfig struct {
 	AgentConfig   agentConfig         `json:"agentConfig,omitempty"`
 	Worker        roleOverride        `json:"worker,omitempty"`
 	Orchestrator  roleOverride        `json:"orchestrator,omitempty"`
+	Director      roleOverride        `json:"director,omitempty"`
 	TrackerIntake trackerIntakeConfig `json:"trackerIntake,omitempty"`
 }
 
@@ -121,6 +126,8 @@ type projectSetConfigOptions struct {
 	permission        string
 	workerAgent       string
 	orchestratorAgent string
+	directorAgent     string
+	directorModel     string
 	env               []string
 	symlink           []string
 	postCreate        []string
@@ -309,6 +316,8 @@ func newProjectSetConfigCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.permission, "permission", "", "Permission mode: default, accept-edits, auto, bypass-permissions")
 	f.StringVar(&opts.workerAgent, "worker-agent", "", "Harness override for worker sessions")
 	f.StringVar(&opts.orchestratorAgent, "orchestrator-agent", "", "Harness override for orchestrator sessions")
+	f.StringVar(&opts.directorAgent, "director-agent", "", "Harness that drives work cards as the project's Director")
+	f.StringVar(&opts.directorModel, "director-model", "", `Director engine as "provider:model-name" (e.g. openai:gpt-5)`)
 	f.StringArrayVar(&opts.env, "env", nil, "Env var KEY=VALUE forwarded into sessions (repeatable)")
 	f.StringArrayVar(&opts.symlink, "symlink", nil, "Repo-relative path to symlink into workspaces (repeatable)")
 	f.StringArrayVar(&opts.postCreate, "post-create", nil, "Command to run after workspace creation (repeatable)")
@@ -350,6 +359,7 @@ func buildProjectConfig(opts projectSetConfigOptions) (projectConfig, error) {
 		AgentConfig:   agentConfig{Model: opts.model, Permissions: opts.permission},
 		Worker:        roleOverride{Agent: opts.workerAgent},
 		Orchestrator:  roleOverride{Agent: opts.orchestratorAgent},
+		Director:      roleOverride{Agent: opts.directorAgent, AgentConfig: agentConfig{Model: opts.directorModel}},
 		TrackerIntake: trackerIntakeConfig{
 			Enabled:  opts.trackerIntake,
 			Provider: trackerProviderForFlags(opts),

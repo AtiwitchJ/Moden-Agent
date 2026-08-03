@@ -1412,6 +1412,7 @@ export interface components {
             agentConfig?: components["schemas"]["AgentConfig"];
             defaultBranch?: string;
             deliverable?: components["schemas"]["DomainDeliverableConfig"];
+            director?: components["schemas"]["RoleOverride"];
             env?: {
                 [key: string]: string;
             };

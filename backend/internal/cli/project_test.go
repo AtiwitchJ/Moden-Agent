@@ -369,3 +369,39 @@ func TestProjectRemove_YesSkipsConfirmationAndSupportsBackendRemoveEnvelope(t *t
 		t.Fatalf("--yes output should skip prompt and print removal:\n%s", out)
 	}
 }
+
+func TestBuildProjectConfigJSONKeepsCommandAndDirector(t *testing.T) {
+	opts := projectSetConfigOptions{configJSON: `{
+		"worker": {"agentConfig": {"command": ["/bin/sh", "-c", "echo hi"]}},
+		"director": {"agent": "director", "agentConfig": {"model": "openrouter:minimax/minimax-m2"}}
+	}`}
+	cfg, err := buildProjectConfig(opts)
+	if err != nil {
+		t.Fatalf("buildProjectConfig: %v", err)
+	}
+	if got := cfg.Worker.AgentConfig.Command; len(got) != 3 || got[0] != "/bin/sh" {
+		t.Fatalf("worker command = %v, want the full argv (this is the silent-drop bug)", got)
+	}
+	if cfg.Director.Agent != "director" {
+		t.Fatalf("director agent = %q, want director", cfg.Director.Agent)
+	}
+	if got := cfg.Director.AgentConfig.Model; got != "openrouter:minimax/minimax-m2" {
+		t.Fatalf("director model = %q, want the configured engine", got)
+	}
+}
+
+func TestBuildProjectConfigDirectorFlags(t *testing.T) {
+	cfg, err := buildProjectConfig(projectSetConfigOptions{
+		directorAgent: "director",
+		directorModel: "openai:gpt-5",
+	})
+	if err != nil {
+		t.Fatalf("buildProjectConfig: %v", err)
+	}
+	if cfg.Director.Agent != "director" {
+		t.Fatalf("director agent = %q, want director", cfg.Director.Agent)
+	}
+	if cfg.Director.AgentConfig.Model != "openai:gpt-5" {
+		t.Fatalf("director model = %q, want openai:gpt-5", cfg.Director.AgentConfig.Model)
+	}
+}

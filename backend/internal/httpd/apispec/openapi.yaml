@@ -4079,6 +4079,8 @@ components:
           type: string
         deliverable:
           $ref: '#/components/schemas/DomainDeliverableConfig'
+        director:
+          $ref: '#/components/schemas/RoleOverride'
         env:
           additionalProperties:
             type: string
