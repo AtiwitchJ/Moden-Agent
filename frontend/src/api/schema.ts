@@ -1816,6 +1816,8 @@ export interface components {
             answerDenylist?: string[];
             answerTimeoutMinutes?: number;
             autonomous?: components["schemas"]["WorkboardAutonomousConfig"];
+            defaultReviewerAgents?: string[];
+            defaultTestingAgents?: string[];
             fallbackAgents?: string[];
             limitCooldownMinutes?: number;
             wipLimit?: number;
