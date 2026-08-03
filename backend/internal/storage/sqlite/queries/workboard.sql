@@ -4,8 +4,8 @@ INSERT INTO work_cards (
   scheduled_at, ready_at, position, target_path, repo_name, agent,
   coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary,
   session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id,
-  created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+  created_at, updated_at, reviewer_agents_json, testing_agents_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: GetWorkCard :one
 SELECT * FROM work_cards WHERE id = ?;
@@ -26,7 +26,8 @@ UPDATE work_cards SET
   agent = ?, coding_agent = ?, reviewer_mode = ?, reviewer_agent = ?, testing_agent = ?,
   redo_count = ?, latest_redo_summary = ?,
   session_id = ?, waiting_for_input = ?, paused_retarget = ?,
-  goal_version = ?, superseded_by_card_id = ?, updated_at = ?
+  goal_version = ?, superseded_by_card_id = ?, updated_at = ?,
+  reviewer_agents_json = ?, testing_agents_json = ?
 WHERE id = ?;
 
 -- name: DeleteWorkCard :exec
@@ -45,7 +46,8 @@ WHERE work_cards.id = sqlc.arg(card_id)
   AND work_cards.paused_retarget = 0
   AND (
     SELECT COUNT(*) FROM work_cards AS running_cards
-    WHERE running_cards.project_id = sqlc.arg(project_id) AND running_cards.status = 'running'
+    WHERE running_cards.project_id = sqlc.arg(project_id)
+      AND running_cards.status IN ('running', 'review', 'testing', 'redo')
   ) < CAST(sqlc.arg(wip_limit) AS INTEGER);
 
 -- name: InsertWorkCardEvent :exec
@@ -95,8 +97,8 @@ WHERE id = ?;
 
 -- name: InsertRedoAttempt :exec
 INSERT INTO work_card_attempts (
-  id, finding_id, attempt_number, agent, started_at, finished_at, result, output, validation_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?);
+  id, finding_id, attempt_number, agent, started_at, finished_at, result, output, validation_json, phase, failure_reason
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
 
 -- name: ListRedoAttemptsByFinding :many
 SELECT * FROM work_card_attempts

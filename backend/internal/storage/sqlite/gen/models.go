@@ -297,6 +297,8 @@ type WorkCard struct {
 	TestingAgent       string
 	RedoCount          int64
 	LatestRedoSummary  string
+	ReviewerAgentsJson sql.NullString
+	TestingAgentsJson  sql.NullString
 }
 
 type WorkCardAttempt struct {
@@ -309,6 +311,8 @@ type WorkCardAttempt struct {
 	Result         string
 	Output         string
 	ValidationJson string
+	Phase          sql.NullString
+	FailureReason  sql.NullString
 }
 
 type WorkCardEvent struct {

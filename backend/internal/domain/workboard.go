@@ -9,6 +9,15 @@ import (
 
 type CardStatus string
 
+// Phase is the card lifecycle phase, matching commander.Phase. A plain type alias
+// avoids an import cycle between domain and commander.
+type Phase = string
+
+const (
+	PhaseReview  Phase = "review"
+	PhaseTesting Phase = "testing"
+)
+
 const (
 	CardStatusTriage    CardStatus = "triage"
 	CardStatusBacklog   CardStatus = "backlog"
@@ -129,8 +138,10 @@ type WorkCard struct {
 	Agent              string
 	CodingAgent        string
 	ReviewerMode       string
-	ReviewerAgent      string
-	TestingAgent       string
+	ReviewerAgent      string   // Deprecated: use ReviewerAgents instead.
+	TestingAgent       string   // Deprecated: use TestingAgents instead.
+	ReviewerAgents     []string // Ordered agent chain for review phase; overrides ReviewerAgent.
+	TestingAgents      []string // Ordered agent chain for testing phase; overrides TestingAgent.
 	RedoCount          int
 	LatestRedoSummary  string
 	SessionID          string
@@ -321,12 +332,14 @@ func (c WorkboardAutonomousConfig) WithDefaults() WorkboardAutonomousConfig {
 }
 
 type WorkboardConfig struct {
-	WIPLimit             int                       `json:"wipLimit,omitempty"`
-	FallbackAgents       []string                  `json:"fallbackAgents,omitempty"`
-	LimitCooldownMinutes int                       `json:"limitCooldownMinutes,omitempty"`
-	AnswerTimeoutMinutes int                       `json:"answerTimeoutMinutes,omitempty"`
-	Autonomous           WorkboardAutonomousConfig `json:"autonomous,omitempty"`
-	AnswerDenylist       []string                  `json:"answerDenylist,omitempty"`
+	WIPLimit              int                       `json:"wipLimit,omitempty"`
+	FallbackAgents        []string                  `json:"fallbackAgents,omitempty"`
+	LimitCooldownMinutes  int                       `json:"limitCooldownMinutes,omitempty"`
+	AnswerTimeoutMinutes  int                       `json:"answerTimeoutMinutes,omitempty"`
+	Autonomous            WorkboardAutonomousConfig `json:"autonomous,omitempty"`
+	AnswerDenylist        []string                  `json:"answerDenylist,omitempty"`
+	DefaultReviewerAgents []string                  `json:"defaultReviewerAgents,omitempty"`
+	DefaultTestingAgents  []string                  `json:"defaultTestingAgents,omitempty"`
 	// WorkboardIntake controls whether tracker intake creates triage cards
 	// instead of spawning worker sessions. When the workboard section is
 	// present, intake defaults to triage unless explicitly set to false.
@@ -390,4 +403,37 @@ func ValidateTargetPathUnderRepos(absPath string, repoRoots []string) error {
 		return nil
 	}
 	return fmt.Errorf("target path %q is not under a registered repository", absPath)
+}
+
+// DefaultReviewerAgents is the fallback reviewer chain when neither the card
+// nor the project configures one. Hermes is always last.
+var DefaultReviewerAgents = []string{"claude-code", "codex", "opencode", "hermes"}
+
+// DefaultTestingAgents is the fallback testing chain when neither the card
+// nor the project configures one. Hermes is always last.
+var DefaultTestingAgents = []string{"claude-code", "codex", "opencode", "hermes"}
+
+// ResolveAgentChain returns the ordered agent list for the given phase.
+// Card-level overrides project-level, which overrides the default chain.
+func ResolveAgentChain(card WorkCard, cfg WorkboardConfig, phase Phase) []string {
+	switch phase {
+	case PhaseReview:
+		if len(card.ReviewerAgents) > 0 {
+			return card.ReviewerAgents
+		}
+		if len(cfg.DefaultReviewerAgents) > 0 {
+			return cfg.DefaultReviewerAgents
+		}
+		return DefaultReviewerAgents
+	case PhaseTesting:
+		if len(card.TestingAgents) > 0 {
+			return card.TestingAgents
+		}
+		if len(cfg.DefaultTestingAgents) > 0 {
+			return cfg.DefaultTestingAgents
+		}
+		return DefaultTestingAgents
+	default:
+		return nil
+	}
 }

@@ -19,7 +19,8 @@ WHERE work_cards.id = ?2
   AND work_cards.paused_retarget = 0
   AND (
     SELECT COUNT(*) FROM work_cards AS running_cards
-    WHERE running_cards.project_id = ?3 AND running_cards.status = 'running'
+    WHERE running_cards.project_id = ?3
+      AND running_cards.status IN ('running', 'review', 'testing', 'redo')
   ) < CAST(?4 AS INTEGER)
 `
 
@@ -103,7 +104,7 @@ func (q *Queries) GetLatestRedoCycle(ctx context.Context, cardID string) (WorkCa
 }
 
 const getWorkCard = `-- name: GetWorkCard :one
-SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at, coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary FROM work_cards WHERE id = ?
+SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at, coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary, reviewer_agents_json, testing_agents_json FROM work_cards WHERE id = ?
 `
 
 func (q *Queries) GetWorkCard(ctx context.Context, id string) (WorkCard, error) {
@@ -137,14 +138,16 @@ func (q *Queries) GetWorkCard(ctx context.Context, id string) (WorkCard, error) 
 		&i.TestingAgent,
 		&i.RedoCount,
 		&i.LatestRedoSummary,
+		&i.ReviewerAgentsJson,
+		&i.TestingAgentsJson,
 	)
 	return i, err
 }
 
 const insertRedoAttempt = `-- name: InsertRedoAttempt :exec
 INSERT INTO work_card_attempts (
-  id, finding_id, attempt_number, agent, started_at, finished_at, result, output, validation_json
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  id, finding_id, attempt_number, agent, started_at, finished_at, result, output, validation_json, phase, failure_reason
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertRedoAttemptParams struct {
@@ -157,6 +160,8 @@ type InsertRedoAttemptParams struct {
 	Result         string
 	Output         string
 	ValidationJson string
+	Phase          sql.NullString
+	FailureReason  sql.NullString
 }
 
 func (q *Queries) InsertRedoAttempt(ctx context.Context, arg InsertRedoAttemptParams) error {
@@ -170,6 +175,8 @@ func (q *Queries) InsertRedoAttempt(ctx context.Context, arg InsertRedoAttemptPa
 		arg.Result,
 		arg.Output,
 		arg.ValidationJson,
+		arg.Phase,
+		arg.FailureReason,
 	)
 	return err
 }
@@ -250,8 +257,8 @@ INSERT INTO work_cards (
   scheduled_at, ready_at, position, target_path, repo_name, agent,
   coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary,
   session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id,
-  created_at, updated_at
-) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  created_at, updated_at, reviewer_agents_json, testing_agents_json
+) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 `
 
 type InsertWorkCardParams struct {
@@ -282,6 +289,8 @@ type InsertWorkCardParams struct {
 	SupersededByCardID string
 	CreatedAt          int64
 	UpdatedAt          int64
+	ReviewerAgentsJson sql.NullString
+	TestingAgentsJson  sql.NullString
 }
 
 func (q *Queries) InsertWorkCard(ctx context.Context, arg InsertWorkCardParams) error {
@@ -313,6 +322,8 @@ func (q *Queries) InsertWorkCard(ctx context.Context, arg InsertWorkCardParams) 
 		arg.SupersededByCardID,
 		arg.CreatedAt,
 		arg.UpdatedAt,
+		arg.ReviewerAgentsJson,
+		arg.TestingAgentsJson,
 	)
 	return err
 }
@@ -344,7 +355,7 @@ func (q *Queries) InsertWorkCardEvent(ctx context.Context, arg InsertWorkCardEve
 }
 
 const listAllWorkCards = `-- name: ListAllWorkCards :many
-SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at, coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary FROM work_cards
+SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at, coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary, reviewer_agents_json, testing_agents_json FROM work_cards
 ORDER BY status, position, created_at
 `
 
@@ -385,6 +396,8 @@ func (q *Queries) ListAllWorkCards(ctx context.Context) ([]WorkCard, error) {
 			&i.TestingAgent,
 			&i.RedoCount,
 			&i.LatestRedoSummary,
+			&i.ReviewerAgentsJson,
+			&i.TestingAgentsJson,
 		); err != nil {
 			return nil, err
 		}
@@ -400,7 +413,7 @@ func (q *Queries) ListAllWorkCards(ctx context.Context) ([]WorkCard, error) {
 }
 
 const listRedoAttemptsByFinding = `-- name: ListRedoAttemptsByFinding :many
-SELECT id, finding_id, attempt_number, agent, started_at, finished_at, result, output, validation_json FROM work_card_attempts
+SELECT id, finding_id, attempt_number, agent, started_at, finished_at, result, output, validation_json, phase, failure_reason FROM work_card_attempts
 WHERE finding_id = ?
 ORDER BY attempt_number ASC
 `
@@ -424,6 +437,8 @@ func (q *Queries) ListRedoAttemptsByFinding(ctx context.Context, findingID strin
 			&i.Result,
 			&i.Output,
 			&i.ValidationJson,
+			&i.Phase,
+			&i.FailureReason,
 		); err != nil {
 			return nil, err
 		}
@@ -555,7 +570,7 @@ func (q *Queries) ListWorkCardEventsByCard(ctx context.Context, cardID string) (
 }
 
 const listWorkCardsByProject = `-- name: ListWorkCardsByProject :many
-SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at, coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary FROM work_cards
+SELECT id, project_id, board_id, title, notes, priority, labels_json, status, scheduled_at, ready_at, position, target_path, repo_name, agent, session_id, waiting_for_input, paused_retarget, goal_version, superseded_by_card_id, created_at, updated_at, coding_agent, reviewer_mode, reviewer_agent, testing_agent, redo_count, latest_redo_summary, reviewer_agents_json, testing_agents_json FROM work_cards
 WHERE project_id = ? AND board_id = ?
 ORDER BY status, position, created_at
 `
@@ -602,6 +617,8 @@ func (q *Queries) ListWorkCardsByProject(ctx context.Context, arg ListWorkCardsB
 			&i.TestingAgent,
 			&i.RedoCount,
 			&i.LatestRedoSummary,
+			&i.ReviewerAgentsJson,
+			&i.TestingAgentsJson,
 		); err != nil {
 			return nil, err
 		}
@@ -646,7 +663,8 @@ UPDATE work_cards SET
   agent = ?, coding_agent = ?, reviewer_mode = ?, reviewer_agent = ?, testing_agent = ?,
   redo_count = ?, latest_redo_summary = ?,
   session_id = ?, waiting_for_input = ?, paused_retarget = ?,
-  goal_version = ?, superseded_by_card_id = ?, updated_at = ?
+  goal_version = ?, superseded_by_card_id = ?, updated_at = ?,
+  reviewer_agents_json = ?, testing_agents_json = ?
 WHERE id = ?
 `
 
@@ -674,6 +692,8 @@ type UpdateWorkCardParams struct {
 	GoalVersion        int64
 	SupersededByCardID string
 	UpdatedAt          int64
+	ReviewerAgentsJson sql.NullString
+	TestingAgentsJson  sql.NullString
 	ID                 string
 }
 
@@ -702,6 +722,8 @@ func (q *Queries) UpdateWorkCard(ctx context.Context, arg UpdateWorkCardParams) 
 		arg.GoalVersion,
 		arg.SupersededByCardID,
 		arg.UpdatedAt,
+		arg.ReviewerAgentsJson,
+		arg.TestingAgentsJson,
 		arg.ID,
 	)
 	return err
