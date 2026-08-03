@@ -166,19 +166,13 @@ func (o *ConfiguredOrchestrator) OnAgentFailed(ctx context.Context, cardID strin
 			CycleHistory: cycle,
 		}
 
-		handle, err := o.spawner.Spawn(ctx, spec)
-		if err != nil {
+		// spawner.Spawn already records the (card, session, phase, agent) fact in
+		// active_session on success — active_session.card_id is a PRIMARY KEY, so
+		// inserting it again here always fails and (before this fix) made every
+		// tick believe the spawn never happened, triggering an unbounded respawn
+		// loop. Do not re-insert.
+		if _, err := o.spawner.Spawn(ctx, spec); err != nil {
 			return fmt.Errorf("spawn fallback agent %s for %s: %w", nextAgent, cardID, err)
-		}
-
-		insert := spawner.InsertActiveSession{
-			CardID:    cardID,
-			SessionID: handle.ID,
-			Phase:     spawner.Phase(phase),
-			Agent:     nextAgent,
-		}
-		if err := o.store.InsertActiveSession(ctx, insert); err != nil {
-			return fmt.Errorf("insert active session for %s: %w", cardID, err)
 		}
 	}
 

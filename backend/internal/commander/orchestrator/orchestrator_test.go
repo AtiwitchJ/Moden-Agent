@@ -86,18 +86,34 @@ type fakeSpawner struct {
 	spawned     []spawnedCall
 	spawnErr    error
 	stopErr     error
+	// store, when set, mirrors production spawner.Spawner.Spawn's behavior of
+	// recording the (card, session, phase, agent) fact in active_session on a
+	// successful launch. Left nil in tests that don't care about that
+	// bookkeeping.
+	store *fakeStore
 }
 
 type spawnedCall struct {
 	Spec commander.SpawnSpec
 }
 
-func (s *fakeSpawner) Spawn(_ context.Context, spec commander.SpawnSpec) (commander.SessionHandle, error) {
+func (s *fakeSpawner) Spawn(ctx context.Context, spec commander.SpawnSpec) (commander.SessionHandle, error) {
 	s.spawned = append(s.spawned, spawnedCall{Spec: spec})
 	if s.spawnErr != nil {
 		return commander.SessionHandle{}, s.spawnErr
 	}
-	return commander.SessionHandle{ID: "session-" + spec.CardID + "-" + spec.Agent, NativeID: "native-" + spec.Agent}, nil
+	handle := commander.SessionHandle{ID: "session-" + spec.CardID + "-" + spec.Agent, NativeID: "native-" + spec.Agent}
+	if s.store != nil {
+		if err := s.store.InsertActiveSession(ctx, spawner.InsertActiveSession{
+			CardID:    spec.CardID,
+			SessionID: handle.ID,
+			Phase:     spawner.Phase(spec.Phase),
+			Agent:     spec.Agent,
+		}); err != nil {
+			return commander.SessionHandle{}, err
+		}
+	}
+	return handle, nil
 }
 
 func (s *fakeSpawner) Stop(_ context.Context, _ string) error {
@@ -390,7 +406,10 @@ func TestOnAgentFailed_HermesExhausted_CreatesRedoCycleAndTransitionsToRedo(t *t
 
 func TestCheckOrphans_StaleRunningSession_SpawnsReplacement(t *testing.T) {
 	store := newFakeStore()
-	sp := &fakeSpawner{}
+	// store must be wired so fakeSpawner.Spawn records the replacement session,
+	// matching production spawner.Spawner.Spawn — this test asserts on that
+	// recorded row below.
+	sp := &fakeSpawner{store: store}
 	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
 	oc := New(Config{
 		Store:    store,
@@ -563,6 +582,39 @@ func TestCountActiveCards(t *testing.T) {
 	}
 	if count != 2 {
 		t.Fatalf("active count = %d, want 2 (running + review)", count)
+	}
+}
+
+func TestTickDoesNotDoubleInsertActiveSession(t *testing.T) {
+	store := newFakeStore()
+	store.cards["card-1"] = domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", Status: domain.CardStatusRunning,
+		CodingAgent: "hermes",
+	}
+	sp := &fakeSpawner{store: store} // fakeSpawner.Spawn inserts into store.activeSessions, matching production spawner.Spawner.Spawn
+	orc := New(Config{Store: store, Spawner: sp, WIPLimit: 4})
+
+	if err := orc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	rec, ok := store.activeSessions["card-1"]
+	if !ok {
+		t.Fatal("no active session recorded for card-1 after first tick")
+	}
+	firstSessionID := rec.SessionID
+
+	// A second tick immediately after must NOT spawn another session: the
+	// first spawn is live (fresh, well within any timeout), so tickActiveCards
+	// must recognize it and do nothing.
+	if err := orc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("second Tick: %v", err)
+	}
+	if len(sp.spawned) != 1 {
+		t.Fatalf("spawner.Spawn called %d times across two ticks, want 1 (no runaway respawn)", len(sp.spawned))
+	}
+	if store.activeSessions["card-1"].SessionID != firstSessionID {
+		t.Fatalf("active session changed across ticks: %s -> %s, want stable", firstSessionID, store.activeSessions["card-1"].SessionID)
 	}
 }
 
