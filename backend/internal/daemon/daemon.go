@@ -100,6 +100,13 @@ func Run() error {
 		return err
 	}
 
+	// Orchestrator wiring: subscribes to CDC card-change events and drives periodic
+	// ticks. Nil orchestrator is tolerated before Task 6 lands so boot never blocks.
+	orchWiring, err := WireOrchestrator(ctx, OrchestratorConfig{Orchestrator: nil}, cdcPipe.Broadcaster, store, log)
+	if err != nil {
+		return fmt.Errorf("wire orchestrator: %w", err)
+	}
+
 	// Terminal streaming: the selected runtime (tmux on macOS/Linux, conpty on Windows) supplies the
 	// attach Stream and liveness; the CDC broadcaster feeds the session-state channel. The manager
 	// is handed to httpd, which mounts it at /mux. Raw PTY bytes never flow
@@ -257,6 +264,9 @@ func Run() error {
 	<-previewDone
 	<-stallDone
 	<-heartbeatDone
+	if orchWiring != nil {
+		orchWiring.Stop()
+	}
 	lcStack.Stop()
 	if err := cdcPipe.Stop(); err != nil {
 		log.Error("cdc pipeline shutdown", "err", err)
