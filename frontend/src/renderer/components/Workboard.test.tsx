@@ -218,11 +218,6 @@ describe("Workboard CDC invalidation regression", () => {
 		const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
 		const invalidateSpy = vi.spyOn(queryClient, "invalidateQueries");
 
-		// Simulate the event data shape that createEventTransport parses
-		const event = new MessageEvent("work_card_changed", {
-			data: JSON.stringify({ projectId: "proj-1", payload: { card_id: "card-1" } }),
-		});
-
 		// Trigger the same logic refreshWorkboard does in event-transport.ts
 		const workboardQueryKey = (projectId?: string) =>
 			projectId ? (["workboard", projectId] as const) : (["workboard", "global"] as const);

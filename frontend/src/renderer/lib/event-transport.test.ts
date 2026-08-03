@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import type { QueryClient } from "@tanstack/react-query";
 
 const {
 	onStatusMock,
@@ -57,7 +58,7 @@ class EventSourceStub {
 
 function fakeQueryClient() {
 	// eslint-disable-next-line @typescript-eslint/no-explicit-any
-	return { invalidateQueries: vi.fn() as unknown as import("@tanstack/react-query").QueryClient };
+	return { invalidateQueries: vi.fn() } as unknown as QueryClient;
 }
 
 beforeEach(() => {
@@ -164,18 +165,20 @@ describe("createEventTransport", () => {
 		// Both events should be handled without crashing. Since projectId is
 		// undefined for both (non-string ids), only the global board invalidation
 		// fires once (event 1 throws; event 2 has no valid projectId/cardId).
-		const invalidations = queryClient.invalidateQueries.mock.calls.filter(
-			([arg]: [unknown]) =>
-				Array.isArray((arg as { queryKey?: unknown[] }).queryKey) &&
-				((arg as { queryKey: unknown[] }).queryKey)[0] === "workboard" &&
-				((arg as { queryKey: unknown[] }).queryKey)[1] === "global",
+		const invalidations = (((queryClient as any).invalidateQueries as ReturnType<typeof vi.fn>).mock.calls as any[]).filter(
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(arg: any) =>
+				Array.isArray((arg[0] as { queryKey?: unknown[] }).queryKey) &&
+				((arg[0] as { queryKey: unknown[] }).queryKey)[0] === "workboard" &&
+				((arg[0] as { queryKey: unknown[] }).queryKey)[1] === "global",
 		);
 		expect(invalidations).toHaveLength(1);
 		// No project-scoped or card-specific invalidations for malformed payloads.
-		const projectOrCardInvalidations = queryClient.invalidateQueries.mock.calls.filter(
-			([arg]: [unknown]) =>
-				Array.isArray((arg as { queryKey?: unknown[] }).queryKey) &&
-				((arg as { queryKey: unknown[] }).queryKey).length > 2,
+		const projectOrCardInvalidations = (((queryClient as any).invalidateQueries as ReturnType<typeof vi.fn>).mock.calls as any[]).filter(
+			// eslint-disable-next-line @typescript-eslint/no-explicit-any
+			(arg: any) =>
+				Array.isArray((arg[0] as { queryKey?: unknown[] }).queryKey) &&
+				((arg[0] as { queryKey: unknown[] }).queryKey).length > 2,
 		);
 		expect(projectOrCardInvalidations).toHaveLength(0);
 	});
