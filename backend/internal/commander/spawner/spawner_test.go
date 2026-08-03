@@ -14,6 +14,7 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/adapters/agent/registry"
 	"github.com/modernagent/modern-agent/backend/internal/commander/spawner"
 	"github.com/modernagent/modern-agent/backend/internal/domain"
+	"github.com/modernagent/modern-agent/backend/internal/ports"
 )
 
 // fakeLauncher stores every Spawn call and returns configured handles.
@@ -245,6 +246,69 @@ func TestSpawn_ConcurrentDifferentCards(t *testing.T) {
 		seen[insert.CardID] = struct{}{}
 	}
 	assert.Len(t, seen, cardCount)
+}
+
+// fakeSessionSpawner stores every Spawn call and returns configured session/error.
+type fakeSessionSpawner struct {
+	calls []ports.SpawnConfig
+	out   domain.Session
+	err   error
+}
+
+func (f *fakeSessionSpawner) Spawn(_ context.Context, cfg ports.SpawnConfig) (domain.Session, error) {
+	f.calls = append(f.calls, cfg)
+	return f.out, f.err
+}
+
+func TestSessionServiceLauncher_SpawnsRealSession(t *testing.T) {
+	t.Parallel()
+	sessions := &fakeSessionSpawner{out: domain.Session{
+		SessionRecord: domain.SessionRecord{ID: "sess-real-1"},
+	}}
+	launcher := &spawner.SessionServiceLauncher{Sessions: sessions}
+
+	card := makeCard("card-1", "proj-1", "Fix bug", "details", "/repo/app")
+	handle, err := launcher.Spawn(context.Background(), spawner.SpawnSpec{
+		CardID: "card-1", ProjectID: "proj-1", Phase: spawner.PhaseCoding,
+		Agent: "hermes", Briefing: "do the work", ParentCard: card,
+	})
+	if err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if handle.ID != "sess-real-1" {
+		t.Fatalf("handle.ID = %q, want sess-real-1 (the real session ID, not the card ID)", handle.ID)
+	}
+	if len(sessions.calls) != 1 {
+		t.Fatalf("Sessions.Spawn calls = %d, want 1", len(sessions.calls))
+	}
+	got := sessions.calls[0]
+	if got.ProjectID != "proj-1" || got.Harness != "hermes" || got.Prompt != "do the work" || got.TargetPath != "/repo/app" {
+		t.Fatalf("SpawnConfig = %+v, want project=proj-1 harness=hermes prompt='do the work' targetPath=/repo/app", got)
+	}
+	if got.Kind != domain.KindWorker {
+		t.Fatalf("Kind = %s, want %s", got.Kind, domain.KindWorker)
+	}
+}
+
+func TestSessionServiceLauncher_RequiresAgent(t *testing.T) {
+	t.Parallel()
+	launcher := &spawner.SessionServiceLauncher{Sessions: &fakeSessionSpawner{}}
+	_, err := launcher.Spawn(context.Background(), spawner.SpawnSpec{CardID: "card-1"})
+	if err == nil {
+		t.Fatal("Spawn: want error for empty Agent, got nil")
+	}
+}
+
+func TestSessionServiceLauncher_PropagatesSpawnError(t *testing.T) {
+	t.Parallel()
+	sessions := &fakeSessionSpawner{err: errors.New("boom")}
+	launcher := &spawner.SessionServiceLauncher{Sessions: sessions}
+	_, err := launcher.Spawn(context.Background(), spawner.SpawnSpec{
+		CardID: "card-1", ProjectID: "proj-1", Phase: spawner.PhaseReview, Agent: "codex",
+	})
+	if err == nil {
+		t.Fatal("Spawn: want propagated error, got nil")
+	}
 }
 
 func TestSpawn_LancherError(t *testing.T) {
