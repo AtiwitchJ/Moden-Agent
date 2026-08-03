@@ -626,6 +626,50 @@ func TestSpawn_RejectsMissingRoleHarness(t *testing.T) {
 	}
 }
 
+func TestSpawn_RejectsDirectorWithoutCardID(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer"}
+	m := New(Deps{
+		Runtime: &fakeRuntime{}, Agents: fakeAgents{}, Workspace: &fakeWorkspace{}, Store: st,
+		Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		LookPath: func(string) (string, error) { return "/bin/true", nil },
+	})
+
+	_, err := m.Spawn(ctx, ports.SpawnConfig{
+		ProjectID: "mer",
+		Kind:      domain.KindOrchestrator,
+		Harness:   domain.HarnessDirector,
+	})
+	if !errors.Is(err, ErrDirectorCardRequired) {
+		t.Fatalf("err = %v, want ErrDirectorCardRequired", err)
+	}
+	if len(st.sessions) != 0 {
+		t.Fatalf("a rejected Director spawn must not create a session row, got %d", len(st.sessions))
+	}
+}
+
+func TestSpawn_AllowsDirectorWithCardID(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer"}
+	m := New(Deps{
+		Runtime: &fakeRuntime{}, Agents: fakeAgents{}, Workspace: &fakeWorkspace{}, Store: st,
+		Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		LookPath: func(string) (string, error) { return "/bin/true", nil },
+	})
+
+	if _, err := m.Spawn(ctx, ports.SpawnConfig{
+		ProjectID:      "mer",
+		Kind:           domain.KindOrchestrator,
+		Harness:        domain.HarnessDirector,
+		DirectorCardID: "card_1",
+	}); err != nil {
+		t.Fatalf("Spawn: %v", err)
+	}
+	if len(st.sessions) != 1 {
+		t.Fatalf("sessions = %d, want 1", len(st.sessions))
+	}
+}
+
 func TestSpawn_ExplicitHarnessWinsWithoutProjectRoleHarness(t *testing.T) {
 	st := newFakeStore()
 	st.projects["mer"] = domain.ProjectRecord{ID: "mer"}

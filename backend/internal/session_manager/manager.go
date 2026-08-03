@@ -41,6 +41,12 @@ var (
 	// ErrMissingHarness means neither the spawn request nor the project's role
 	// config selected an agent. Worker/orchestrator spawns must be explicit.
 	ErrMissingHarness = errors.New("session: agent harness required")
+	// ErrDirectorCardRequired rejects a Director spawn that names no work card.
+	// The Director exits immediately without AO_DIRECTOR_CARD_ID, and the tmux
+	// runtime's `exec $SHELL` tail keeps the pane alive afterwards — so the
+	// failure is invisible: a live-looking session that is a bare shell. Refuse
+	// the spawn instead of creating one.
+	ErrDirectorCardRequired = errors.New("session: director harness requires a work card id")
 	// ErrNotResumable means a terminated session cannot be relaunched: its adapter
 	// cannot natively resume it AND it has no prompt to fresh-launch from, and it is
 	// not an orchestrator (orchestrators are promptless by design and relaunch fresh
@@ -241,6 +247,12 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 	cfg.Harness = effectiveHarness(cfg.Harness, cfg.Kind, project.Config)
 	if cfg.Harness == "" {
 		return domain.SessionRecord{}, fmt.Errorf("spawn: %w: configure project %s.agent or pass --harness", ErrMissingHarness, roleConfigName(cfg.Kind))
+	}
+
+	// The Director loop is scoped to one card; without it the process exits at
+	// startup. Reject here, before any durable state exists.
+	if cfg.Harness == domain.HarnessDirector && strings.TrimSpace(cfg.DirectorCardID) == "" {
+		return domain.SessionRecord{}, fmt.Errorf("spawn: %w", ErrDirectorCardRequired)
 	}
 
 	// Reject an unknown harness before any durable state is created. Doing this
