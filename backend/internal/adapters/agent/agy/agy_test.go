@@ -11,6 +11,39 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/ports"
 )
 
+func TestGetHeadlessCommandRunsPrintMode(t *testing.T) {
+	p := &Plugin{resolvedBinary: "agy"}
+
+	cmd, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{
+		WorkspacePath: "/tmp/ws",
+		Prompt:        "implement the card",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"agy", "--add-dir", "/tmp/ws",
+		"--print", "--dangerously-skip-permissions", "--print-timeout", "30m",
+		"implement the card",
+	}
+	if !reflect.DeepEqual(cmd, want) {
+		t.Fatalf("unexpected command\nwant: %#v\n got: %#v", want, cmd)
+	}
+}
+
+func TestGetHeadlessCommandRejectsEmptyPrompt(t *testing.T) {
+	p := &Plugin{resolvedBinary: "agy"}
+
+	if _, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{}); err == nil {
+		t.Fatal("expected an error for a one-shot launch with no prompt")
+	}
+}
+
+func TestPluginSatisfiesAgentHeadless(t *testing.T) {
+	var _ ports.AgentHeadless = (*Plugin)(nil)
+}
+
 func TestManifest(t *testing.T) {
 	plugin := New()
 	manifest := plugin.Manifest()

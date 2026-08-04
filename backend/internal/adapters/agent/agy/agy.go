@@ -40,6 +40,7 @@ func New() *Plugin {
 
 var _ adapters.Adapter = (*Plugin)(nil)
 var _ ports.Agent = (*Plugin)(nil)
+var _ ports.AgentHeadless = (*Plugin)(nil)
 
 // Manifest returns the adapter's static self-description.
 func (p *Plugin) Manifest() adapters.Manifest {
@@ -87,6 +88,33 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	}
 
 	return cmd, nil
+}
+
+// GetHeadlessCommand builds the argv for a one-shot Agy run:
+//
+//	agy --add-dir <workspace> --print --dangerously-skip-permissions \
+//	    --print-timeout 30m <prompt>
+//
+// `--print` runs a single prompt non-interactively and prints the response,
+// unlike the interactive launch's `--prompt-interactive`.
+// `--dangerously-skip-permissions` auto-approves tool requests, which a
+// headless run needs because nothing can answer them. `--print-timeout`
+// defaults to five minutes, well under a real card phase, so it is raised to
+// match the caller's own one-shot wait budget.
+func (p *Plugin) GetHeadlessCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error) {
+	if strings.TrimSpace(cfg.Prompt) == "" {
+		return nil, fmt.Errorf("agy: a one-shot launch requires a prompt")
+	}
+	binary, err := p.agyBinary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	cmd = []string{binary}
+	if cfg.WorkspacePath != "" {
+		cmd = append(cmd, "--add-dir", cfg.WorkspacePath)
+	}
+	cmd = append(cmd, "--print", "--dangerously-skip-permissions", "--print-timeout", "30m")
+	return append(cmd, cfg.Prompt), nil
 }
 
 // GetPromptDeliveryStrategy reports that Agy receives its prompt in the
