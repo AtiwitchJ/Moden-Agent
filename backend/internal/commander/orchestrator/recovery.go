@@ -23,7 +23,7 @@ func (o *ConfiguredOrchestrator) checkOrphans(ctx context.Context, cards []domai
 			continue
 		}
 
-		active, session, err := o.checkActiveSession(ctx, card)
+		active, session, err := o.checkActiveSession(ctx, card, card.Status)
 		if err != nil {
 			return err
 		}

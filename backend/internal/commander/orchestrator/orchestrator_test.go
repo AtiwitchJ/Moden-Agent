@@ -477,6 +477,46 @@ func TestTick_RedoCardSpawnFailure_StaysInRedoForRetry(t *testing.T) {
 	}
 }
 
+// TestTick_RedoCardWithStaleSessionIDFromAnEarlierPhase_StillRespawns covers a
+// real failure hit live: card.SessionID is dispatch.go's plain path's link
+// field for the *coding* phase only, but it is never cleared as the card
+// moves through review/testing/redo — it just keeps pointing at whatever
+// coding session ran first. If that old session happens to still show
+// is_terminated=false (idle in a pane, never reaped), the cross-check added
+// for the coding-phase collision must not mistake it for a live session on a
+// later phase — a redo card would then never respawn at all.
+func TestTick_RedoCardWithStaleSessionIDFromAnEarlierPhase_StillRespawns(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "redo")
+	c.SessionID = "stale-coding-session"
+	store.cards[c.ID] = c
+	store.listSessionsOut = []domain.SessionRecord{
+		{ID: "stale-coding-session", ProjectID: "p1", IsTerminated: false, CreatedAt: now.Add(-2 * time.Hour)},
+	}
+
+	if err := oc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if len(sp.spawned) != 1 {
+		t.Fatalf("spawned count = %d, want 1 — a stale card.SessionID from an earlier phase must not block the redo respawn", len(sp.spawned))
+	}
+	got := store.cards["c1"]
+	if got.Status != domain.CardStatusRunning {
+		t.Fatalf("card status = %q, want running", got.Status)
+	}
+}
+
 func TestTick_WIPAtLimit_RefusesNewSpawn(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}

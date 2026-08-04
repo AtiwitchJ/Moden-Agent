@@ -16,7 +16,7 @@ func (o *ConfiguredOrchestrator) tickActiveCards(ctx context.Context, cards []do
 			continue
 		}
 
-		active, session, err := o.checkActiveSession(ctx, card)
+		active, session, err := o.checkActiveSession(ctx, card, card.Status)
 		if err != nil {
 			return err
 		}
@@ -107,13 +107,22 @@ func isActivePhase(status domain.CardStatus) bool {
 
 // checkActiveSession returns (hasActive, sessionRecord, error). A card counts
 // as having an active session either through this package's own active_session
-// bookkeeping, or through a live (non-terminated) session that a different
-// commander already linked via card.SessionID — workboard's dispatch.go claims
-// a Todo/Ready card and spawns its worker directly through session_manager,
-// never writing an active_session row, since that bookkeeping is this
-// package's alone. Without this cross-check, Tick could not see that spawn and
-// would start a second, redundant coding session on the very next tick.
-func (o *ConfiguredOrchestrator) checkActiveSession(ctx context.Context, card domain.WorkCard) (bool, ActiveSessionRecord, error) {
+// bookkeeping, or — for a Running card only — through a live (non-terminated)
+// session that a different commander already linked via card.SessionID:
+// workboard's dispatch.go claims a Todo/Ready card and spawns its coding
+// worker directly through session_manager, never writing an active_session
+// row, since that bookkeeping is this package's alone. Without this
+// cross-check, Tick could not see that spawn and would start a second,
+// redundant coding session on the very next tick.
+//
+// The cross-check is scoped to status == Running (dispatch.go's plain path
+// never touches review/testing/redo) on purpose: card.SessionID is not
+// cleared as a card moves through later phases, so on any other status it
+// would just be a stale pointer at whichever coding session ran first — and
+// if that old session happened to still show is_terminated=false (idle in a
+// pane, never reaped), treating it as "still active" would block every later
+// phase, including a redo, from ever spawning again.
+func (o *ConfiguredOrchestrator) checkActiveSession(ctx context.Context, card domain.WorkCard, status domain.CardStatus) (bool, ActiveSessionRecord, error) {
 	session, ok, err := o.store.GetActiveSession(ctx, card.ID)
 	if err != nil {
 		return false, ActiveSessionRecord{}, err
@@ -121,7 +130,7 @@ func (o *ConfiguredOrchestrator) checkActiveSession(ctx context.Context, card do
 	if ok {
 		return true, session, nil
 	}
-	if card.SessionID == "" {
+	if status != domain.CardStatusRunning || card.SessionID == "" {
 		return false, ActiveSessionRecord{}, nil
 	}
 	sessions, err := o.store.ListSessions(ctx, domain.ProjectID(card.ProjectID))
