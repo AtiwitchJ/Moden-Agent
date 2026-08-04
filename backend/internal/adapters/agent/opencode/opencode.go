@@ -62,6 +62,7 @@ func New() *Plugin {
 var _ adapters.Adapter = (*Plugin)(nil)
 var _ ports.Agent = (*Plugin)(nil)
 var _ ports.AgentAuthChecker = (*Plugin)(nil)
+var _ ports.AgentHeadless = (*Plugin)(nil)
 
 // Manifest returns the adapter's static self-description.
 func (p *Plugin) Manifest() adapters.Manifest {
@@ -109,6 +110,27 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 		cmd = append(cmd, "--prompt", cfg.Prompt)
 	}
 	return cmd, nil
+}
+
+// GetHeadlessCommand builds the argv for a one-shot opencode run:
+//
+//	opencode run --auto -- <prompt>
+//
+// `run` is opencode's non-interactive subcommand: it sends one message and
+// exits, unlike the bare `opencode` launch which opens the TUI. `--auto`
+// auto-approves every permission that is not explicitly denied, which a
+// headless run needs because nothing can answer a prompt. Note that opencode's
+// `-p` is --password, not print — the interactive launch's `--prompt` flag has
+// no place here.
+func (p *Plugin) GetHeadlessCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error) {
+	if strings.TrimSpace(cfg.Prompt) == "" {
+		return nil, fmt.Errorf("opencode: a one-shot launch requires a prompt")
+	}
+	binary, err := p.opencodeBinary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return []string{binary, "run", "--auto", "--", cfg.Prompt}, nil
 }
 
 // GetPromptDeliveryStrategy reports that opencode receives its prompt in the
