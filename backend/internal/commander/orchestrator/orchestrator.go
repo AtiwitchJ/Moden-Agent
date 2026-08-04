@@ -147,9 +147,12 @@ func (o *ConfiguredOrchestrator) OnAgentFailed(ctx context.Context, cardID strin
 		return fmt.Errorf("card %s not found", cardID)
 	}
 
-	// See OnAgentCompleted's matching comment: the failed session stays live
-	// in its pane until something tears it down, whether the card is about to
-	// enter redo or a fallback agent is about to take over the same phase.
+	// See OnAgentCompleted's matching comment: the failed session — same as a
+	// completed one — is by construction the very session calling this method
+	// right now (`ao workboard card set-verdict` / `fail-attempt` reporting
+	// its own failure), so the kill is deferred past this function's own work
+	// (the redo transition, or spawning the fallback agent below) and
+	// detached from ctx, never synchronous here.
 	previous, hadPrevious, sessionErr := o.store.GetActiveSession(ctx, cardID)
 	if sessionErr != nil {
 		return fmt.Errorf("get active session for %s: %w", cardID, sessionErr)
@@ -158,7 +161,9 @@ func (o *ConfiguredOrchestrator) OnAgentFailed(ctx context.Context, cardID strin
 		return fmt.Errorf("delete active session for %s: %w", cardID, err)
 	}
 	if hadPrevious {
-		o.killSupersededSession(ctx, previous)
+		defer func() {
+			go o.killSupersededSession(context.WithoutCancel(ctx), previous)
+		}()
 	}
 
 	phase := commander.Phase(attempt.Phase)
@@ -245,12 +250,8 @@ func (o *ConfiguredOrchestrator) OnAgentCompleted(ctx context.Context, cardID st
 	}
 
 	// The completed phase's session is done its job but stays live in its
-	// pane until something tears it down — killSupersededSession's own doc
-	// comment notes the same fact for a timed-out replacement. Capture it
-	// before DeleteActiveSession removes the only record of which session
-	// that was, then kill it best-effort: a session already gone (or a nil
-	// killer) is a normal, harmless case, never a reason to fail the
-	// completion this callback exists to apply.
+	// pane until something tears it down. Capture it before DeleteActiveSession
+	// removes the only record of which session that was.
 	previous, hadPrevious, sessionErr := o.store.GetActiveSession(ctx, cardID)
 	if sessionErr != nil {
 		return fmt.Errorf("get active session for %s: %w", cardID, sessionErr)
@@ -258,8 +259,23 @@ func (o *ConfiguredOrchestrator) OnAgentCompleted(ctx context.Context, cardID st
 	if err := o.store.DeleteActiveSession(ctx, cardID); err != nil {
 		return fmt.Errorf("delete active session for %s: %w", cardID, err)
 	}
+	// Deferred and detached from ctx — not a synchronous call here. The
+	// session that "just completed a phase" is, by construction, the very
+	// session calling this method right now (a phase completes by that
+	// session reporting it via `ao workboard card handoff` / `set-verdict` /
+	// `set-test-result`). An earlier version killed it synchronously at this
+	// point, before the phase transition below was written: that tore down
+	// the CLI process waiting on this request's own HTTP response, which
+	// then failed with "context canceled" on the UpdateWorkCard call — caught
+	// live, the card never advanced and kept re-spawning the same phase
+	// forever. Deferring past the transition (so it is already durable) and
+	// detaching from ctx (so the client's own connection closing afterward
+	// can't cancel it) makes the kill strictly follow, never race, the work
+	// this call exists to do.
 	if hadPrevious {
-		o.killSupersededSession(ctx, previous)
+		defer func() {
+			go o.killSupersededSession(context.WithoutCancel(ctx), previous)
+		}()
 	}
 
 	phase := commander.Phase(result.Phase)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -167,14 +168,37 @@ func (s *fakeSpawner) Inject(_ context.Context, _, _ string) error {
 	return nil
 }
 
+// fakeKiller records Kill calls under a mutex (Kill now runs off a detached
+// goroutine, so tests observe it concurrently with the calling method's own
+// return) and optionally blocks until unblock is closed, so a test can prove
+// the caller does not wait for it.
 type fakeKiller struct {
-	killed []domain.SessionID
-	err    error
+	mu      sync.Mutex
+	killed  []domain.SessionID
+	err     error
+	unblock chan struct{}
+	notify  chan domain.SessionID
 }
 
 func (f *fakeKiller) Kill(_ context.Context, id domain.SessionID) (bool, error) {
+	if f.unblock != nil {
+		<-f.unblock
+	}
+	f.mu.Lock()
 	f.killed = append(f.killed, id)
+	f.mu.Unlock()
+	if f.notify != nil {
+		f.notify <- id
+	}
 	return f.err == nil, f.err
+}
+
+func (f *fakeKiller) Killed() []domain.SessionID {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := make([]domain.SessionID, len(f.killed))
+	copy(out, f.killed)
+	return out
 }
 
 func card(id, projectID, status string) domain.WorkCard {
@@ -869,7 +893,7 @@ func TestTick_ManyQueuedRedoCardsQueueLikeTodoInsteadOfDeadlocking(t *testing.T)
 // kept running idle forever, one leaked process per phase transition.
 func TestOnAgentCompleted_KillsThePreviousPhaseSession(t *testing.T) {
 	store := newFakeStore()
-	killer := &fakeKiller{}
+	killer := &fakeKiller{notify: make(chan domain.SessionID, 1)}
 	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
 	oc := New(Config{
 		Store:  store,
@@ -890,8 +914,63 @@ func TestOnAgentCompleted_KillsThePreviousPhaseSession(t *testing.T) {
 		t.Fatalf("OnAgentCompleted: %v", err)
 	}
 
-	if len(killer.killed) != 1 || killer.killed[0] != "reviewer-session" {
-		t.Fatalf("killed = %v, want [reviewer-session]", killer.killed)
+	select {
+	case id := <-killer.notify:
+		if id != "reviewer-session" {
+			t.Fatalf("killed = %q, want reviewer-session", id)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the detached kill to run")
+	}
+}
+
+// TestOnAgentCompleted_DoesNotWaitForTheKillToFinish is the regression test
+// for a real production bug: the completed phase's "previous" session is
+// always the session calling this method (a phase completes by that session
+// reporting it), so killing it synchronously — as an earlier version did —
+// tore down the very process waiting on this request's HTTP response before
+// the card update was durable. Caught live: `ao workboard card handoff`
+// failed with "context canceled" on the UpdateWorkCard call, and the card
+// never advanced. This proves the phase transition commits and the method
+// returns without waiting for Kill at all.
+func TestOnAgentCompleted_DoesNotWaitForTheKillToFinish(t *testing.T) {
+	store := newFakeStore()
+	killer := &fakeKiller{unblock: make(chan struct{})} // never closed in this test
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:  store,
+		Killer: killer,
+		Clock:  func() time.Time { return now },
+		NewID:  func() string { return "ev-1" },
+	})
+
+	c := card("c1", "p1", "review")
+	store.cards[c.ID] = c
+	store.activeSessions["c1"] = ActiveSessionRecord{
+		CardID: "c1", SessionID: "reviewer-session", Phase: "review", Agent: "claude-code", CreatedAt: now,
+	}
+
+	done := make(chan error, 1)
+	go func() {
+		done <- oc.OnAgentCompleted(context.Background(), "c1", commander.AgentResult{
+			Phase: commander.PhaseReview, Verdict: "approved",
+		})
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatalf("OnAgentCompleted: %v", err)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("OnAgentCompleted blocked on a Kill call that never unblocked")
+	}
+
+	if got := store.cards["c1"].Status; got != domain.CardStatusTesting {
+		t.Fatalf("card status = %q, want testing — the transition must commit independent of the kill", got)
+	}
+	if len(killer.Killed()) != 0 {
+		t.Fatalf("killed = %v, want none yet — Kill is still blocked on unblock", killer.Killed())
 	}
 }
 
@@ -963,7 +1042,7 @@ func TestGetCardUsesGetWorkCard_NotListWorkCardsWithEmptyFilters(t *testing.T) {
 func TestOnAgentFailed_KillsThePreviousSessionBeforeFallbackSpawns(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}
-	killer := &fakeKiller{}
+	killer := &fakeKiller{notify: make(chan domain.SessionID, 1)}
 	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
 	oc := New(Config{
 		Store:    store,
@@ -988,8 +1067,13 @@ func TestOnAgentFailed_KillsThePreviousSessionBeforeFallbackSpawns(t *testing.T)
 		t.Fatalf("OnAgentFailed: %v", err)
 	}
 
-	if len(killer.killed) != 1 || killer.killed[0] != "failed-coding-session" {
-		t.Fatalf("killed = %v, want [failed-coding-session]", killer.killed)
+	select {
+	case id := <-killer.notify:
+		if id != "failed-coding-session" {
+			t.Fatalf("killed = %q, want failed-coding-session", id)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("timed out waiting for the detached kill to run")
 	}
 	if len(sp.spawned) != 1 || sp.spawned[0].Spec.Agent != "codex" {
 		t.Fatalf("spawned = %+v, want the codex fallback to still spawn", sp.spawned)
