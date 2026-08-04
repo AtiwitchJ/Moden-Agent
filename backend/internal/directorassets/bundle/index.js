@@ -115566,12 +115566,7 @@ function buildTransitionArgv(cardId, to, reason) {
 }
 function buildSpawnWorkerArgv(projectId, agent, prompt) {
   const name = `${agent}-worker`.slice(0, 20);
-  return ["spawn", "--project", projectId, "--agent", agent, "--name", name, "--prompt", prompt];
-}
-function buildSendWorkerAnswerArgv(sessionId, answer) {
-  if (sessionId.trim() === "") throw new Error("a worker session id is required");
-  if (answer.trim() === "") throw new Error("an answer is required");
-  return ["send", "--session", sessionId, "--message", answer];
+  return ["spawn", "--project", projectId, "--agent", agent, "--name", name, "--oneshot", "--wait", "--prompt", prompt];
 }
 async function runAo(run, argv) {
   const { code, stdout, stderr } = await run(argv);
@@ -135509,7 +135504,7 @@ Each worker must finish its phase by recording \`ao workboard card handoff ${car
 
 When delegating review or testing, first read the card again: its \`handoffs\` list is the durable history. Point the next worker at the relevant prior handoff by phase and tell it to read the card itself for the details \u2014 do not paste the handoff text into the prompt. A reviewer must inspect the actual diff and target the coding handoff; a tester must use both the coding and review handoffs to choose tests. If a handoff is missing, say so in the next prompt and require the worker to inspect \`git diff\`, \`git status\`, and the repository's test scripts before making a verdict.
 
-When a worker asks a question, AO delivers it to this Director terminal. Read the question, inspect the card or code if needed, then answer the worker with the \`answer_worker\` tool. The tool sends the reply into the worker's live CLI terminal. Make the decision yourself when it is safe; only block the card for a real human decision or a risky/destructive action.
+Workers run one-shot: each call to \`spawn_worker\` blocks until the worker exits. The worker's only report is the handoff it writes to the card, so the next prompt must point the worker at the relevant handoff by phase (or, when none exists, at \`git diff\`/\`git status\`/the test scripts). Do not block the card for a safe decision the model can make; only block for a real human decision or a risky/destructive action.
 
 ## Git safety
 
@@ -135583,35 +135578,24 @@ async function main() {
         agent2,
         `${prompt.trim()}
 
-You are supervised by Director session ${cfg.sessionId}. If your CLI asks a question or you are blocked, send the exact question to the Director with: ao send --session ${cfg.sessionId} --message "<question>". Wait for its answer before proceeding. Before completing your assigned phase, record a durable handoff with \`ao workboard card handoff <card-id> --phase <coding|review|testing> --summary "<what you did or found>" --changed <file> --check "<command and result>" --commit <sha-or-pr> --next "<what the next phase must verify>". Then send the same concise report to the Director with \`ao send --session ${cfg.sessionId} --message "Handoff: <report>"\`.`
+You are supervised by Director session ${cfg.sessionId}. You are running one-shot: you cannot ask questions, so decide and proceed. Before completing your assigned phase, record a durable handoff with \`ao workboard card handoff <card-id> --phase <coding|review|testing> --summary "<what you did or found>" --changed <file> --check "<command and result>" --commit <sha-or-pr> --next "<what the next phase must verify>". That handoff is the only report the Director reads.`
       )
     ),
     {
       name: "spawn_worker",
-      description: "Delegate an implementation subtask to a worker agent session.",
+      description: "Run an implementation subtask as a one-shot worker session. Blocks until the worker exits; read its result with show_card.",
       schema: external_exports.object({
         agent: external_exports.string().describe(
-          "Harness id to run the worker on, e.g. hermes, claude-code. Use the VALUE of the card's codingAgent/reviewerAgent/testingAgent field, never the field name itself."
+          "Harness id to run the worker on, e.g. claude-code, codex. Use the VALUE of the card's codingAgent/reviewerAgent/testingAgent field, never the field name itself."
         ),
         prompt: external_exports.string().describe("The exact subtask, including the card id")
-      })
-    }
-  );
-  const answerWorker = tool(
-    async ({ sessionId, answer }) => runAo(runner, buildSendWorkerAnswerArgv(sessionId, answer)),
-    {
-      name: "answer_worker",
-      description: "Answer a worker's question by sending the decision into its live agent CLI terminal.",
-      schema: external_exports.object({
-        sessionId: external_exports.string().describe("The worker session that asked the question"),
-        answer: external_exports.string().describe("A clear, actionable answer for that worker")
       })
     }
   );
   const backend = await LocalShellBackend.create();
   const agent = await createDeepAgent({
     model: createDirectorModel(cfg.model, process.env),
-    tools: [showCard, transitionCard, spawnWorker, answerWorker],
+    tools: [showCard, transitionCard, spawnWorker],
     systemPrompt: [directorSystemPrompt(cfg.cardId), adhdSkill, gitWorkflowSkill].filter(Boolean).join("\n\n"),
     backend
   });
