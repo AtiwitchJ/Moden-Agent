@@ -13,8 +13,8 @@ describe("argv builders", () => {
 	});
 
 	it("builds the spawn-worker argv", () => {
-		expect(buildSpawnWorkerArgv("claude-code", "implement X")).toEqual([
-			"spawn", "--agent", "claude-code", "--prompt", "implement X",
+		expect(buildSpawnWorkerArgv("proj-1", "claude-code", "implement X")).toEqual([
+			"spawn", "--project", "proj-1", "--agent", "claude-code", "--prompt", "implement X",
 		]);
 	});
 

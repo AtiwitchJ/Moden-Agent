@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest";
 import { DEFAULT_MODEL, loadConfig } from "./config.js";
 
-const base = { AO_DIRECTOR_CARD_ID: "card-1", AO_SESSION_ID: "sess-1" };
+const base = { AO_DIRECTOR_CARD_ID: "card-1", AO_SESSION_ID: "sess-1", AO_PROJECT_ID: "proj-1" };
 
 describe("loadConfig", () => {
 	it("uses the configured model", () => {
@@ -23,6 +23,10 @@ describe("loadConfig", () => {
 
 	it("throws when the session id is missing", () => {
 		expect(() => loadConfig({ AO_DIRECTOR_CARD_ID: "card-1" })).toThrow(/AO_SESSION_ID/);
+	});
+
+	it("throws when the project id is missing", () => {
+		expect(() => loadConfig({ AO_DIRECTOR_CARD_ID: "card-1", AO_SESSION_ID: "sess-1" })).toThrow(/AO_PROJECT_ID/);
 	});
 
 	it("defaults maxIterations to 60", () => {

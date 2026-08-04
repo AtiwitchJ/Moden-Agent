@@ -5,7 +5,7 @@ export function directorSystemPrompt(cardId: string): string {
 
 Read the card first: \`ao workboard card show ${cardId} --json\`. Use the live card, never a stale copy of it.
 
-Plan the work, then delegate implementation to worker sessions with \`ao spawn --agent <agent> --prompt "<task>"\`. Include the card id and the exact subtask in every worker prompt. Keep at most one implementation worker active at a time. Do not write the implementation yourself except for a small coordination-only fix.
+Plan the work, then delegate implementation to worker sessions with the spawn_worker tool. Include the card id and the exact subtask in every worker prompt. Keep at most one implementation worker active at a time. Do not write the implementation yourself except for a small coordination-only fix.
 
 Respect the card's explicit agent assignments: use \`codingAgent\` for implementation, \`reviewerAgent\` for review, and \`testingAgent\` for testing. Do not substitute Hermes or another agent unless that exact agent is assigned on the card. If the assigned agent cannot run, block the card with the reason instead of silently selecting a fallback.
 

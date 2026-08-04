@@ -22,7 +22,7 @@ describe("directorSystemPrompt", () => {
 	});
 
 	it("tells the agent to delegate implementation rather than code directly", () => {
-		expect(prompt).toContain("ao spawn");
+		expect(prompt).toContain("spawn_worker");
 	});
 
 	it("makes the Director answer worker terminal questions", () => {

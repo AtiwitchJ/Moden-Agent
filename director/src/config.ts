@@ -11,6 +11,7 @@ const DEFAULT_MAX_ITERATIONS = 60;
 export interface DirectorConfig {
 	model: string;
 	cardId: string;
+	projectId: string;
 	sessionId: string;
 	prompt: string;
 	maxIterations: number;
@@ -27,6 +28,7 @@ function required(env: NodeJS.ProcessEnv, key: string): string {
 export function loadConfig(env: NodeJS.ProcessEnv): DirectorConfig {
 	const cardId = required(env, "AO_DIRECTOR_CARD_ID");
 	const sessionId = required(env, "AO_SESSION_ID");
+	const projectId = required(env, "AO_PROJECT_ID");
 
 	const model = (env.AO_DIRECTOR_MODEL ?? "").trim() || DEFAULT_MODEL;
 
@@ -42,5 +44,5 @@ export function loadConfig(env: NodeJS.ProcessEnv): DirectorConfig {
 		maxIterations = parsed;
 	}
 
-	return { model, cardId, sessionId, prompt: (env.AO_PROMPT ?? "").trim(), maxIterations };
+	return { model, cardId, projectId, sessionId, prompt: (env.AO_PROMPT ?? "").trim(), maxIterations };
 }

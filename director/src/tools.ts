@@ -13,8 +13,8 @@ export function buildTransitionArgv(cardId: string, to: string, reason: string):
 	return ["workboard", "card", "transition", cardId, "--to", to, "--reason", reason];
 }
 
-export function buildSpawnWorkerArgv(agent: string, prompt: string): string[] {
-	return ["spawn", "--agent", agent, "--prompt", prompt];
+export function buildSpawnWorkerArgv(projectId: string, agent: string, prompt: string): string[] {
+	return ["spawn", "--project", projectId, "--agent", agent, "--prompt", prompt];
 }
 
 export function buildSendWorkerAnswerArgv(sessionId: string, answer: string): string[] {

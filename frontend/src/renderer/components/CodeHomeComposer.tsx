@@ -45,7 +45,10 @@ export function CodeHomeComposer() {
 	};
 
 	const submitExisting = async () => {
-		if (!projectId) return;
+		if (!projectId) {
+			setError("Choose a project first");
+			return;
+		}
 		setError(null);
 		setIsSubmitting(true);
 		try {

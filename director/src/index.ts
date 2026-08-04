@@ -80,6 +80,7 @@ async function main(): Promise<void> {
 			runAo(
 				runner,
 				buildSpawnWorkerArgv(
+					cfg.projectId,
 					agent,
 					`${prompt.trim()}\n\nYou are supervised by Director session ${cfg.sessionId}. If your CLI asks a question or you are blocked, send the exact question to the Director with: ao send --session ${cfg.sessionId} --message "<question>". Wait for its answer before proceeding. Before completing your assigned phase, record a durable handoff with \`ao workboard card handoff <card-id> --phase <coding|review|testing> --summary "<what you did or found>" --changed <file> --check "<command and result>" --commit <sha-or-pr> --next "<what the next phase must verify>". Then send the same concise report to the Director with \`ao send --session ${cfg.sessionId} --message "Handoff: <report>"\`.`,
 				),

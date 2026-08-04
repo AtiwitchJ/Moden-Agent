@@ -114786,6 +114786,7 @@ function required3(env, key) {
 function loadConfig(env) {
   const cardId = required3(env, "AO_DIRECTOR_CARD_ID");
   const sessionId = required3(env, "AO_SESSION_ID");
+  const projectId = required3(env, "AO_PROJECT_ID");
   const model = (env.AO_DIRECTOR_MODEL ?? "").trim() || DEFAULT_MODEL;
   const rawMax = (env.AO_DIRECTOR_MAX_ITERATIONS ?? "").trim();
   let maxIterations = DEFAULT_MAX_ITERATIONS;
@@ -114796,7 +114797,7 @@ function loadConfig(env) {
     }
     maxIterations = parsed;
   }
-  return { model, cardId, sessionId, prompt: (env.AO_PROMPT ?? "").trim(), maxIterations };
+  return { model, cardId, projectId, sessionId, prompt: (env.AO_PROMPT ?? "").trim(), maxIterations };
 }
 
 // src/tools.ts
@@ -114809,8 +114810,8 @@ function buildTransitionArgv(cardId, to, reason) {
   }
   return ["workboard", "card", "transition", cardId, "--to", to, "--reason", reason];
 }
-function buildSpawnWorkerArgv(agent, prompt) {
-  return ["spawn", "--agent", agent, "--prompt", prompt];
+function buildSpawnWorkerArgv(projectId, agent, prompt) {
+  return ["spawn", "--project", projectId, "--agent", agent, "--prompt", prompt];
 }
 function buildSendWorkerAnswerArgv(sessionId, answer) {
   if (sessionId.trim() === "") throw new Error("a worker session id is required");
@@ -134731,7 +134732,7 @@ function directorSystemPrompt(cardId) {
 
 Read the card first: \`ao workboard card show ${cardId} --json\`. Use the live card, never a stale copy of it.
 
-Plan the work, then delegate implementation to worker sessions with \`ao spawn --agent <agent> --prompt "<task>"\`. Include the card id and the exact subtask in every worker prompt. Keep at most one implementation worker active at a time. Do not write the implementation yourself except for a small coordination-only fix.
+Plan the work, then delegate implementation to worker sessions with the spawn_worker tool. Include the card id and the exact subtask in every worker prompt. Keep at most one implementation worker active at a time. Do not write the implementation yourself except for a small coordination-only fix.
 
 Respect the card's explicit agent assignments: use \`codingAgent\` for implementation, \`reviewerAgent\` for review, and \`testingAgent\` for testing. Do not substitute Hermes or another agent unless that exact agent is assigned on the card. If the assigned agent cannot run, block the card with the reason instead of silently selecting a fallback.
 
@@ -134811,6 +134812,7 @@ async function main() {
     async ({ agent: agent2, prompt }) => runAo(
       runner,
       buildSpawnWorkerArgv(
+        cfg.projectId,
         agent2,
         `${prompt.trim()}
 
