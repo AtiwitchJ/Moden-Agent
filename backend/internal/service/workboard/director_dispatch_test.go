@@ -134,3 +134,103 @@ func TestDispatchOnceLeavesNonDirectorProjectsUnchanged(t *testing.T) {
 		t.Fatalf("configs = %+v, want one worker spawn from the unchanged path", spawner.configs)
 	}
 }
+
+// TestDispatchOnceRecoversStuckCardAfterDirectorExit is the regression for the
+// production symptom where a card stays durably status=running with a session_id
+// pointing at a Director session that has been marked terminated. The
+// dispatcher must not return wip_full when the only running card has no live
+// orchestrator behind it: it must reclaim the card and spawn a fresh Director.
+func TestDispatchOnceRecoversStuckCardAfterDirectorExit(t *testing.T) {
+	now := time.Date(2026, time.August, 3, 9, 0, 0, 0, time.UTC)
+	stuck := readyCard("stuck", domain.CardPriorityNormal, now.Add(-time.Minute))
+	stuck.Status = domain.CardStatusRunning
+	stuck.SessionID = "test-20"
+	store := newDispatchStore(4, []domain.WorkCard{stuck})
+	store.project.Config = domain.ProjectConfig{Director: domain.RoleOverride{Harness: domain.HarnessDirector}}
+	store.sessions = []domain.SessionRecord{{
+		ID: "test-20", ProjectID: "p1", Kind: domain.KindOrchestrator, Harness: domain.HarnessDirector,
+		IsTerminated: true,
+	}}
+	spawner := &dispatchSpawner{}
+	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
+
+	claimed, err := dispatcher.DispatchOnce(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("DispatchOnce: %v", err)
+	}
+	if len(claimed) != 1 || claimed[0] != "stuck" {
+		t.Fatalf("claimed = %v, want the stuck card reclaimed", claimed)
+	}
+	if len(spawner.configs) != 1 {
+		t.Fatalf("spawn calls = %d, want 1 (a fresh Director must be spawned)", len(spawner.configs))
+	}
+	got := spawner.configs[0]
+	if got.Harness != domain.HarnessDirector || got.Kind != domain.KindOrchestrator || got.DirectorCardID != "stuck" {
+		t.Fatalf("spawn config = %+v, want a Director spawn for the stuck card", got)
+	}
+}
+
+// TestNextDirectorCardReclaimsLaterPhaseStuckCards covers the production
+// scenario where a Director's node process deadlocks (e.g. a stuck LLM provider
+// promise) while a card is parked in a later phase like review, testing, or
+// redo. A dead Director is one whose session is no longer live; the dispatcher
+// must reclaim that card and let a fresh Director take over, otherwise the
+// card never advances and the user has no automated recovery path.
+func TestNextDirectorCardReclaimsLaterPhaseStuckCards(t *testing.T) {
+	now := time.Date(2026, time.August, 3, 9, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name   string
+		status domain.CardStatus
+	}{
+		{"review", domain.CardStatusReview},
+		{"testing", domain.CardStatusTesting},
+		{"redo", domain.CardStatusRedo},
+		{"blocked", domain.CardStatusBlocked},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stuck := todoCard("stuck", domain.CardPriorityNormal, now.Add(-time.Minute))
+			stuck.Status = tc.status
+			stuck.SessionID = "test-21"
+			liveSessions := map[domain.SessionID]bool{} // no live sessions — Director died
+			got, _, ok := nextDirectorCard([]domain.WorkCard{stuck}, liveSessions, now)
+			if !ok {
+				t.Fatalf("nextDirectorCard ok = false, want a later-phase stuck card reclaimed")
+			}
+			if got.ID != "stuck" {
+				t.Fatalf("got card %q, want stuck", got.ID)
+			}
+			if got.SessionID != "" {
+				t.Fatalf("got SessionID %q, want cleared so a fresh Director can claim it", got.SessionID)
+			}
+		})
+	}
+}
+
+// TestNextDirectorCardLeavesLaterPhaseAloneWhenDirectorLive ensures the
+// recovery path is targeted: when a card is in a later phase and its linked
+// Director is still alive, the dispatcher must NOT touch it — the live
+// Director owns the phase transitions and a parallel spawn would race it.
+func TestNextDirectorCardLeavesLaterPhaseAloneWhenDirectorLive(t *testing.T) {
+	now := time.Date(2026, time.August, 3, 9, 0, 0, 0, time.UTC)
+	cases := []struct {
+		name   string
+		status domain.CardStatus
+	}{
+		{"review", domain.CardStatusReview},
+		{"testing", domain.CardStatusTesting},
+		{"redo", domain.CardStatusRedo},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			stuck := todoCard("stuck", domain.CardPriorityNormal, now.Add(-time.Minute))
+			stuck.Status = tc.status
+			stuck.SessionID = "test-21"
+			liveSessions := map[domain.SessionID]bool{"test-21": true}
+			_, _, ok := nextDirectorCard([]domain.WorkCard{stuck}, liveSessions, now)
+			if ok {
+				t.Fatalf("nextDirectorCard returned a card while Director test-21 was still live; dispatcher should not race the live Director")
+			}
+		})
+	}
+}

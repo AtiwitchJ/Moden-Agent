@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log/slog"
 	"sort"
 	"strings"
 	"time"
@@ -82,6 +83,9 @@ type DispatchDeps struct {
 	Rollbacker SpawnRollbacker
 	Clock      func() time.Time
 	NewID      func() string
+	// Logger receives diagnostic branch-trace lines from DispatchOnce and the
+	// director path. Optional: when nil, slog.Default() is used.
+	Logger *slog.Logger
 }
 
 // Dispatcher promotes due cards and claims ready cards under a project's WIP
@@ -93,6 +97,7 @@ type Dispatcher struct {
 	rollbacker SpawnRollbacker
 	clock      func() time.Time
 	newID      func() string
+	logger     *slog.Logger
 }
 
 // NewDispatcher constructs a workboard dispatcher.
@@ -109,7 +114,11 @@ func NewDispatcher(d DispatchDeps) *Dispatcher {
 	if newID == nil {
 		newID = func() string { return uuid.NewString() }
 	}
-	return &Dispatcher{store: d.Store, spawner: d.Spawner, rollbacker: rollbacker, clock: clock, newID: newID}
+	logger := d.Logger
+	if logger == nil {
+		logger = slog.Default()
+	}
+	return &Dispatcher{store: d.Store, spawner: d.Spawner, rollbacker: rollbacker, clock: clock, newID: newID, logger: logger}
 }
 
 // DispatchOnce promotes todo and due scheduled cards, then claims ready cards
@@ -123,20 +132,25 @@ func NewDispatcher(d DispatchDeps) *Dispatcher {
 // fatal so the daemon logs real problems instead of silently dropping them.
 func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]string, error) {
 	if err := ctx.Err(); err != nil {
+		d.logger.Info("workboard dispatch: branch=ctx_canceled", "project", projectID, "err", err)
 		return nil, err
 	}
 	if d.store == nil || d.spawner == nil {
+		d.logger.Info("workboard dispatch: branch=deps_unwired", "project", projectID)
 		return nil, nil
 	}
 	project, ok, err := d.store.GetProject(ctx, projectID)
 	if err != nil {
+		d.logger.Info("workboard dispatch: branch=get_project_error", "project", projectID, "err", err)
 		return nil, fmt.Errorf("get project %s: %w", projectID, err)
 	}
 	if !ok {
+		d.logger.Info("workboard dispatch: branch=project_not_found", "project", projectID)
 		return nil, fmt.Errorf("project %s not found", projectID)
 	}
 	commanding := project.Config.Orchestrator.Harness == domain.HarnessHermes
 	if !commanding && d.rollbacker == nil {
+		d.logger.Info("workboard dispatch: branch=rollback_unwired", "project", projectID)
 		return nil, fmt.Errorf("workboard dispatcher requires spawn rollback support")
 	}
 	var orchestrator OrchestratorSpawner
@@ -144,13 +158,16 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 		var supported bool
 		orchestrator, supported = d.spawner.(OrchestratorSpawner)
 		if !supported {
+			d.logger.Info("workboard dispatch: branch=orchestrator_unwired", "project", projectID)
 			return nil, fmt.Errorf("workboard dispatcher requires orchestrator spawn support for Hermes")
 		}
 	}
 	cards, err := d.store.ListWorkCards(ctx, projectID, defaultBoardID)
 	if err != nil {
+		d.logger.Info("workboard dispatch: branch=list_cards_error", "project", projectID, "err", err)
 		return nil, fmt.Errorf("list work cards for project %s: %w", projectID, err)
 	}
+	d.logger.Info("workboard dispatch: branch=dispatch", "project", projectID, "directorEnabled", directorEnabled(project), "commanding", commanding, "cardCount", len(cards))
 
 	if directorEnabled(project) {
 		return d.dispatchToDirector(ctx, project, cards, d.clock().UTC())
@@ -302,6 +319,7 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 		}
 		claimed = append(claimed, card.ID)
 	}
+	d.logger.Info("workboard dispatch: branch=done", "project", projectID, "claimed", len(claimed))
 	return claimed, nil
 }
 

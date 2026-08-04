@@ -19,7 +19,7 @@ func startWorkboardDispatcher(ctx context.Context, store *sqlite.Store, sessions
 	if logger == nil {
 		logger = slog.Default()
 	}
-	dispatcher := workboardsvc.NewDispatcher(workboardsvc.DispatchDeps{Store: store, Spawner: sessions})
+	dispatcher := workboardsvc.NewDispatcher(workboardsvc.DispatchDeps{Store: store, Spawner: sessions, Logger: logger})
 	trigger := NewDispatchTrigger(ctx, dispatcher, store, logger)
 
 	answerer := workboardsvc.NewAnswerer(workboardsvc.AnswerDeps{Store: store, Sender: sessions})
