@@ -721,6 +721,61 @@ func TestGetLaunchCommandOmitsToolFlagsWhenUnset(t *testing.T) {
 	}
 }
 
+func TestGetHeadlessCommandRunsOneShot(t *testing.T) {
+	p := &Plugin{resolvedBinary: "claude"}
+
+	cmd, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{
+		AgentSessionID: "11111111-2222-3333-4444-555555555555",
+		Prompt:         "-implement the card",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{
+		"claude",
+		"--print",
+		"--session-id", "11111111-2222-3333-4444-555555555555",
+		"--dangerously-skip-permissions",
+		"--", "-implement the card",
+	}
+	if !reflect.DeepEqual(cmd, want) {
+		t.Fatalf("unexpected command\nwant: %#v\n got: %#v", want, cmd)
+	}
+}
+
+func TestGetHeadlessCommandCarriesModelAndSystemPrompt(t *testing.T) {
+	p := &Plugin{resolvedBinary: "claude"}
+
+	cmd, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{
+		Config:       ports.AgentConfig{Model: "claude-opus-4-5"},
+		SystemPrompt: "You are a worker.",
+		Prompt:       "do it",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if !containsSubsequence(cmd, []string{"--model", "claude-opus-4-5"}) {
+		t.Fatalf("command missing model override: %#v", cmd)
+	}
+	if !containsSubsequence(cmd, []string{"--append-system-prompt", "You are a worker."}) {
+		t.Fatalf("command missing system prompt: %#v", cmd)
+	}
+}
+
+func TestGetHeadlessCommandRejectsEmptyPrompt(t *testing.T) {
+	p := &Plugin{resolvedBinary: "claude"}
+
+	if _, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{}); err == nil {
+		t.Fatal("expected an error for a one-shot launch with no prompt")
+	}
+}
+
+func TestPluginSatisfiesAgentHeadless(t *testing.T) {
+	var _ ports.AgentHeadless = (*Plugin)(nil)
+}
+
 func contains(values []string, needle string) bool {
 	for _, v := range values {
 		if v == needle {

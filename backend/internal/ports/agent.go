@@ -64,6 +64,16 @@ type AgentAuthChecker interface {
 	AuthStatus(ctx context.Context) (AgentAuthStatus, error)
 }
 
+// AgentHeadless is the optional capability for adapters whose CLI has a
+// one-shot mode: run a single instruction to completion and exit, with no
+// interactive TUI and no approval prompts. AO uses it for supervised subtasks
+// (the Director delegating a card phase) where the caller waits for the run to
+// finish. Adapters that do not implement it cannot be spawned one-shot: their
+// interactive launch would never exit and the caller would wait forever.
+type AgentHeadless interface {
+	GetHeadlessCommand(ctx context.Context, cfg LaunchConfig) (cmd []string, err error)
+}
+
 // AgentBinaryResolver is the optional capability adapters expose when their
 // binary can be checked without constructing a real session launch command.
 type AgentBinaryResolver interface {

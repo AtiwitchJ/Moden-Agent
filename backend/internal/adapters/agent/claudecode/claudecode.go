@@ -63,6 +63,7 @@ func New() *Plugin {
 var _ adapters.Adapter = (*Plugin)(nil)
 var _ ports.Agent = (*Plugin)(nil)
 var _ ports.AgentAuthChecker = (*Plugin)(nil)
+var _ ports.AgentHeadless = (*Plugin)(nil)
 
 // Manifest returns the adapter's static self-description.
 func (p *Plugin) Manifest() adapters.Manifest {
@@ -179,6 +180,59 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	}
 
 	return cmd, nil
+}
+
+// GetHeadlessCommand builds the argv for a one-shot Claude Code run. Shape:
+//
+//	claude --print \
+//	       [--session-id <uuid>] \
+//	       --dangerously-skip-permissions \
+//	       [--model <model>] \
+//	       [--append-system-prompt <system prompt>] \
+//	       -- <prompt>
+//
+// --print is Claude's non-interactive mode: it runs the prompt to completion,
+// writes the result to stdout, and exits. Permissions are bypassed outright
+// rather than mapped from config: a headless run has no one to answer an
+// approval prompt, and a run that stalls on one would hang the caller waiting
+// for it. The prompt is required and passed after `--` so a prompt beginning
+// with "-" is not mistaken for a flag.
+func (p *Plugin) GetHeadlessCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error) {
+	if err := cfg.Config.Validate(); err != nil {
+		return nil, fmt.Errorf("claude-code: %w", err)
+	}
+	if strings.TrimSpace(cfg.Prompt) == "" {
+		return nil, fmt.Errorf("claude-code: a one-shot launch requires a prompt")
+	}
+
+	binary, err := p.claudeBinary(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd = []string{binary, "--print"}
+	sessionID := strings.TrimSpace(cfg.AgentSessionID)
+	if sessionID == "" && cfg.SessionID != "" {
+		sessionID = claudeSessionUUID(cfg.SessionID)
+	}
+	if sessionID != "" {
+		cmd = append(cmd, "--session-id", sessionID)
+	}
+	cmd = append(cmd, "--dangerously-skip-permissions")
+
+	if model := strings.TrimSpace(cfg.Config.Model); model != "" {
+		cmd = append(cmd, "--model", model)
+	}
+
+	systemPrompt, err := resolveSystemPrompt(cfg)
+	if err != nil {
+		return nil, err
+	}
+	if systemPrompt != "" {
+		cmd = append(cmd, "--append-system-prompt", systemPrompt)
+	}
+
+	return append(cmd, "--", cfg.Prompt), nil
 }
 
 // GetPromptDeliveryStrategy reports that Claude Code receives its prompt in the
