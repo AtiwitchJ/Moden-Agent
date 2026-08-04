@@ -20,6 +20,7 @@ type fakeStore struct {
 	cards           map[string]domain.WorkCard
 	activeSessions  map[string]ActiveSessionRecord
 	redoCycles      map[string][]domain.RedoCycle
+	redoFindings    []domain.RedoFinding
 	events          []domain.WorkCardEvent
 	listSessionsOut []domain.SessionRecord
 	projects        map[string]domain.ProjectRecord
@@ -79,8 +80,35 @@ func (s *fakeStore) AppendWorkCardEvent(_ context.Context, event domain.WorkCard
 	return nil
 }
 
+func (s *fakeStore) ListWorkCardEvents(_ context.Context, cardID string) ([]domain.WorkCardEvent, error) {
+	var out []domain.WorkCardEvent
+	for _, e := range s.events {
+		if e.CardID == cardID {
+			out = append(out, e)
+		}
+	}
+	return out, nil
+}
+
+func (s *fakeStore) InsertRedoFinding(_ context.Context, finding domain.RedoFinding) error {
+	s.redoFindings = append(s.redoFindings, finding)
+	return nil
+}
+
+// ListRedoCycles joins in findings by CycleID, mirroring *sqlite.Store's own
+// ListRedoCycles (workboard_store.go) — a fake that just returned the bare
+// cycles would pass even if that join regressed in production.
 func (s *fakeStore) ListRedoCycles(_ context.Context, cardID string) ([]domain.RedoCycle, error) {
-	return s.redoCycles[cardID], nil
+	cycles := make([]domain.RedoCycle, len(s.redoCycles[cardID]))
+	copy(cycles, s.redoCycles[cardID])
+	for i := range cycles {
+		for _, f := range s.redoFindings {
+			if f.CycleID == cycles[i].ID {
+				cycles[i].Findings = append(cycles[i].Findings, f)
+			}
+		}
+	}
+	return cycles, nil
 }
 
 func (s *fakeStore) InsertRedoCycle(_ context.Context, cycle domain.RedoCycle) error {
@@ -326,6 +354,61 @@ func TestTick_RunningCardLinkedToTerminatedSession_StillSpawns(t *testing.T) {
 // redo respawn in tick.go makes to build the retry's briefing — always came
 // back empty: a retry got zero information about why it was sent back, not
 // even the generic boilerplate the in-memory Summary implied it would.
+// TestOnAgentFailed_AttachesFindingsRecordedDuringTheFailedAttempt covers the
+// other half of "tell it why": `ao workboard card set-finding` recorded
+// structured findings all along, but nothing ever turned them into
+// domain.RedoFinding rows — set-finding was a dead end into the audit log.
+// A finding recorded before the current attempt started (an earlier, already
+// -closed cycle's finding) must not bleed into this new one.
+func TestOnAgentFailed_AttachesFindingsRecordedDuringTheFailedAttempt(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	sessionStart := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	now := sessionStart.Add(20 * time.Minute)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "review")
+	c.ReviewerAgent = "hermes-reviewer"
+	store.cards[c.ID] = c
+	store.activeSessions["c1"] = ActiveSessionRecord{
+		CardID: "c1", SessionID: "hermes-session", Phase: "review", Agent: "hermes", CreatedAt: sessionStart,
+	}
+	store.events = []domain.WorkCardEvent{
+		{CardID: "c1", Kind: "agent_finding", CreatedAt: sessionStart.Add(-1 * time.Hour),
+			Payload: `{"severity":"low","title":"stale finding from an earlier cycle"}`},
+		{CardID: "c1", Kind: "agent_finding", CreatedAt: sessionStart.Add(5 * time.Minute),
+			Payload: `{"severity":"high","title":"Empty cart crashes checkout","details":"POST /checkout with 0 items returns 500","fileRefs":[{"file":"src/checkout.ts","startLine":42}]}`},
+		{CardID: "c1", Kind: "agent_handoff", CreatedAt: sessionStart.Add(6 * time.Minute), Payload: `{}`},
+	}
+
+	if err := oc.OnAgentFailed(context.Background(), "c1", commander.AgentAttempt{
+		Phase: commander.PhaseReview, Agent: "hermes", FailureReason: "changes_requested", AttemptNumber: 1,
+	}); err != nil {
+		t.Fatalf("OnAgentFailed: %v", err)
+	}
+
+	if len(store.redoFindings) != 1 {
+		t.Fatalf("redo findings = %d, want 1 (the stale one and the non-finding event must be excluded)", len(store.redoFindings))
+	}
+	got := store.redoFindings[0]
+	if got.Title != "Empty cart crashes checkout" || got.Severity != domain.FindingSeverityHigh {
+		t.Fatalf("finding = %+v, want the finding recorded during this attempt", got)
+	}
+	if len(got.FileRefs) != 1 || got.FileRefs[0].File != "src/checkout.ts" || got.FileRefs[0].StartLine != 42 {
+		t.Fatalf("finding file refs = %+v", got.FileRefs)
+	}
+	cycles := store.redoCycles["c1"]
+	if len(cycles) != 1 || got.CycleID != cycles[0].ID {
+		t.Fatalf("finding CycleID = %q, want it attached to the persisted cycle %+v", got.CycleID, cycles)
+	}
+}
+
 func TestOnAgentFailed_PersistsRedoCycleWithFailureReason(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}
@@ -370,6 +453,55 @@ func TestOnAgentFailed_PersistsRedoCycleWithFailureReason(t *testing.T) {
 // version: after a card enters redo with a real failure reason, the very next
 // tick's respawn must hand the coding agent a briefing that explains it —
 // this is the concrete fix for "tell it why it didn't pass so it can fix it."
+// TestTick_RedoRespawn_BriefingCarriesFindingsFromSetFinding closes the full
+// loop end to end: a reviewer's `set-finding` call, through OnAgentFailed's
+// redo transition, through the persisted cycle, to the actual text the
+// coding retry's briefing hands the next agent.
+func TestTick_RedoRespawn_BriefingCarriesFindingsFromSetFinding(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	sessionStart := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	now := sessionStart.Add(20 * time.Minute)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "review")
+	c.ReviewerAgent = "hermes-reviewer"
+	store.cards[c.ID] = c
+	store.activeSessions["c1"] = ActiveSessionRecord{
+		CardID: "c1", SessionID: "hermes-session", Phase: "review", Agent: "hermes", CreatedAt: sessionStart,
+	}
+	store.events = []domain.WorkCardEvent{
+		{CardID: "c1", Kind: "agent_finding", CreatedAt: sessionStart.Add(5 * time.Minute),
+			Payload: `{"severity":"high","title":"Empty cart crashes checkout","details":"POST /checkout with 0 items returns 500"}`},
+	}
+
+	if err := oc.OnAgentFailed(context.Background(), "c1", commander.AgentAttempt{
+		Phase: commander.PhaseReview, Agent: "hermes", FailureReason: "changes_requested", AttemptNumber: 1,
+	}); err != nil {
+		t.Fatalf("OnAgentFailed: %v", err)
+	}
+
+	if err := oc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if len(sp.spawned) != 1 {
+		t.Fatalf("spawned count = %d, want 1", len(sp.spawned))
+	}
+	briefing := sp.spawned[0].Spec.Briefing
+	for _, want := range []string{"Empty cart crashes checkout", "POST /checkout with 0 items returns 500"} {
+		if !strings.Contains(briefing, want) {
+			t.Fatalf("retry briefing missing %q:\n%s", want, briefing)
+		}
+	}
+}
+
 func TestTick_RedoRespawn_BriefingCarriesTheFailureReason(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}

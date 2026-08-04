@@ -46,6 +46,8 @@ type OrchestratorStore interface {
 	AppendWorkCardEvent(ctx context.Context, event domain.WorkCardEvent) error
 	ListRedoCycles(ctx context.Context, cardID string) ([]domain.RedoCycle, error)
 	InsertRedoCycle(ctx context.Context, cycle domain.RedoCycle) error
+	InsertRedoFinding(ctx context.Context, finding domain.RedoFinding) error
+	ListWorkCardEvents(ctx context.Context, cardID string) ([]domain.WorkCardEvent, error)
 	ListSessions(ctx context.Context, projectID domain.ProjectID) ([]domain.SessionRecord, error)
 	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
 }
@@ -174,7 +176,7 @@ func (o *ConfiguredOrchestrator) OnAgentFailed(ctx context.Context, cardID strin
 	nextAgent := o.pickNextAgent(card, phase, attempt.Agent)
 
 	if nextAgent == "" {
-		updatedCard, err := o.createRedoCycleAndTransition(ctx, card, phase, attempt, now)
+		updatedCard, err := o.createRedoCycleAndTransition(ctx, card, phase, attempt, now, sessionStartedAt(previous, hadPrevious))
 		if err != nil {
 			return err
 		}
@@ -192,7 +194,7 @@ func (o *ConfiguredOrchestrator) OnAgentFailed(ctx context.Context, cardID strin
 			return fmt.Errorf("append agent_exhausted event for %s: %w", cardID, err)
 		}
 		// Last agent failed with a fallback available — transition to redo.
-		updatedCard, err := o.createRedoCycleAndTransition(ctx, card, phase, attempt, now)
+		updatedCard, err := o.createRedoCycleAndTransition(ctx, card, phase, attempt, now, sessionStartedAt(previous, hadPrevious))
 		if err != nil {
 			return err
 		}
@@ -442,34 +444,54 @@ func (o *ConfiguredOrchestrator) OnSignal(ctx context.Context, cardID string, si
 
 // createRedoCycleAndTransition creates a redo cycle for a card when all agents
 // in a phase are exhausted. It returns the updated card (caller must persist).
-func (o *ConfiguredOrchestrator) createRedoCycleAndTransition(ctx context.Context, card domain.WorkCard, phase commander.Phase, attempt commander.AgentAttempt, now time.Time) (domain.WorkCard, error) {
+//
+// Each exhaustion is its own row with a fresh ID, cycle number = last + 1: an
+// earlier version reused the last cycle's ID and just bumped its in-memory
+// CycleNumber, which was harmless only because InsertRedoCycle was never
+// actually called. Once it was (to fix retries getting no redo context at
+// all), reusing an ID on a second redo would have collided with
+// work_card_redo_cycles' primary key. A fresh row per cycle also keeps each
+// attempt's findings — collected below — scoped to the attempt that produced
+// them, instead of accumulating everything under one ever-updated row.
+func (o *ConfiguredOrchestrator) createRedoCycleAndTransition(ctx context.Context, card domain.WorkCard, phase commander.Phase, attempt commander.AgentAttempt, now time.Time, sessionStartedAt time.Time) (domain.WorkCard, error) {
 	cycles, err := o.store.ListRedoCycles(ctx, card.ID)
 	if err != nil {
 		return card, fmt.Errorf("list redo cycles for %s: %w", card.ID, err)
 	}
-
-	var cycle *domain.RedoCycle
+	cycleNumber := 1
 	if len(cycles) > 0 {
-		last := cycles[len(cycles)-1]
-		last.CycleNumber++
-		last.Summary = fmt.Sprintf("%s phase failed (%s); entering redo cycle %d", phase, attempt.FailureReason, last.CycleNumber)
-		cycle = &last
-	} else {
-		cycle = &domain.RedoCycle{
-			ID:          o.newID(),
-			CardID:      card.ID,
-			CycleNumber: 1,
-			Source:      fmt.Sprintf("%s agent exhausted", phase),
-			Summary:     fmt.Sprintf("%s phase failed (%s); entering redo", phase, attempt.FailureReason),
-			CreatedAt:   now,
-		}
+		cycleNumber = cycles[len(cycles)-1].CycleNumber + 1
+	}
+	cycle := domain.RedoCycle{
+		ID:          o.newID(),
+		CardID:      card.ID,
+		CycleNumber: cycleNumber,
+		Source:      fmt.Sprintf("%s agent exhausted", phase),
+		Summary:     fmt.Sprintf("%s phase failed (%s); entering redo cycle %d", phase, attempt.FailureReason, cycleNumber),
+		CreatedAt:   now,
 	}
 	// The retry's briefing (tick.go's redo respawn) is built by reading this
 	// cycle back via ListRedoCycles — without persisting it here, that read
 	// always came back empty and a retry got no information about why it was
 	// sent back, not even the generic Summary above.
-	if err := o.store.InsertRedoCycle(ctx, *cycle); err != nil {
+	if err := o.store.InsertRedoCycle(ctx, cycle); err != nil {
 		return card, fmt.Errorf("insert redo cycle for %s: %w", card.ID, err)
+	}
+
+	// Attach whatever `ao workboard card set-finding` recorded during the
+	// attempt that just failed — sessionStartedAt.IsZero() means there was no
+	// tracked session to scope from (checkActiveSession found nothing), so
+	// there is nothing attributable to this specific attempt to collect.
+	if !sessionStartedAt.IsZero() {
+		findings, err := o.collectPendingFindings(ctx, card.ID, cycle.ID, sessionStartedAt)
+		if err != nil {
+			return card, fmt.Errorf("collect findings for %s: %w", card.ID, err)
+		}
+		for _, finding := range findings {
+			if err := o.store.InsertRedoFinding(ctx, finding); err != nil {
+				return card, fmt.Errorf("insert redo finding for %s: %w", card.ID, err)
+			}
+		}
 	}
 
 	card.Status = domain.CardStatusRedo
@@ -483,6 +505,62 @@ func (o *ConfiguredOrchestrator) createRedoCycleAndTransition(ctx context.Contex
 		return card, fmt.Errorf("append redo_started for %s: %w", card.ID, err)
 	}
 	return card, nil
+}
+
+// collectPendingFindings gathers agent_finding events the card received
+// during the attempt that just failed (created after sessionStartedAt) and
+// turns each into a domain.RedoFinding ready to attach to cycleID. A finding
+// recorded before that attempt started belongs to an earlier, already-closed
+// cycle and must not be reattached to this new one. A malformed payload is
+// skipped rather than failing the whole redo transition — set-finding
+// validates its own payload at write time, so a bad one here would be a
+// pre-existing row, not something this attempt can still reject.
+func (o *ConfiguredOrchestrator) collectPendingFindings(ctx context.Context, cardID, cycleID string, sessionStartedAt time.Time) ([]domain.RedoFinding, error) {
+	events, err := o.store.ListWorkCardEvents(ctx, cardID)
+	if err != nil {
+		return nil, fmt.Errorf("list events for %s: %w", cardID, err)
+	}
+	var findings []domain.RedoFinding
+	sequence := 0
+	for _, event := range events {
+		if event.Kind != "agent_finding" || !event.CreatedAt.After(sessionStartedAt) {
+			continue
+		}
+		var payload struct {
+			Severity string           `json:"severity"`
+			Title    string           `json:"title"`
+			Details  string           `json:"details"`
+			Command  string           `json:"command"`
+			FileRefs []domain.FileRef `json:"fileRefs"`
+		}
+		if err := json.Unmarshal([]byte(event.Payload), &payload); err != nil {
+			continue
+		}
+		sequence++
+		findings = append(findings, domain.RedoFinding{
+			ID:        o.newID(),
+			CycleID:   cycleID,
+			Sequence:  sequence,
+			Severity:  domain.FindingSeverity(payload.Severity),
+			Title:     payload.Title,
+			Details:   payload.Details,
+			Command:   payload.Command,
+			FileRefs:  payload.FileRefs,
+			Status:    domain.FindingStatusPending,
+			CreatedAt: event.CreatedAt,
+			UpdatedAt: event.CreatedAt,
+		})
+	}
+	return findings, nil
+}
+
+// sessionStartedAt returns the active session's start time, or the zero time
+// when there was none to scope a redo's findings from.
+func sessionStartedAt(session ActiveSessionRecord, had bool) time.Time {
+	if !had {
+		return time.Time{}
+	}
+	return session.CreatedAt
 }
 
 // getCard fetches a single card by ID from the store.

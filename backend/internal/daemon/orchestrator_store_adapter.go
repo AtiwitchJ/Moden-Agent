@@ -64,6 +64,14 @@ func (a orchestratorStoreAdapter) InsertRedoCycle(ctx context.Context, cycle dom
 	return a.store.InsertRedoCycle(ctx, cycle)
 }
 
+func (a orchestratorStoreAdapter) InsertRedoFinding(ctx context.Context, finding domain.RedoFinding) error {
+	return a.store.InsertRedoFinding(ctx, finding)
+}
+
+func (a orchestratorStoreAdapter) ListWorkCardEvents(ctx context.Context, cardID string) ([]domain.WorkCardEvent, error) {
+	return a.store.ListWorkCardEvents(ctx, cardID)
+}
+
 func (a orchestratorStoreAdapter) ListSessions(ctx context.Context, projectID domain.ProjectID) ([]domain.SessionRecord, error) {
 	return a.store.ListSessions(ctx, projectID)
 }

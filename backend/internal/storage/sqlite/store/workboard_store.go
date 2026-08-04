@@ -366,12 +366,22 @@ func (s *Store) ListRedoCycles(ctx context.Context, cardID string) ([]domain.Red
 	}
 	cycles := make([]domain.RedoCycle, 0, len(rows))
 	for _, row := range rows {
+		// Findings are read back per cycle rather than joined in the SQL
+		// above: ListRedoFindings already owns unmarshaling FileRefsJSON, and
+		// a redo cycle rarely has more than a handful of findings, so a
+		// second small query per cycle is simpler than duplicating that
+		// unmarshal here.
+		findings, err := s.ListRedoFindings(ctx, row.ID)
+		if err != nil {
+			return nil, fmt.Errorf("list findings for redo cycle %s: %w", row.ID, err)
+		}
 		cycles = append(cycles, domain.RedoCycle{
 			ID:          row.ID,
 			CardID:      row.CardID,
 			CycleNumber: int(row.CycleNumber),
 			Source:      row.Source,
 			Summary:     row.Summary,
+			Findings:    findings,
 			CreatedAt:   time.UnixMilli(row.CreatedAt).UTC(),
 			CompletedAt: timeFromMillis(row.CompletedAt),
 		})
