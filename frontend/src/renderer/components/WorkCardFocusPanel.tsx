@@ -314,6 +314,8 @@ export function WorkCardFocusPanel({
 
 					<section className="grid grid-cols-2 gap-x-4 gap-y-3 border-y border-border py-3 text-[11px]">
 						<Detail label="Coding worker" value={card.codingAgent || card.agent || "Automatic"} />
+						<Detail label="Review" value={formatReviewerValue(card.reviewerAgent, card.reviewerMode)} />
+						<Detail label="Testing worker" value={card.testingAgent || card.reviewerAgent || "Automatic"} />
 						<Detail label="Goal version" value={`v${card.goalVersion ?? 1}`} />
 						<Detail label="Project path" value={card.targetPath} className="col-span-2" />
 						{(card.labels ?? []).length > 0 ? <Detail label="Labels" value={card.labels.join(" · ")} className="col-span-2" /> : null}
@@ -400,6 +402,13 @@ function Detail({ label, value, className }: { label: string; value: string; cla
 			<p className="mt-1 break-words text-[11px] leading-[1.4] text-foreground">{value}</p>
 		</div>
 	);
+}
+
+function formatReviewerValue(reviewerAgent: string | undefined, reviewerMode: string | undefined): string {
+	if (reviewerMode === "same") {
+		return `${reviewerAgent ?? "Automatic"} · same as tester`;
+	}
+	return reviewerAgent ?? "Automatic";
 }
 
 function NudgeSheet({

@@ -24,15 +24,26 @@ import (
 // ---------------------------------------------------------------------------
 
 type cardShowResponse struct {
-	ID        string               `json:"id"`
-	ProjectID string               `json:"projectId"`
-	Title     string               `json:"title"`
-	Status    string               `json:"status"`
-	Priority  string               `json:"priority"`
-	Labels    []string             `json:"labels"`
-	Agent     string               `json:"agent"`
-	SessionID string               `json:"sessionId"`
-	Handoffs  []cardHandoffPayload `json:"handoffs"`
+	ID                string               `json:"id"`
+	ProjectID         string               `json:"projectId"`
+	Title             string               `json:"title"`
+	Status            string               `json:"status"`
+	Priority          string               `json:"priority"`
+	Labels            []string             `json:"labels"`
+	Agent             string               `json:"agent"`
+	CodingAgent       string               `json:"codingAgent,omitempty"`
+	ReviewerMode      string               `json:"reviewerMode,omitempty"`
+	ReviewerAgent     string               `json:"reviewerAgent,omitempty"`
+	TestingAgent      string               `json:"testingAgent,omitempty"`
+	RedoCount         int                  `json:"redoCount"`
+	LatestRedoSummary string               `json:"latestRedoSummary,omitempty"`
+	WaitingForInput   bool                 `json:"waitingForInput"`
+	PausedRetarget    bool                 `json:"pausedRetarget"`
+	GoalVersion       int                  `json:"goalVersion"`
+	TargetPath        string               `json:"targetPath,omitempty"`
+	StatusReason      string               `json:"statusReason,omitempty"`
+	SessionID         string               `json:"sessionId"`
+	Handoffs          []cardHandoffPayload `json:"handoffs"`
 }
 
 type cardTransitionPayload struct {
@@ -131,8 +142,25 @@ func runCardShow(ctx context.Context, c *commandContext, cmd *cobra.Command, car
 	if asJSON {
 		return writeJSON(cmd.OutOrStdout(), resp)
 	}
-	_, err := fmt.Fprintf(cmd.OutOrStdout(), "%s\nstatus: %s\nproject: %s\n", resp.Title, resp.Status, resp.ProjectID)
-	return err
+	w := cmd.OutOrStdout()
+	fmt.Fprintf(w, "%s\n", resp.Title)
+	fmt.Fprintf(w, "status: %s\nproject: %s\n", resp.Status, resp.ProjectID)
+	if resp.CodingAgent != "" {
+		fmt.Fprintf(w, "coding agent: %s\n", resp.CodingAgent)
+	}
+	if resp.ReviewerMode != "" {
+		fmt.Fprintf(w, "reviewer mode: %s\n", resp.ReviewerMode)
+	}
+	if resp.ReviewerAgent != "" {
+		fmt.Fprintf(w, "reviewer agent: %s\n", resp.ReviewerAgent)
+	}
+	if resp.TestingAgent != "" {
+		fmt.Fprintf(w, "testing agent: %s\n", resp.TestingAgent)
+	}
+	if resp.StatusReason != "" {
+		fmt.Fprintf(w, "status reason: %s\n", resp.StatusReason)
+	}
+	return nil
 }
 
 // ---------------------------------------------------------------------------

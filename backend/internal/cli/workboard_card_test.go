@@ -102,6 +102,46 @@ func TestCardShow_NotYetImplemented(t *testing.T) {
 	}
 }
 
+// TestCardShow_JSONIncludesAgentAssignments protects the Director's
+// `show_card` decision from regressing to a DTO that drops coding / reviewer /
+// testing agent assignments. Without these fields the Director concludes the
+// card has no reviewer and incorrectly blocks the workflow.
+func TestCardShow_JSONIncludesAgentAssignments(t *testing.T) {
+	cfg := setConfigEnv(t)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = w.Write([]byte(`{
+			"id":"card-1","projectId":"proj","title":"Fix","status":"running",
+			"agent":"hermes","codingAgent":"hermes",
+			"reviewerMode":"separate","reviewerAgent":"claude-code","testingAgent":"claude-code"
+		}`))
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "workboard", "card", "show", "card-1", "--json")
+	if err != nil {
+		t.Fatalf("show --json: %v\nstderr=%s", err, errOut)
+	}
+	var got cardShowResponse
+	if err := json.Unmarshal([]byte(out), &got); err != nil {
+		t.Fatalf("decode json: %v\nout=%s", err, out)
+	}
+	if got.CodingAgent != "hermes" || got.ReviewerMode != "separate" || got.ReviewerAgent != "claude-code" || got.TestingAgent != "claude-code" {
+		t.Fatalf("agent fields dropped from CLI show JSON: got %#v", got)
+	}
+
+	plainOut, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }}, "workboard", "card", "show", "card-1")
+	if err != nil {
+		t.Fatalf("show: %v", err)
+	}
+	for _, want := range []string{"reviewer agent: claude-code", "testing agent: claude-code", "coding agent: hermes"} {
+		if !strings.Contains(plainOut, want) {
+			t.Fatalf("plain output missing %q in: %s", want, plainOut)
+		}
+	}
+}
+
 // Note: cobra.ExactArgs(1) with no args produces a plain error (not usageError),
 // so ExitCode is 1. The command runs correctly when args are provided.
 func TestCardShow_MissingArg(t *testing.T) {
