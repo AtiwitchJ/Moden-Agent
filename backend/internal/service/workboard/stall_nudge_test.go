@@ -289,3 +289,31 @@ func TestStallNudge_IdleDirectorCommanderGetsNudged(t *testing.T) {
 		t.Fatalf("sent = %+v, want one message to director-1", sender.sent)
 	}
 }
+
+func TestStallNudgeMessage_TellsDirectorToUseToolCalls(t *testing.T) {
+	card := stallCard("c1", "review", "director-1")
+	msg := stallNudgeMessage(card, domain.HarnessDirector)
+	if !strings.Contains(msg, "show_card") {
+		t.Fatalf("Director nudge must mention show_card tool; got %q", msg)
+	}
+	if !strings.Contains(msg, "transition_card") {
+		t.Fatalf("Director nudge must mention transition_card tool; got %q", msg)
+	}
+	if strings.Contains(msg, "ao workboard status") {
+		t.Fatalf("Director nudge must NOT mention shell command; got %q", msg)
+	}
+}
+
+func TestStallNudgeMessage_TellsHermesToUseShell(t *testing.T) {
+	card := stallCard("c1", "review", "hermes-1")
+	msg := stallNudgeMessage(card, domain.HarnessHermes)
+	if !strings.Contains(msg, "ao workboard get") {
+		t.Fatalf("Hermes nudge must mention ao workboard get; got %q", msg)
+	}
+	if !strings.Contains(msg, "ao workboard status") {
+		t.Fatalf("Hermes nudge must mention ao workboard status; got %q", msg)
+	}
+	if strings.Contains(msg, "show_card") {
+		t.Fatalf("Hermes nudge must NOT mention show_card tool; got %q", msg)
+	}
+}

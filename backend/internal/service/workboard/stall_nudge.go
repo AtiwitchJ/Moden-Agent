@@ -122,7 +122,7 @@ func (n *StallNudger) ReconcileProject(ctx context.Context, projectID string) ([
 		if withinStallNudgeCooldown(events, now) {
 			continue
 		}
-		message := stallNudgeMessage(card)
+		message := stallNudgeMessage(card, session.Harness)
 		if err := n.sender.Send(ctx, session.ID, message, ""); err != nil {
 			return nudged, fmt.Errorf("nudge stalled card %s: %w", card.ID, err)
 		}
@@ -146,11 +146,25 @@ func withinStallNudgeCooldown(events []domain.WorkCardEvent, now time.Time) bool
 	return false
 }
 
-func stallNudgeMessage(card domain.WorkCard) string {
-	return fmt.Sprintf(
-		"Stall check: work card %s (%q) is still in %s and this session has been idle. "+
-			"Run `ao workboard get %s --json` now, then either advance the card with "+
-			"`ao workboard status %s <next-status>` after finishing the phase, or move it "+
-			"to blocked with the exact reason if you cannot proceed.",
-		card.ID, card.Title, card.Status, card.ID, card.ID)
+func stallNudgeMessage(card domain.WorkCard, harness domain.AgentHarness) string {
+	switch harness {
+	case domain.HarnessDirector:
+		// The Director's tools are show_card / transition_card, not shell.
+		// A nudge that tells it to "run ao workboard ..." goes nowhere — its
+		// model has no shell, only the tools it was given.
+		return fmt.Sprintf(
+			"Stall check: work card %s (%q) is still in %s and this session has been idle. "+
+				"Call show_card to read your current card, then either call "+
+				"transition_card to advance the phase, or transition_card with status=blocked "+
+				"and the exact reason if you cannot proceed.",
+			card.ID, card.Title, card.Status)
+	default:
+		// Hermes (and other harness commanders) read instructions as shell.
+		return fmt.Sprintf(
+			"Stall check: work card %s (%q) is still in %s and this session has been idle. "+
+				"Run `ao workboard get %s --json` now, then either advance the card with "+
+				"`ao workboard status %s <next-status>` after finishing the phase, or move it "+
+				"to blocked with the exact reason if you cannot proceed.",
+			card.ID, card.Title, card.Status, card.ID, card.ID)
+	}
 }
