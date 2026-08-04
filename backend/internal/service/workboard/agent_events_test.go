@@ -2,6 +2,8 @@ package workboard
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -20,6 +22,144 @@ func newAgentEventService(status domain.CardStatus) (*Service, *actionsStoreFake
 		Store: store, Clock: func() time.Time { return now }, NewID: func() string { return "evt-1" },
 	})
 	return svc, store
+}
+
+// fakeAgentReporter records ReportVerdict calls so tests can assert
+// RecordAgentEvent wires the right phase/verdict through to the orchestrator,
+// without depending on the real commander/orchestrator package.
+type fakeAgentReporter struct {
+	calls []reportedVerdict
+	err   error
+}
+
+type reportedVerdict struct {
+	CardID, Phase, Verdict string
+}
+
+func (f *fakeAgentReporter) ReportVerdict(_ context.Context, cardID, phase, verdict string) error {
+	f.calls = append(f.calls, reportedVerdict{CardID: cardID, Phase: phase, Verdict: verdict})
+	return f.err
+}
+
+func newAgentEventServiceWithReporter(status domain.CardStatus) (*Service, *actionsStoreFake, *fakeAgentReporter) {
+	now := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
+	card := domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", BoardID: defaultBoardID, Title: "Fix", Notes: "Details",
+		Status: status, Agent: "codex", SessionID: "sess-1",
+	}
+	store := &actionsStoreFake{cards: map[string]domain.WorkCard{"card-1": card}}
+	reporter := &fakeAgentReporter{}
+	svc := NewWithDeps(Deps{
+		Store: store, Reporter: reporter, Clock: func() time.Time { return now }, NewID: func() string { return "evt-1" },
+	})
+	return svc, store, reporter
+}
+
+func TestRecordAgentEventReportsApprovedCodingHandoffAsCompletion(t *testing.T) {
+	svc, _, reporter := newAgentEventServiceWithReporter(domain.CardStatusRunning)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_handoff",
+		Payload: `{"phase":"coding","summary":"Updated login form"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	want := []reportedVerdict{{CardID: "card-1", Phase: "coding", Verdict: "approved"}}
+	if !reflect.DeepEqual(reporter.calls, want) {
+		t.Fatalf("reporter calls = %+v, want %+v", reporter.calls, want)
+	}
+}
+
+func TestRecordAgentEventDoesNotReportAReviewOrTestingHandoff(t *testing.T) {
+	svc, _, reporter := newAgentEventServiceWithReporter(domain.CardStatusReview)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_handoff",
+		Payload: `{"phase":"review","summary":"Looks good"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	if len(reporter.calls) != 0 {
+		t.Fatalf("reporter calls = %+v, want none — only a coding handoff is a completion signal", reporter.calls)
+	}
+}
+
+func TestRecordAgentEventReportsVerdictWithPhaseFromCardStatus(t *testing.T) {
+	svc, _, reporter := newAgentEventServiceWithReporter(domain.CardStatusReview)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_verdict",
+		Payload: `{"verdict":"changes_requested"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	want := []reportedVerdict{{CardID: "card-1", Phase: "review", Verdict: "changes_requested"}}
+	if !reflect.DeepEqual(reporter.calls, want) {
+		t.Fatalf("reporter calls = %+v, want %+v", reporter.calls, want)
+	}
+}
+
+func TestRecordAgentEventSkipsVerdictReportWhenCardHasNoActivePhase(t *testing.T) {
+	svc, _, reporter := newAgentEventServiceWithReporter(domain.CardStatusDone)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_verdict",
+		Payload: `{"verdict":"approved"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	if len(reporter.calls) != 0 {
+		t.Fatalf("reporter calls = %+v, want none for a card with no active phase", reporter.calls)
+	}
+}
+
+func TestRecordAgentEventReportsTestResultPassOnZeroExit(t *testing.T) {
+	svc, _, reporter := newAgentEventServiceWithReporter(domain.CardStatusTesting)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "test_result",
+		Payload: `{"command":"npm test","exit":0,"output":"ok"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	want := []reportedVerdict{{CardID: "card-1", Phase: "testing", Verdict: "pass"}}
+	if !reflect.DeepEqual(reporter.calls, want) {
+		t.Fatalf("reporter calls = %+v, want %+v", reporter.calls, want)
+	}
+}
+
+func TestRecordAgentEventReportsTestResultFailOnNonZeroExit(t *testing.T) {
+	svc, _, reporter := newAgentEventServiceWithReporter(domain.CardStatusTesting)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "test_result",
+		Payload: `{"command":"npm test","exit":1,"output":"fail"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	want := []reportedVerdict{{CardID: "card-1", Phase: "testing", Verdict: "fail"}}
+	if !reflect.DeepEqual(reporter.calls, want) {
+		t.Fatalf("reporter calls = %+v, want %+v", reporter.calls, want)
+	}
+}
+
+func TestRecordAgentEventReportsAgentFailedWithReasonAsVerdict(t *testing.T) {
+	svc, _, reporter := newAgentEventServiceWithReporter(domain.CardStatusRunning)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_failed",
+		Payload: `{"reason":"timeout"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	want := []reportedVerdict{{CardID: "card-1", Phase: "coding", Verdict: "timeout"}}
+	if !reflect.DeepEqual(reporter.calls, want) {
+		t.Fatalf("reporter calls = %+v, want %+v", reporter.calls, want)
+	}
+}
+
+func TestRecordAgentEventSurvivesReporterError(t *testing.T) {
+	svc, _, reporter := newAgentEventServiceWithReporter(domain.CardStatusReview)
+	reporter.err = errors.New("orchestrator boom")
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_verdict",
+		Payload: `{"verdict":"approved"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v, want a reporter failure to stay best-effort", err)
+	}
 }
 
 func TestRecordAgentEventAppendsVerdict(t *testing.T) {

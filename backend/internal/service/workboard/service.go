@@ -112,6 +112,7 @@ type Service struct {
 	killer          SessionKiller
 	dispatchKicker  DispatchKicker
 	statusProvider  DirectorStatusProvider
+	reporter        AgentReporter
 	clock           func() time.Time
 	newID           func() string
 }
@@ -131,6 +132,7 @@ type Deps struct {
 	Killer          SessionKiller
 	DispatchKicker  DispatchKicker
 	StatusProvider  DirectorStatusProvider
+	Reporter        AgentReporter
 	Clock           func() time.Time
 	NewID           func() string
 }
@@ -144,7 +146,8 @@ func New(store Store) *Service {
 func NewWithDeps(d Deps) *Service {
 	s := &Service{
 		store: d.Store, sender: d.Sender, spawner: d.Spawner, killer: d.Killer,
-		dispatchKicker: d.DispatchKicker, statusProvider: d.StatusProvider, clock: d.Clock, newID: d.NewID,
+		dispatchKicker: d.DispatchKicker, statusProvider: d.StatusProvider, reporter: d.Reporter,
+		clock: d.Clock, newID: d.NewID,
 	}
 	if s.clock == nil {
 		s.clock = time.Now

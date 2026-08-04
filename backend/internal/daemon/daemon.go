@@ -184,6 +184,11 @@ func Run() error {
 	workboardSvc := workboardsvc.NewWithDeps(workboardsvc.Deps{
 		Store: store, Sender: sessionSvc, Spawner: sessionSvc, Killer: sessionSvc,
 		DispatchKicker: workboardTrigger, StatusProvider: workboardTrigger,
+		// orch's ReportVerdict is the missing bridge from an agent's
+		// set-verdict/set-test-result/fail-attempt/coding-handoff report to
+		// commander/orchestrator's OnAgentCompleted/OnAgentFailed — without it
+		// those had the correct phase-advancement logic but no caller.
+		Reporter: orch,
 	})
 	lcStack.trackerDone = startTrackerIntake(ctx, store, sessionSvc, workboardSvc, log)
 	previewDone := preview.NewPoller(store, sessionSvc, "http://"+cfg.Addr(), preview.PollerConfig{Logger: log}).Start(ctx)
