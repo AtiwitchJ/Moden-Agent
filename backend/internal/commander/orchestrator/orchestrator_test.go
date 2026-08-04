@@ -274,6 +274,9 @@ func TestGenerateBriefing_CodingPhaseCapsVerificationScope(t *testing.T) {
 	if !strings.Contains(briefing, "review and testing phases") {
 		t.Fatalf("coding briefing does not defer deep verification to the later phases: %s", briefing)
 	}
+	if !strings.Contains(briefing, "Do not write or run browser automation") {
+		t.Fatalf("coding briefing does not explicitly prohibit browser automation: %s", briefing)
+	}
 }
 
 func TestGenerateBriefing_RequiresPriorPhaseHandoff(t *testing.T) {

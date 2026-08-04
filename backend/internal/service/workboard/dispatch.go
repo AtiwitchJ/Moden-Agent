@@ -400,7 +400,7 @@ func dispatchRole(commanding bool) string {
 // in running until someone reports on its behalf by hand.
 func codingWorkerPrompt(card domain.WorkCard) string {
 	return card.Title + "\n\n" + card.Notes +
-		"\n\nVerification here is `npm run lint` and `npm run build` (or this repo's equivalent) passing — that is enough. This card has dedicated review and testing phases downstream for anything deeper (manual browser checks, screenshots, multi-viewport runs); doing that work yourself burns your iteration budget before you ever report, and the card sits stuck with nothing recorded. As soon as lint and build pass, record a handoff with changed files, checks/results, commit or PR, and the review focus: ao workboard card handoff " + card.ID + " --phase coding --summary \"...\"."
+		"\n\nVerification here is `npm run lint` and `npm run build` (or this repo's equivalent) passing — that is enough. Do not write or run browser automation, take screenshots, or spin up a preview server to manually click through the UI: this card has dedicated review and testing phases downstream for exactly that. Doing it yourself during coding burns your iteration budget before you ever report, and the card sits stuck with nothing recorded — this has happened live, repeatedly, on this exact project. As soon as lint and build pass, record a handoff with changed files, checks/results, commit or PR, and the review focus: ao workboard card handoff " + card.ID + " --phase coding --summary \"...\"."
 }
 
 // hermesCardBriefing is intentionally short: Hermes's system prompt
