@@ -590,10 +590,12 @@ describe("ProjectSettingsForm", () => {
 			}),
 		);
 	});
-});
 
-describe("ProjectSettingsForm director API key", () => {
-	it("saves the key under the env var the configured provider needs", async () => {
+	// The Director API key field lives on Global Settings (DirectorKeySection),
+	// not here — a project's Director engine choice is per-project, but the app
+	// treats "the Director" as one thing the user configures once. See
+	// DirectorKeySection.test.tsx.
+	it("never offers a Director API key field on project settings", async () => {
 		mockProject({
 			id: "proj-1",
 			name: "Project One",
@@ -607,56 +609,6 @@ describe("ProjectSettingsForm director API key", () => {
 				workboard: { wipLimit: 3 },
 				agentConfig: { model: "anthropic:claude-sonnet-4-6" },
 			},
-		});
-
-		renderSettings();
-
-		const input = await screen.findByLabelText(/director api key/i);
-		await userEvent.type(input, "sk-ant-test");
-		await userEvent.click(screen.getByRole("button", { name: /save/i }));
-
-		await waitFor(() => expect(putMock).toHaveBeenCalled());
-		const body = putMock.mock.calls.at(-1)?.[1]?.body;
-		expect(body.config.env).toMatchObject({ ANTHROPIC_API_KEY: "sk-ant-test" });
-	});
-
-	it("switches the env var with the provider", async () => {
-		mockProject({
-			id: "proj-1",
-			name: "Project One",
-			kind: "single_repo",
-			path: "/repo/project-one",
-			repo: "",
-			defaultBranch: "main",
-			config: {
-				worker: { agent: "codex" },
-				director: { agent: "director" },
-				workboard: { wipLimit: 3 },
-				agentConfig: { model: "openrouter:minimax/minimax-m2" },
-			},
-		});
-
-		renderSettings();
-
-		const input = await screen.findByLabelText(/director api key/i);
-		await userEvent.type(input, "sk-or-test");
-		await userEvent.click(screen.getByRole("button", { name: /save/i }));
-
-		await waitFor(() => expect(putMock).toHaveBeenCalled());
-		const body = putMock.mock.calls.at(-1)?.[1]?.body;
-		expect(body.config.env).toMatchObject({ OPENROUTER_API_KEY: "sk-or-test" });
-		expect(body.config.env.ANTHROPIC_API_KEY).toBeUndefined();
-	});
-
-	it("does not offer the field when the Director is not the commander", async () => {
-		mockProject({
-			id: "proj-1",
-			name: "Project One",
-			kind: "single_repo",
-			path: "/repo/project-one",
-			repo: "",
-			defaultBranch: "main",
-			config: { worker: { agent: "codex" }, orchestrator: { agent: "hermes" } },
 		});
 
 		renderSettings();

@@ -7,6 +7,7 @@ import { GlobalSettingsForm } from "./GlobalSettingsForm";
 const {
 	getMock,
 	postMock,
+	putMock,
 	getMigration,
 	setMigration,
 	getUpdate,
@@ -20,6 +21,7 @@ const {
 } = vi.hoisted(() => ({
 	getMock: vi.fn(),
 	postMock: vi.fn(),
+	putMock: vi.fn(),
 	getMigration: vi.fn(),
 	setMigration: vi.fn(),
 	getUpdate: vi.fn(),
@@ -33,7 +35,7 @@ const {
 }));
 
 vi.mock("../lib/api-client", () => ({
-	apiClient: { GET: getMock, POST: postMock },
+	apiClient: { GET: getMock, POST: postMock, PUT: putMock },
 	apiErrorMessage: (e: unknown, fb = "Request failed") =>
 		e instanceof Error ? e.message : ((e as { message?: string })?.message ?? fb),
 }));
@@ -62,10 +64,31 @@ function renderForm() {
 	return qc;
 }
 
+// getMock now backs two unrelated GET call sites — MigrationSection's
+// "/api/v1/import" legacy scan and DirectorKeySection's project lookups — so
+// it must route on path instead of returning one fixed value.
+function routeGet(directorProjects: Record<string, unknown>[] = []) {
+	getMock.mockImplementation(async (path: string, opts?: { params?: { path?: { id?: string } } }) => {
+		if (path === "/api/v1/import") {
+			return { data: { available: true, legacyRoot: "/home/u/.modern-agent" }, error: undefined };
+		}
+		if (path === "/api/v1/projects") {
+			return { data: { projects: directorProjects.map((p) => ({ id: p.id })) }, error: undefined };
+		}
+		if (path === "/api/v1/projects/{id}") {
+			const id = opts?.params?.path?.id;
+			const project = directorProjects.find((p) => p.id === id);
+			return { data: project ? { status: "ok", project } : { status: "error" }, error: undefined };
+		}
+		throw new Error(`unmocked GET ${path}`);
+	});
+}
+
 beforeEach(() => {
-	for (const m of [getMock, postMock, getMigration, setMigration, getUpdate, setUpdate]) m.mockReset();
+	for (const m of [getMock, postMock, putMock, getMigration, setMigration, getUpdate, setUpdate]) m.mockReset();
 	getMigration.mockResolvedValue({ status: "pending" });
-	getMock.mockResolvedValue({ data: { available: true, legacyRoot: "/home/u/.modern-agent" }, error: undefined });
+	routeGet();
+	putMock.mockResolvedValue({ data: { project: {} }, error: undefined });
 	postMock.mockResolvedValue({ data: { report: { projectsImported: 2, projectsSkipped: 1 } }, error: undefined });
 	setMigration.mockResolvedValue(undefined);
 	getUpdate.mockResolvedValue({ enabled: true, channel: "latest", nightlyAck: false });
@@ -180,5 +203,19 @@ describe("GlobalSettingsForm", () => {
 		await userEvent.click(btn);
 		expect(await screen.findByText(/disk full/i)).toBeInTheDocument();
 		expect(setMigration).toHaveBeenCalledWith(expect.objectContaining({ status: "failed", error: "disk full" }));
+	});
+
+	it("does not render the Director section when no project runs the Director", async () => {
+		renderForm();
+		await screen.findByText("Updates");
+		expect(screen.queryByText("Director")).not.toBeInTheDocument();
+	});
+
+	it("renders the Director section when a project has the Director active", async () => {
+		routeGet([
+			{ id: "p1", config: { director: { agent: "director" }, agentConfig: { model: "anthropic:claude-sonnet-4-6" } } },
+		]);
+		renderForm();
+		expect(await screen.findByLabelText(/api key/i)).toBeInTheDocument();
 	});
 });
