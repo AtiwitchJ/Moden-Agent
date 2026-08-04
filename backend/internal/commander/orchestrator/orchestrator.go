@@ -314,6 +314,54 @@ func (o *ConfiguredOrchestrator) OnAgentCompleted(ctx context.Context, cardID st
 	return nil
 }
 
+// ReportVerdict routes a phase-scoped outcome report — from RecordAgentEvent's
+// agent_verdict, test_result, agent_failed, or a coding-phase agent_handoff —
+// to OnAgentCompleted or OnAgentFailed. Those callbacks already carried the
+// full phase-advancement logic but had no caller anywhere in the daemon: an
+// agent's `ao workboard card set-verdict` / `set-test-result` / `fail-attempt`
+// recorded an audit event and nothing else, so a card never advanced past
+// review once a live session existed for it. ReportVerdict is that missing
+// caller, added at the workboard service's RecordAgentEvent call site.
+//
+// The reporting agent is not known to the caller — the event payload carries
+// only a phase and an outcome — so a failure report resolves it here from
+// this package's own active_session bookkeeping via currentAgent.
+func (o *ConfiguredOrchestrator) ReportVerdict(ctx context.Context, cardID string, phase string, verdict string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	p := commander.Phase(phase)
+	if verdict == "approved" || verdict == "pass" {
+		return o.OnAgentCompleted(ctx, cardID, commander.AgentResult{Phase: p, Verdict: verdict})
+	}
+	card, ok, err := o.getCard(ctx, cardID)
+	if err != nil {
+		return fmt.Errorf("get card %s: %w", cardID, err)
+	}
+	if !ok {
+		return fmt.Errorf("card %s not found", cardID)
+	}
+	return o.OnAgentFailed(ctx, cardID, commander.AgentAttempt{
+		Phase:         p,
+		Agent:         o.currentAgent(ctx, card, p),
+		FailureReason: verdict,
+		AttemptNumber: 1,
+	})
+}
+
+// currentAgent resolves which agent is (or was) running phase for card, so a
+// failure report can hand OnAgentFailed the agent it should fall back from.
+// It prefers the live active_session record; when none exists (a coding
+// session workboard's dispatch.go spawned directly never registers one) it
+// falls back to the phase's first-choice agent so pickNextAgent still has a
+// deterministic starting point rather than picking the first agent again.
+func (o *ConfiguredOrchestrator) currentAgent(ctx context.Context, card domain.WorkCard, phase commander.Phase) string {
+	if session, ok, err := o.store.GetActiveSession(ctx, card.ID); err == nil && ok && session.Agent != "" {
+		return session.Agent
+	}
+	return o.pickNextAgent(card, phase, "")
+}
+
 // OnSignal handles external signals: PRReady, CIFailed, PRClosed.
 func (o *ConfiguredOrchestrator) OnSignal(ctx context.Context, cardID string, signal commander.Signal) error {
 	if err := ctx.Err(); err != nil {

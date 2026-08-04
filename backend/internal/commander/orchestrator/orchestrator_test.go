@@ -315,6 +315,103 @@ func TestTick_RunningCardLinkedToTerminatedSession_StillSpawns(t *testing.T) {
 	}
 }
 
+// TestReportVerdict_ApprovedCodingHandoff_TransitionsRunningToReview covers the
+// wiring gap that left every card stuck: a coding-phase handoff is the
+// completion signal per generateBriefing's own instructions, but nothing
+// called OnAgentCompleted for it. ReportVerdict is that missing call.
+func TestReportVerdict_ApprovedCodingHandoff_TransitionsRunningToReview(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "running")
+	store.cards[c.ID] = c
+
+	if err := oc.ReportVerdict(context.Background(), "c1", "coding", "approved"); err != nil {
+		t.Fatalf("ReportVerdict: %v", err)
+	}
+
+	got := store.cards["c1"]
+	if got.Status != domain.CardStatusReview {
+		t.Fatalf("card status = %q, want review", got.Status)
+	}
+}
+
+// TestReportVerdict_CodingChangesRequested_FallsBackToNextCodingAgent proves
+// the failure path resolves the *current* agent from active_session (not just
+// the chain's first entry), so the fallback actually advances to the next
+// coding agent instead of respawning the one that just failed. The coding
+// chain (CodingAgent, Agent, hermes) is used because it is the only chain in
+// this package with three entries — a two-entry chain like the reviewer's
+// always redoes on its first failure (see
+// TestOnAgentFailed_ReviewerExhausted_FallsBackToHermes), which cannot
+// exercise the spawn-a-fallback branch this test targets.
+func TestReportVerdict_CodingChangesRequested_FallsBackToNextCodingAgent(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "running")
+	c.CodingAgent = "claude-code"
+	c.Agent = "codex"
+	store.cards[c.ID] = c
+	store.activeSessions["c1"] = ActiveSessionRecord{
+		CardID: "c1", SessionID: "sess-1", Phase: "coding", Agent: "claude-code", CreatedAt: now,
+	}
+
+	if err := oc.ReportVerdict(context.Background(), "c1", "coding", "changes_requested"); err != nil {
+		t.Fatalf("ReportVerdict: %v", err)
+	}
+
+	if len(sp.spawned) != 1 {
+		t.Fatalf("spawned count = %d, want 1 (fallback coding agent)", len(sp.spawned))
+	}
+	if sp.spawned[0].Spec.Agent != "codex" {
+		t.Fatalf("fallback agent = %q, want codex (next after claude-code in the coding chain)", sp.spawned[0].Spec.Agent)
+	}
+}
+
+// TestReportVerdict_TestingPass_TransitionsToDone covers the test_result ->
+// pass path used by `ao workboard card set-test-result --exit 0`.
+func TestReportVerdict_TestingPass_TransitionsToDone(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "testing")
+	store.cards[c.ID] = c
+
+	if err := oc.ReportVerdict(context.Background(), "c1", "testing", "pass"); err != nil {
+		t.Fatalf("ReportVerdict: %v", err)
+	}
+
+	got := store.cards["c1"]
+	if got.Status != domain.CardStatusDone {
+		t.Fatalf("card status = %q, want done", got.Status)
+	}
+}
+
 func TestTick_WIPAtLimit_RefusesNewSpawn(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}
