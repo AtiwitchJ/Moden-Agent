@@ -65,8 +65,8 @@ function renderForm() {
 }
 
 // getMock now backs two unrelated GET call sites — MigrationSection's
-// "/api/v1/import" legacy scan and DirectorKeySection's project lookups — so
-// it must route on path instead of returning one fixed value.
+// "/api/v1/import" legacy scan and DirectorProvidersSection's project lookups
+// — so it must route on path instead of returning one fixed value.
 function routeGet(directorProjects: Record<string, unknown>[] = []) {
 	getMock.mockImplementation(async (path: string, opts?: { params?: { path?: { id?: string } } }) => {
 		if (path === "/api/v1/import") {
@@ -216,6 +216,6 @@ describe("GlobalSettingsForm", () => {
 			{ id: "p1", config: { director: { agent: "director" }, agentConfig: { model: "anthropic:claude-sonnet-4-6" } } },
 		]);
 		renderForm();
-		expect(await screen.findByLabelText(/api key/i)).toBeInTheDocument();
+		expect(await screen.findByLabelText("Anthropic API key")).toBeInTheDocument();
 	});
 });

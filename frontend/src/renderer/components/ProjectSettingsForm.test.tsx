@@ -591,10 +591,10 @@ describe("ProjectSettingsForm", () => {
 		);
 	});
 
-	// The Director API key field lives on Global Settings (DirectorKeySection),
-	// not here — a project's Director engine choice is per-project, but the app
-	// treats "the Director" as one thing the user configures once. See
-	// DirectorKeySection.test.tsx.
+	// The Director's provider registry lives on Global Settings
+	// (DirectorProvidersSection), not here — a project's Director engine choice
+	// is per-project, but the app treats "the Director" as one thing the user
+	// configures once. See DirectorProvidersSection.test.tsx.
 	it("never offers a Director API key field on project settings", async () => {
 		mockProject({
 			id: "proj-1",
