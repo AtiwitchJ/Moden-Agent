@@ -187,8 +187,7 @@ func TestDispatchOnceSpawnsWorkerWithCardHarnessAndPrompt(t *testing.T) {
 		t.Fatalf("spawn count = %d, want 1", len(spawner.configs))
 	}
 	got := spawner.configs[0]
-	wantPrompt := "card title\n\ncard notes\n\nBefore completing, record a handoff with changed files, checks/results, commit or PR, and the review focus: ao workboard card handoff card --phase coding --summary \"...\"."
-	if got.ProjectID != "p1" || got.Kind != domain.KindWorker || got.Harness != domain.HarnessCodex || got.Prompt != wantPrompt || got.TargetPath != "/repo/services/api" {
+	if got.ProjectID != "p1" || got.Kind != domain.KindWorker || got.Harness != domain.HarnessCodex || got.Prompt != codingWorkerPrompt(card) || got.TargetPath != "/repo/services/api" {
 		t.Fatalf("spawn config = %#v", got)
 	}
 }

@@ -43,7 +43,7 @@ func generateBriefing(card domain.WorkCard, phase commander.Phase, cycle *domain
 	case commander.PhaseCoding:
 		fmt.Fprintf(&b, "Coding agent: %s\n", firstNonEmpty(card.CodingAgent, card.Agent, "hermes"))
 		fmt.Fprintf(&b, "\nRead the latest card state:\nao workboard get %s --json\n\n", card.ID)
-		fmt.Fprintf(&b, "Then plan and implement. Before completing, record a handoff with changed files, checks/results, commit or PR, and the review focus: ao workboard card handoff %s --phase coding --summary \"...\".", card.ID)
+		fmt.Fprintf(&b, "Then plan and implement. Verification here is `npm run lint` and `npm run build` (or this repo's equivalent) passing — that is enough. This card has dedicated review and testing phases downstream for anything deeper (manual browser checks, screenshots, multi-viewport runs); doing that work yourself burns your iteration budget before you ever report, and the card sits stuck with nothing recorded. As soon as lint and build pass, record a handoff with changed files, checks/results, commit or PR, and the review focus: ao workboard card handoff %s --phase coding --summary \"...\".", card.ID)
 
 	case commander.PhaseReview:
 		fmt.Fprintf(&b, "Reviewer agent: %s\n", firstNonEmpty(card.ReviewerAgent, "hermes"))

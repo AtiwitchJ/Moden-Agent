@@ -254,6 +254,28 @@ func TestTick_RunningCardWithNoSession_SpawnsHermes(t *testing.T) {
 	}
 }
 
+// TestGenerateBriefing_CodingPhaseCapsVerificationScope covers a real,
+// repeated live failure: the coding agent (hermes) treated verification as
+// its own job — full browser automation, screenshots, multi-viewport checks —
+// and burned its entire iteration budget doing so before ever calling
+// `ao workboard card handoff`. Its own final message admitted as much: "เกิน
+// tool-call budget แล้ว ... ยังไม่ record handoff". This system already has a
+// dedicated review phase and a dedicated testing phase downstream; the coding
+// briefing must say so explicitly, or the agent has no signal that exhaustive
+// verification is someone else's job, not its own.
+func TestGenerateBriefing_CodingPhaseCapsVerificationScope(t *testing.T) {
+	briefing, err := generateBriefing(card("c1", "p1", "running"), commander.PhaseCoding, nil)
+	if err != nil {
+		t.Fatalf("generateBriefing: %v", err)
+	}
+	if !strings.Contains(briefing, "lint") || !strings.Contains(briefing, "build") {
+		t.Fatalf("coding briefing missing the lightweight-check floor: %s", briefing)
+	}
+	if !strings.Contains(briefing, "review and testing phases") {
+		t.Fatalf("coding briefing does not defer deep verification to the later phases: %s", briefing)
+	}
+}
+
 func TestGenerateBriefing_RequiresPriorPhaseHandoff(t *testing.T) {
 	briefing, err := generateBriefing(card("c1", "p1", "review"), commander.PhaseReview, nil)
 	if err != nil {
