@@ -7,6 +7,29 @@ function required(env: NodeJS.ProcessEnv, key: string): string {
 	return value;
 }
 
+interface CustomProvider {
+	baseUrl: string;
+	apiKey?: string;
+}
+
+/** Reads the operator-configured custom-provider registry (any OpenAI-compatible
+ * endpoint beyond the three built-ins — MiniMax, a local Ollama, etc.), written
+ * by Global Settings' Director section into AO_DIRECTOR_CUSTOM_PROVIDERS as one
+ * JSON blob shared by every Director project. A malformed blob degrades to "no
+ * custom providers configured" rather than crashing the Director on a bad save
+ * — the same tolerance ao workboard card handoff uses for one bad audit row. */
+function readCustomProviders(env: NodeJS.ProcessEnv): Record<string, CustomProvider> {
+	const raw = (env.AO_DIRECTOR_CUSTOM_PROVIDERS ?? "").trim();
+	if (raw === "") return {};
+	try {
+		const parsed: unknown = JSON.parse(raw);
+		if (typeof parsed !== "object" || parsed === null) return {};
+		return parsed as Record<string, CustomProvider>;
+	} catch {
+		return {};
+	}
+}
+
 /**
  * Resolves the providers this first-party bundle ships directly. Passing a
  * model instance (rather than a provider:model string) avoids LangChain's
@@ -19,7 +42,8 @@ export function createDirectorModel(model: string, env: NodeJS.ProcessEnv): Chat
 	if (!provider || !modelName) {
 		throw new Error(`AO_DIRECTOR_MODEL must be "provider:model-name", got ${JSON.stringify(model)}`);
 	}
-	switch (provider.trim().toLowerCase()) {
+	const providerId = provider.trim().toLowerCase();
+	switch (providerId) {
 		case "openai":
 			return new ChatOpenAI({ model: modelName, apiKey: required(env, "OPENAI_API_KEY") });
 		case "anthropic":
@@ -30,7 +54,22 @@ export function createDirectorModel(model: string, env: NodeJS.ProcessEnv): Chat
 				apiKey: required(env, "OPENROUTER_API_KEY"),
 				configuration: { baseURL: "https://openrouter.ai/api/v1" },
 			});
-		default:
-			throw new Error(`Director bundle supports openai:, anthropic:, and openrouter: models; got ${JSON.stringify(provider)}`);
+		default: {
+			const custom = readCustomProviders(env)[providerId];
+			if (custom) {
+				// A local endpoint (e.g. Ollama) does not check the key, but the
+				// OpenAI client still requires a non-empty string to construct.
+				return new ChatOpenAI({
+					model: modelName,
+					apiKey: custom.apiKey?.trim() || "unused",
+					configuration: { baseURL: custom.baseUrl },
+				});
+			}
+			const known = Object.keys(readCustomProviders(env));
+			const knownSuffix = known.length > 0 ? `, or a registered custom provider (${known.join(", ")})` : "";
+			throw new Error(
+				`Director bundle supports openai:, anthropic:, and openrouter: models${knownSuffix}; got ${JSON.stringify(provider)}`,
+			);
+		}
 	}
 }

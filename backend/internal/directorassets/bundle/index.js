@@ -134642,13 +134642,25 @@ function required4(env, key) {
   if (!value) throw new Error(`${key} is required for the configured Director model`);
   return value;
 }
+function readCustomProviders(env) {
+  const raw = (env.AO_DIRECTOR_CUSTOM_PROVIDERS ?? "").trim();
+  if (raw === "") return {};
+  try {
+    const parsed = JSON.parse(raw);
+    if (typeof parsed !== "object" || parsed === null) return {};
+    return parsed;
+  } catch {
+    return {};
+  }
+}
 function createDirectorModel(model, env) {
   const [provider, ...name] = model.split(":");
   const modelName = name.join(":").trim();
   if (!provider || !modelName) {
     throw new Error(`AO_DIRECTOR_MODEL must be "provider:model-name", got ${JSON.stringify(model)}`);
   }
-  switch (provider.trim().toLowerCase()) {
+  const providerId = provider.trim().toLowerCase();
+  switch (providerId) {
     case "openai":
       return new ChatOpenAI({ model: modelName, apiKey: required4(env, "OPENAI_API_KEY") });
     case "anthropic":
@@ -134659,8 +134671,21 @@ function createDirectorModel(model, env) {
         apiKey: required4(env, "OPENROUTER_API_KEY"),
         configuration: { baseURL: "https://openrouter.ai/api/v1" }
       });
-    default:
-      throw new Error(`Director bundle supports openai:, anthropic:, and openrouter: models; got ${JSON.stringify(provider)}`);
+    default: {
+      const custom4 = readCustomProviders(env)[providerId];
+      if (custom4) {
+        return new ChatOpenAI({
+          model: modelName,
+          apiKey: custom4.apiKey?.trim() || "unused",
+          configuration: { baseURL: custom4.baseUrl }
+        });
+      }
+      const known = Object.keys(readCustomProviders(env));
+      const knownSuffix = known.length > 0 ? `, or a registered custom provider (${known.join(", ")})` : "";
+      throw new Error(
+        `Director bundle supports openai:, anthropic:, and openrouter: models${knownSuffix}; got ${JSON.stringify(provider)}`
+      );
+    }
   }
 }
 
