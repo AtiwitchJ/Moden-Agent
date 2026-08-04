@@ -102,6 +102,69 @@ func TestRecordAgentEventAppliesTransition(t *testing.T) {
 	}
 }
 
+func TestStatusReasonReturnsTheReasonForTheCurrentStatus(t *testing.T) {
+	svc, _ := newAgentEventService(domain.CardStatusRunning)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind: "agent_transition", Payload: `{"status":"blocked","reason":"card is underspecified: no target file named"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	reason, err := svc.StatusReason(context.Background(), "card-1")
+	if err != nil {
+		t.Fatalf("StatusReason: %v", err)
+	}
+	if reason != "card is underspecified: no target file named" {
+		t.Fatalf("reason = %q, want the recorded blocked reason", reason)
+	}
+}
+
+func TestStatusReasonIsEmptyWhenNoTransitionEventExplainsTheCurrentStatus(t *testing.T) {
+	svc, _ := newAgentEventService(domain.CardStatusRunning)
+	reason, err := svc.StatusReason(context.Background(), "card-1")
+	if err != nil {
+		t.Fatalf("StatusReason: %v", err)
+	}
+	if reason != "" {
+		t.Fatalf("reason = %q, want empty for a card with no transition history", reason)
+	}
+}
+
+func TestStatusReasonIgnoresAStaleReasonFromAnEarlierStatus(t *testing.T) {
+	svc, store := newAgentEventService(domain.CardStatusRunning)
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind: "agent_transition", Payload: `{"status":"review","reason":"coding done"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	// A later, non-transition write must not clear the still-current reason.
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind: "agent_verdict", Payload: `{"verdict":"approved"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+	reason, err := svc.StatusReason(context.Background(), "card-1")
+	if err != nil {
+		t.Fatalf("StatusReason: %v", err)
+	}
+	if reason != "coding done" {
+		t.Fatalf("reason = %q, want the review transition's reason to still apply", reason)
+	}
+
+	// Move the card again directly in the store without a matching transition
+	// event (e.g. a legacy or non-agent path) — the old reason must not leak
+	// forward onto an unrelated status.
+	card := store.cards["card-1"]
+	card.Status = domain.CardStatusTesting
+	store.cards["card-1"] = card
+	reason, err = svc.StatusReason(context.Background(), "card-1")
+	if err != nil {
+		t.Fatalf("StatusReason: %v", err)
+	}
+	if reason != "" {
+		t.Fatalf("reason = %q, want empty once the status no longer matches the last transition event", reason)
+	}
+}
+
 func TestRecordAgentEventRejectsIllegalTransition(t *testing.T) {
 	svc, store := newAgentEventService(domain.CardStatusRunning)
 	_, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{

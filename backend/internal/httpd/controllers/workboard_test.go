@@ -36,6 +36,7 @@ type fakeWorkboardService struct {
 	recordEventID  string
 	recordEventIn  workboardsvc.AgentEventInput
 	handoffs       []workboardsvc.Handoff
+	statusReason   string
 	failure        workboardsvc.DispatchFailure
 	directorStatus workboardsvc.DirectorStatus
 }
@@ -119,6 +120,10 @@ func (f *fakeWorkboardService) RecordAgentEvent(_ context.Context, cardID string
 
 func (f *fakeWorkboardService) Handoffs(context.Context, string) ([]workboardsvc.Handoff, error) {
 	return f.handoffs, nil
+}
+
+func (f *fakeWorkboardService) StatusReason(context.Context, string) (string, error) {
+	return f.statusReason, nil
 }
 
 func newWorkboardTestServer(t *testing.T, svc *fakeWorkboardService) *httptest.Server {
@@ -228,6 +233,27 @@ func TestGetWorkCardIncludesHandoffs(t *testing.T) {
 	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/workboard/cards/card_1", "")
 	if status != http.StatusOK || !strings.Contains(string(body), `"handoffs":[{"phase":"coding"`) || !strings.Contains(string(body), "Review validation") {
 		t.Fatalf("get card = status %d body %s, want handoff", status, body)
+	}
+}
+
+func TestGetWorkCardIncludesStatusReason(t *testing.T) {
+	svc := &fakeWorkboardService{
+		cards:        []domain.WorkCard{{ID: "card_1", Title: "Card", Status: domain.CardStatusBlocked}},
+		statusReason: "card is underspecified: no target file named",
+	}
+	srv := newWorkboardTestServer(t, svc)
+	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/workboard/cards/card_1", "")
+	if status != http.StatusOK || !strings.Contains(string(body), `"statusReason":"card is underspecified: no target file named"`) {
+		t.Fatalf("get card = status %d body %s, want statusReason", status, body)
+	}
+}
+
+func TestGetWorkCardOmitsStatusReasonWhenEmpty(t *testing.T) {
+	svc := &fakeWorkboardService{cards: []domain.WorkCard{{ID: "card_1", Title: "Card"}}}
+	srv := newWorkboardTestServer(t, svc)
+	body, status, _ := doRequest(t, srv, http.MethodGet, "/api/v1/workboard/cards/card_1", "")
+	if status != http.StatusOK || strings.Contains(string(body), "statusReason") {
+		t.Fatalf("get card = status %d body %s, want no statusReason field", status, body)
 	}
 }
 

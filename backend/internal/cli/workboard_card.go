@@ -38,6 +38,7 @@ type cardShowResponse struct {
 type cardTransitionPayload struct {
 	Status   string `json:"status"`
 	Position int64  `json:"position"`
+	Reason   string `json:"reason,omitempty"`
 }
 
 type cardVerdictPayload struct {
@@ -186,6 +187,7 @@ func runCardTransition(ctx context.Context, c *commandContext, cmd *cobra.Comman
 		Payload: mustMarshal(cardTransitionPayload{
 			Status:   toStatus,
 			Position: 0,
+			Reason:   reason,
 		}),
 	}
 	var eventResp map[string]interface{}

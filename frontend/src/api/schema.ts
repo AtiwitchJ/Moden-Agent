@@ -1824,6 +1824,7 @@ export interface components {
             sessionId?: string;
             /** @enum {string} */
             status: "triage" | "backlog" | "todo" | "scheduled" | "ready" | "running" | "review" | "testing" | "redo" | "blocked" | "done";
+            statusReason?: string;
             supersededByCardId?: string;
             targetPath: string;
             testingAgent?: string;

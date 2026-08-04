@@ -76,6 +76,7 @@ type WorkCardResponse struct {
 	CreatedAt          time.Time                 `json:"createdAt"`
 	UpdatedAt          time.Time                 `json:"updatedAt"`
 	Handoffs           []WorkCardHandoffResponse `json:"handoffs,omitempty"`
+	StatusReason       string                    `json:"statusReason,omitempty"`
 }
 
 // WorkCardHandoffResponse is the compact, durable report a completed phase

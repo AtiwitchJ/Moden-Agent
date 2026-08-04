@@ -106,6 +106,26 @@ it("identifies a linked Hermes orchestrator as the commander", async () => {
 	expect(screen.getByText("Nudge commander")).toBeInTheDocument();
 });
 
+it("shows the status reason prominently when the card is blocked", async () => {
+	const card: WorkCard = { ...scheduledCard, status: "blocked", statusReason: "card is underspecified: no target file named" };
+	renderPanel(card);
+	const reason = await screen.findByText("card is underspecified: no target file named");
+	expect(reason).toBeInTheDocument();
+	expect(reason).toHaveAttribute("role", "alert");
+});
+
+it("shows the status reason without alert styling for a non-blocked status", async () => {
+	const card: WorkCard = { ...scheduledCard, status: "review", statusReason: "coding done, ready for review" };
+	renderPanel(card);
+	const reason = await screen.findByText("coding done, ready for review");
+	expect(reason).not.toHaveAttribute("role", "alert");
+});
+
+it("shows nothing extra when the card has no status reason", async () => {
+	renderPanel({ ...scheduledCard, status: "blocked", statusReason: undefined });
+	expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+});
+
 it("requires confirmation before deleting a card", async () => {
 	const card: WorkCard = { ...scheduledCard, status: "running", sessionId: "hermes-1" };
 	const session: WorkspaceSession = {

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 
+	"github.com/modernagent/modern-agent/backend/internal/domain"
 	"github.com/modernagent/modern-agent/backend/internal/httpd/apierr"
 )
 
@@ -46,4 +47,44 @@ func (s *Service) Handoffs(ctx context.Context, cardID string) ([]Handoff, error
 		handoffs = append(handoffs, handoff)
 	}
 	return handoffs, nil
+}
+
+// StatusReason returns the reason recorded for the card's current status —
+// the agent's own explanation for why it moved the card here, most useful on
+// a blocked card a human has to act on. It is the most recent agent_transition
+// event's reason, but only if that event's status still matches the card's
+// current status; a status changed by any other route (or a legacy event
+// recorded before this field existed) reports no reason rather than an
+// unrelated, stale one.
+func (s *Service) StatusReason(ctx context.Context, cardID string) (string, error) {
+	card, err := s.Get(ctx, cardID)
+	if err != nil {
+		return "", err
+	}
+	lister, ok := s.store.(workCardEventLister)
+	if !ok {
+		return "", apierr.Internal("WORK_CARD_EVENTS_UNAVAILABLE", "Work card events are unavailable")
+	}
+	events, err := lister.ListWorkCardEvents(ctx, card.ID)
+	if err != nil {
+		return "", apierr.Internal("WORK_CARD_EVENTS_LOAD_FAILED", "Failed to load work card events")
+	}
+	var lastStatus, lastReason string
+	for _, event := range events {
+		if event.Kind != "agent_transition" {
+			continue
+		}
+		var body struct {
+			Status string `json:"status"`
+			Reason string `json:"reason"`
+		}
+		if json.Unmarshal([]byte(event.Payload), &body) != nil {
+			continue
+		}
+		lastStatus, lastReason = body.Status, body.Reason
+	}
+	if domain.CardStatus(lastStatus) != card.Status {
+		return "", nil
+	}
+	return lastReason, nil
 }

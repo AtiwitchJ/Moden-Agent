@@ -158,6 +158,17 @@ func TestCardTransition_HappyPath(t *testing.T) {
 	if !strings.Contains(out, "transitioned") {
 		t.Fatalf("output missing transitioned confirmation: %s", out)
 	}
+
+	// The CLI requires --reason and validates it non-empty, but must actually
+	// carry it to the daemon — a card sitting in a status with no recorded
+	// reason is a blackbox to anyone looking at it later.
+	var payload cardTransitionPayload
+	if err := json.Unmarshal([]byte(req.Payload), &payload); err != nil {
+		t.Fatalf("decode transition payload: %v", err)
+	}
+	if payload.Reason != "code review done" {
+		t.Fatalf("payload.Reason = %q, want %q", payload.Reason, "code review done")
+	}
 }
 
 // running→done is not a valid transition; ValidateWorkflowTransition returns usageError → exit 2.

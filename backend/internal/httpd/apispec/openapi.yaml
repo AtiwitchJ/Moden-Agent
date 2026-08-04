@@ -5181,6 +5181,8 @@ components:
           - blocked
           - done
           type: string
+        statusReason:
+          type: string
         supersededByCardId:
           type: string
         targetPath:

@@ -224,6 +224,14 @@ export function WorkCardFocusPanel({
 							<span className="text-muted-foreground">Status</span>
 							<span className="rounded bg-accent/10 px-2 py-1 font-mono text-[10px] font-semibold uppercase tracking-[0.06em] text-accent">{card.status}</span>
 						</div>
+						{card.statusReason ? (
+							<p
+								className={`mt-2 text-[11px] leading-[1.45] ${card.status === "blocked" ? "text-destructive" : "text-muted-foreground"}`}
+								role={card.status === "blocked" ? "alert" : undefined}
+							>
+								{card.statusReason}
+							</p>
+						) : null}
 						{card.sessionId ? (
 							<div className="mt-3 space-y-1 border-t border-border pt-3">
 								<p className="font-mono text-[10px] uppercase tracking-[0.08em] text-passive">{isCommander ? "Commander" : "Linked session"}</p>
