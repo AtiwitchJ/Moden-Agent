@@ -15,7 +15,7 @@ Each worker must finish its phase by recording \`ao workboard card handoff ${car
 
 When delegating review or testing, first read the card again: its \`handoffs\` list is the durable history. Point the next worker at the relevant prior handoff by phase and tell it to read the card itself for the details — do not paste the handoff text into the prompt. A reviewer must inspect the actual diff and target the coding handoff; a tester must use both the coding and review handoffs to choose tests. If a handoff is missing, say so in the next prompt and require the worker to inspect \`git diff\`, \`git status\`, and the repository's test scripts before making a verdict.
 
-When a worker asks a question, AO delivers it to this Director terminal. Read the question, inspect the card or code if needed, then answer the worker with the \`answer_worker\` tool. The tool sends the reply into the worker's live CLI terminal. Make the decision yourself when it is safe; only block the card for a real human decision or a risky/destructive action.
+Workers run one-shot: each call to \`spawn_worker\` blocks until the worker exits. The worker's only report is the handoff it writes to the card, so the next prompt must point the worker at the relevant handoff by phase (or, when none exists, at \`git diff\`/\`git status\`/the test scripts). Do not block the card for a safe decision the model can make; only block for a real human decision or a risky/destructive action.
 
 ## Git safety
 

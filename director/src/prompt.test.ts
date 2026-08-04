@@ -25,8 +25,10 @@ describe("directorSystemPrompt", () => {
 		expect(prompt).toContain("spawn_worker");
 	});
 
-	it("makes the Director answer worker terminal questions", () => {
-		expect(prompt).toContain("answer_worker");
+	it("makes the Director treat one-shot workers as blocking and handoff-only", () => {
+		expect(prompt).toContain("spawn_worker");
+		expect(prompt).toContain("one-shot");
+		expect(prompt).not.toContain("answer_worker");
 	});
 
 	it("requires durable phase handoffs before delegation continues", () => {

@@ -13,15 +13,12 @@ export function buildTransitionArgv(cardId: string, to: string, reason: string):
 	return ["workboard", "card", "transition", cardId, "--to", to, "--reason", reason];
 }
 
+/** Workers run one-shot: the CLI executes the subtask to completion and exits,
+ * and `--wait` blocks until it does. The Director therefore learns a phase is
+ * finished by its tool call returning, not by the worker messaging it back. */
 export function buildSpawnWorkerArgv(projectId: string, agent: string, prompt: string): string[] {
 	const name = `${agent}-worker`.slice(0, 20);
-	return ["spawn", "--project", projectId, "--agent", agent, "--name", name, "--prompt", prompt];
-}
-
-export function buildSendWorkerAnswerArgv(sessionId: string, answer: string): string[] {
-	if (sessionId.trim() === "") throw new Error("a worker session id is required");
-	if (answer.trim() === "") throw new Error("an answer is required");
-	return ["send", "--session", sessionId, "--message", answer];
+	return ["spawn", "--project", projectId, "--agent", agent, "--name", name, "--oneshot", "--wait", "--prompt", prompt];
 }
 
 /** Runs an `ao` subcommand, returning stdout. A non-zero exit becomes a thrown

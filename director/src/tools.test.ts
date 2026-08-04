@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { buildSendWorkerAnswerArgv, buildShowCardArgv, buildSpawnWorkerArgv, buildTransitionArgv, runAo } from "./tools.js";
+import { buildShowCardArgv, buildSpawnWorkerArgv, buildTransitionArgv, runAo } from "./tools.js";
 
 describe("argv builders", () => {
 	it("builds the show-card argv with JSON output", () => {
@@ -12,9 +12,10 @@ describe("argv builders", () => {
 		]);
 	});
 
-	it("builds the spawn-worker argv", () => {
+	it("builds the spawn-worker argv as a blocking one-shot run", () => {
 		expect(buildSpawnWorkerArgv("proj-1", "claude-code", "implement X")).toEqual([
-			"spawn", "--project", "proj-1", "--agent", "claude-code", "--name", "claude-code-worker", "--prompt", "implement X",
+			"spawn", "--project", "proj-1", "--agent", "claude-code", "--name", "claude-code-worker",
+			"--oneshot", "--wait", "--prompt", "implement X",
 		]);
 	});
 
@@ -22,16 +23,6 @@ describe("argv builders", () => {
 		const argv = buildSpawnWorkerArgv("proj-1", "some-very-long-harness-id", "implement X");
 		const name = argv[argv.indexOf("--name") + 1];
 		expect(name.length).toBeLessThanOrEqual(20);
-	});
-
-	it("builds the terminal answer argv", () => {
-		expect(buildSendWorkerAnswerArgv("worker-1", "Run the focused tests.")).toEqual([
-			"send", "--session", "worker-1", "--message", "Run the focused tests.",
-		]);
-	});
-
-	it("rejects a blank worker answer", () => {
-		expect(() => buildSendWorkerAnswerArgv("worker-1", " ")).toThrow(/answer/);
 	});
 
 	it("rejects a transition with an empty reason", () => {

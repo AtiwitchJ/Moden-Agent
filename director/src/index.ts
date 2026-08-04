@@ -11,7 +11,6 @@ import { extractMessages, inboundInstruction } from "./inbound.js";
 import { createDirectorModel } from "./model.js";
 import { directorSystemPrompt } from "./prompt.js";
 import {
-	buildSendWorkerAnswerArgv,
 	buildShowCardArgv,
 	buildSpawnWorkerArgv,
 	buildTransitionArgv,
@@ -82,32 +81,20 @@ async function main(): Promise<void> {
 				buildSpawnWorkerArgv(
 					cfg.projectId,
 					agent,
-					`${prompt.trim()}\n\nYou are supervised by Director session ${cfg.sessionId}. If your CLI asks a question or you are blocked, send the exact question to the Director with: ao send --session ${cfg.sessionId} --message "<question>". Wait for its answer before proceeding. Before completing your assigned phase, record a durable handoff with \`ao workboard card handoff <card-id> --phase <coding|review|testing> --summary "<what you did or found>" --changed <file> --check "<command and result>" --commit <sha-or-pr> --next "<what the next phase must verify>". Then send the same concise report to the Director with \`ao send --session ${cfg.sessionId} --message "Handoff: <report>"\`.`,
+					`${prompt.trim()}\n\nYou are supervised by Director session ${cfg.sessionId}. You are running one-shot: you cannot ask questions, so decide and proceed. Before completing your assigned phase, record a durable handoff with \`ao workboard card handoff <card-id> --phase <coding|review|testing> --summary "<what you did or found>" --changed <file> --check "<command and result>" --commit <sha-or-pr> --next "<what the next phase must verify>". That handoff is the only report the Director reads.`,
 				),
 			),
 		{
 			name: "spawn_worker",
-			description: "Delegate an implementation subtask to a worker agent session.",
+			description:
+				"Run an implementation subtask as a one-shot worker session. Blocks until the worker exits; read its result with show_card.",
 			schema: z.object({
 				agent: z
 				.string()
 				.describe(
-					"Harness id to run the worker on, e.g. hermes, claude-code. Use the VALUE of the card's codingAgent/reviewerAgent/testingAgent field, never the field name itself.",
+					"Harness id to run the worker on, e.g. claude-code, codex. Use the VALUE of the card's codingAgent/reviewerAgent/testingAgent field, never the field name itself.",
 				),
 				prompt: z.string().describe("The exact subtask, including the card id"),
-			}),
-		},
-	);
-
-	const answerWorker = tool(
-		async ({ sessionId, answer }: { sessionId: string; answer: string }) =>
-			runAo(runner, buildSendWorkerAnswerArgv(sessionId, answer)),
-		{
-			name: "answer_worker",
-			description: "Answer a worker's question by sending the decision into its live agent CLI terminal.",
-			schema: z.object({
-				sessionId: z.string().describe("The worker session that asked the question"),
-				answer: z.string().describe("A clear, actionable answer for that worker"),
 			}),
 		},
 	);
@@ -120,7 +107,7 @@ async function main(): Promise<void> {
 	const backend = await LocalShellBackend.create();
 	const agent = await createDeepAgent({
 		model: createDirectorModel(cfg.model, process.env),
-		tools: [showCard, transitionCard, spawnWorker, answerWorker],
+		tools: [showCard, transitionCard, spawnWorker],
 		systemPrompt: [directorSystemPrompt(cfg.cardId), adhdSkill, gitWorkflowSkill].filter(Boolean).join("\n\n"),
 		backend,
 	});
