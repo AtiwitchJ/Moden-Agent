@@ -45,6 +45,7 @@ type OrchestratorStore interface {
 	UpdateWorkCard(ctx context.Context, card domain.WorkCard) error
 	AppendWorkCardEvent(ctx context.Context, event domain.WorkCardEvent) error
 	ListRedoCycles(ctx context.Context, cardID string) ([]domain.RedoCycle, error)
+	InsertRedoCycle(ctx context.Context, cycle domain.RedoCycle) error
 	ListSessions(ctx context.Context, projectID domain.ProjectID) ([]domain.SessionRecord, error)
 	GetProject(ctx context.Context, id string) (domain.ProjectRecord, bool, error)
 }
@@ -427,7 +428,7 @@ func (o *ConfiguredOrchestrator) createRedoCycleAndTransition(ctx context.Contex
 	if len(cycles) > 0 {
 		last := cycles[len(cycles)-1]
 		last.CycleNumber++
-		last.Summary = fmt.Sprintf("All agents failed in %s phase; entering redo cycle %d", phase, last.CycleNumber)
+		last.Summary = fmt.Sprintf("%s phase failed (%s); entering redo cycle %d", phase, attempt.FailureReason, last.CycleNumber)
 		cycle = &last
 	} else {
 		cycle = &domain.RedoCycle{
@@ -435,9 +436,16 @@ func (o *ConfiguredOrchestrator) createRedoCycleAndTransition(ctx context.Contex
 			CardID:      card.ID,
 			CycleNumber: 1,
 			Source:      fmt.Sprintf("%s agent exhausted", phase),
-			Summary:     fmt.Sprintf("All agents failed in %s phase; entering redo", phase),
+			Summary:     fmt.Sprintf("%s phase failed (%s); entering redo", phase, attempt.FailureReason),
 			CreatedAt:   now,
 		}
+	}
+	// The retry's briefing (tick.go's redo respawn) is built by reading this
+	// cycle back via ListRedoCycles — without persisting it here, that read
+	// always came back empty and a retry got no information about why it was
+	// sent back, not even the generic Summary above.
+	if err := o.store.InsertRedoCycle(ctx, *cycle); err != nil {
+		return card, fmt.Errorf("insert redo cycle for %s: %w", card.ID, err)
 	}
 
 	card.Status = domain.CardStatusRedo

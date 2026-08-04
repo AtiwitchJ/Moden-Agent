@@ -83,6 +83,11 @@ func (s *fakeStore) ListRedoCycles(_ context.Context, cardID string) ([]domain.R
 	return s.redoCycles[cardID], nil
 }
 
+func (s *fakeStore) InsertRedoCycle(_ context.Context, cycle domain.RedoCycle) error {
+	s.redoCycles[cycle.CardID] = append(s.redoCycles[cycle.CardID], cycle)
+	return nil
+}
+
 func (s *fakeStore) ListSessions(_ context.Context, _ domain.ProjectID) ([]domain.SessionRecord, error) {
 	return s.listSessionsOut, nil
 }
@@ -312,6 +317,94 @@ func TestTick_RunningCardLinkedToTerminatedSession_StillSpawns(t *testing.T) {
 
 	if len(sp.spawned) != 1 {
 		t.Fatalf("spawned count = %d, want 1 — the linked session is terminated, so the card has no live worker", len(sp.spawned))
+	}
+}
+
+// TestOnAgentFailed_PersistsRedoCycleWithFailureReason proves the redo cycle
+// actually gets written, not just built in memory. createRedoCycleAndTransition
+// never called InsertRedoCycle at all, so ListRedoCycles — the exact call the
+// redo respawn in tick.go makes to build the retry's briefing — always came
+// back empty: a retry got zero information about why it was sent back, not
+// even the generic boilerplate the in-memory Summary implied it would.
+func TestOnAgentFailed_PersistsRedoCycleWithFailureReason(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "review")
+	c.ReviewerAgent = "hermes-reviewer"
+	store.cards[c.ID] = c
+	store.activeSessions["c1"] = ActiveSessionRecord{
+		CardID: "c1", SessionID: "hermes-session", Phase: "review", Agent: "hermes", CreatedAt: now,
+	}
+
+	if err := oc.OnAgentFailed(context.Background(), "c1", commander.AgentAttempt{
+		Phase:         commander.PhaseReview,
+		Agent:         "hermes",
+		FailureReason: "changes_requested",
+		AttemptNumber: 2,
+	}); err != nil {
+		t.Fatalf("OnAgentFailed: %v", err)
+	}
+
+	cycles, err := store.ListRedoCycles(context.Background(), "c1")
+	if err != nil {
+		t.Fatalf("ListRedoCycles: %v", err)
+	}
+	if len(cycles) != 1 {
+		t.Fatalf("persisted redo cycles = %d, want 1 — createRedoCycleAndTransition must call InsertRedoCycle", len(cycles))
+	}
+	if !strings.Contains(cycles[0].Summary, "changes_requested") {
+		t.Fatalf("redo cycle summary = %q, want it to name the actual failure reason so the retry knows what to fix", cycles[0].Summary)
+	}
+}
+
+// TestTick_RedoRespawn_BriefingCarriesTheFailureReason is the end-to-end
+// version: after a card enters redo with a real failure reason, the very next
+// tick's respawn must hand the coding agent a briefing that explains it —
+// this is the concrete fix for "tell it why it didn't pass so it can fix it."
+func TestTick_RedoRespawn_BriefingCarriesTheFailureReason(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "testing")
+	store.cards[c.ID] = c
+	store.activeSessions["c1"] = ActiveSessionRecord{
+		CardID: "c1", SessionID: "tester-session", Phase: "testing", Agent: "hermes", CreatedAt: now,
+	}
+	if err := oc.OnAgentFailed(context.Background(), "c1", commander.AgentAttempt{
+		Phase:         commander.PhaseTesting,
+		Agent:         "hermes",
+		FailureReason: "checkout flow throws a 500 on empty cart",
+		AttemptNumber: 1,
+	}); err != nil {
+		t.Fatalf("OnAgentFailed: %v", err)
+	}
+
+	if err := oc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if len(sp.spawned) != 1 {
+		t.Fatalf("spawned count = %d, want 1", len(sp.spawned))
+	}
+	if !strings.Contains(sp.spawned[0].Spec.Briefing, "checkout flow throws a 500 on empty cart") {
+		t.Fatalf("retry briefing = %q, want it to carry the failure reason", sp.spawned[0].Spec.Briefing)
 	}
 }
 
