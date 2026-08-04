@@ -529,9 +529,16 @@ func TestTick_WIPAtLimit_RefusesNewSpawn(t *testing.T) {
 		WIPLimit: 1,
 	})
 
-	// Add a running card already at WIP limit
+	// c0 genuinely occupies the one WIP slot: a real active_session, not just
+	// a "running" status. A card merely sitting in an active-phase status
+	// with no live session must not itself count toward WIP — that was the
+	// bug: a queue of never-spawned cards inflated the count and permanently
+	// blocked every future spawn, itself included.
 	existing := card("c0", "p1", "running")
 	store.cards[existing.ID] = existing
+	store.activeSessions["c0"] = ActiveSessionRecord{
+		CardID: "c0", SessionID: "sess-c0", Phase: "coding", Agent: "claude-code", CreatedAt: now,
+	}
 
 	// Try to tick a second running card
 	newCard := card("c1", "p1", "running")
@@ -544,6 +551,70 @@ func TestTick_WIPAtLimit_RefusesNewSpawn(t *testing.T) {
 
 	if len(sp.spawned) != 0 {
 		t.Fatalf("spawned count = %d, want 0 (WIP limit reached)", len(sp.spawned))
+	}
+}
+
+// TestTick_ManyQueuedRedoCardsQueueLikeTodoInsteadOfDeadlocking is the
+// user-reported scenario: running is full and many cards sit in redo. Before
+// this fix, countActiveCards counted every card merely *in* an active-phase
+// status — including a redo card that has never actually spawned — so a pile
+// of queued, session-less redo cards permanently inflated the count past
+// wipLimit and nothing, including themselves, could ever spawn again: a
+// deadlock, not a queue. redo cards with no live session must not count
+// toward WIP, exactly like a todo/ready card in workboard's dispatch.go
+// doesn't — only real, spawned work occupies a slot.
+func TestTick_ManyQueuedRedoCardsQueueLikeTodoInsteadOfDeadlocking(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{store: store}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 3,
+	})
+
+	running := card("running-1", "p1", "running")
+	store.cards[running.ID] = running
+	store.activeSessions["running-1"] = ActiveSessionRecord{
+		CardID: "running-1", SessionID: "sess-running-1", Phase: "coding", Agent: "claude-code", CreatedAt: now,
+	}
+
+	for _, id := range []string{"redo-1", "redo-2", "redo-3"} {
+		store.cards[id] = card(id, "p1", "redo")
+	}
+
+	if err := oc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	// One slot already taken by running-1, wipLimit=3 -> exactly 2 of the 3
+	// queued redo cards get to spawn this tick (order is map-iteration
+	// dependent, the count is not). The third stays queued in redo for the
+	// next tick, precisely like an over-WIP todo card stays queued.
+	if len(sp.spawned) != 2 {
+		t.Fatalf("spawned count = %d, want 2 (wipLimit 3 minus the 1 already-live running card)", len(sp.spawned))
+	}
+	spawnedCards := map[string]bool{}
+	for _, call := range sp.spawned {
+		spawnedCards[call.Spec.CardID] = true
+	}
+	queued := 0
+	for _, id := range []string{"redo-1", "redo-2", "redo-3"} {
+		if spawnedCards[id] {
+			if got := store.cards[id].Status; got != domain.CardStatusRunning {
+				t.Fatalf("spawned card %s status = %q, want running", id, got)
+			}
+		} else {
+			queued++
+			if got := store.cards[id].Status; got != domain.CardStatusRedo {
+				t.Fatalf("queued card %s status = %q, want redo (unchanged, waiting its turn)", id, got)
+			}
+		}
+	}
+	if queued != 1 {
+		t.Fatalf("queued count = %d, want 1", queued)
 	}
 }
 
@@ -876,9 +947,14 @@ func TestIsLastAgent(t *testing.T) {
 func TestCountActiveCards(t *testing.T) {
 	store := newFakeStore()
 	store.cards["c1"] = card("c1", "p1", "running")
+	store.activeSessions["c1"] = ActiveSessionRecord{CardID: "c1", SessionID: "sess-c1", Phase: "coding", Agent: "claude-code", CreatedAt: time.Now()}
 	store.cards["c2"] = card("c2", "p1", "review")
+	store.activeSessions["c2"] = ActiveSessionRecord{CardID: "c2", SessionID: "sess-c2", Phase: "review", Agent: "hermes", CreatedAt: time.Now()}
 	store.cards["c3"] = card("c3", "p1", "done")
 	store.cards["c4"] = card("c4", "p1", "todo")
+	// c5 sits in redo with no live session — queued, not spawned. It must
+	// not count: a card waiting its turn is not occupying a worker slot.
+	store.cards["c5"] = card("c5", "p1", "redo")
 
 	oc := New(Config{Store: store})
 
@@ -887,7 +963,7 @@ func TestCountActiveCards(t *testing.T) {
 		t.Fatalf("countActiveCards: %v", err)
 	}
 	if count != 2 {
-		t.Fatalf("active count = %d, want 2 (running + review)", count)
+		t.Fatalf("active count = %d, want 2 (running c1 + review c2, each with a live session; c5 is queued in redo with none)", count)
 	}
 }
 

@@ -172,7 +172,14 @@ func (o *ConfiguredOrchestrator) killSupersededSession(ctx context.Context, sess
 	_, _ = o.killer.Kill(ctx, domain.SessionID(session.SessionID))
 }
 
-// countActiveCards returns the count of cards in active phases for a project.
+// countActiveCards returns the count of cards in a project that are actually
+// consuming a worker slot — a live session, not merely an active-phase
+// status. A card queued in redo (or review/testing/running) with no live
+// session yet is waiting its turn, exactly like a todo/ready card waiting on
+// workboard's dispatch.go WIP claim; it must not itself count toward the
+// limit that gates whether it gets to spawn. Counting by status alone let a
+// pile of queued, never-spawned cards inflate past wipLimit and permanently
+// block every future spawn, including their own — a deadlock, not a queue.
 func (o *ConfiguredOrchestrator) countActiveCards(ctx context.Context, projectID string) (int, error) {
 	cards, err := o.store.ListWorkCards(ctx, projectID, defaultBoardID)
 	if err != nil {
@@ -180,7 +187,14 @@ func (o *ConfiguredOrchestrator) countActiveCards(ctx context.Context, projectID
 	}
 	active := 0
 	for _, c := range cards {
-		if isActivePhase(c.Status) {
+		if !isActivePhase(c.Status) {
+			continue
+		}
+		has, _, err := o.checkActiveSession(ctx, c, c.Status)
+		if err != nil {
+			return 0, err
+		}
+		if has {
 			active++
 		}
 	}
