@@ -350,7 +350,6 @@ func cardCommanderSession(sessions []domain.SessionRecord, id domain.SessionID) 
 	return domain.SessionRecord{}, false
 }
 
-
 func splitHandoffPrompt(oldCard, newCard domain.WorkCard, fate domain.CardStatus) string {
 	return "AO split work-card " + oldCard.ID + " into " + newCard.ID + ". Stop coordinating the old card; it moved to " + string(fate) + ". The new card will be dispatched separately."
 }

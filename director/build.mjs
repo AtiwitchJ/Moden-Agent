@@ -19,10 +19,6 @@ await writeFile("dist/index.js", result.outputFiles[0].text.replace(/[\t ]+$/gm,
 // Copying here keeps a src change from silently not shipping.
 await copyFile("dist/index.js", "../backend/internal/directorassets/bundle/index.js");
 
-// The Go daemon embeds and installs this copy — it, not dist/, is what runs.
-// Copying here keeps a src change from silently not shipping.
-await copyFile("dist/index.js", "../backend/internal/directorassets/bundle/index.js");
-
 for (const skillName of ["adhd", "git-workflow-and-versioning"]) {
   const bundledSkill = `../backend/internal/directorassets/bundle/skills/${skillName}`;
   await mkdir(bundledSkill, { recursive: true });
