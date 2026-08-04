@@ -68,6 +68,12 @@ func (r *Runtime) Create(ctx context.Context, cfg ports.RuntimeConfig) (ports.Ru
 	if len(cfg.Argv) == 0 {
 		return ports.RuntimeHandle{}, fmt.Errorf("conpty: argv required")
 	}
+	// One-shot launches need an exit report the pty-host does not emit yet.
+	// Fail loudly: silently ignoring the flag would leave a live session row
+	// and hang whatever is waiting for the run to finish.
+	if cfg.NotifyExit {
+		return ports.RuntimeHandle{}, fmt.Errorf("conpty: one-shot sessions are not supported on the ConPTY runtime")
+	}
 
 	r.mu.Lock()
 	if _, dup := r.sessions[id]; dup {

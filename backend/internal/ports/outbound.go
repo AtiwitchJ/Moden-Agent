@@ -92,6 +92,13 @@ type RuntimeConfig struct {
 	WorkspacePath string
 	Argv          []string
 	Env           map[string]string
+	// NotifyExit asks the runtime to report the session's own exit once Argv
+	// finishes. It is set for one-shot launches, whose agent exits on its own:
+	// nothing else observes that exit while the daemon keeps running, so the
+	// session row would otherwise stay live forever. Runtimes that cannot
+	// honour it must fail Create rather than ignore it — a caller waiting for
+	// the exit would hang.
+	NotifyExit bool
 }
 
 // RuntimeHandle identifies a live runtime instance. Its ID is opaque outside

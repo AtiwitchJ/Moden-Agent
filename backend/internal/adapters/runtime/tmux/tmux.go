@@ -490,6 +490,15 @@ func buildLaunchCommand(cfg ports.RuntimeConfig) string {
 		parts[i] = shellQuote(a)
 	}
 	b.WriteString(strings.Join(parts, " "))
+	if cfg.NotifyExit {
+		// A one-shot agent exits on its own and nothing else observes that
+		// while the daemon keeps running. `ao session mark-exited` self-targets
+		// via AO_SESSION_ID (exported above) and deliberately does not tear
+		// down the runtime, so the finished agent's output stays readable in
+		// the pane while the session row flips to terminated. It runs as its
+		// own command so a non-zero agent exit still reports.
+		b.WriteString("; ao session mark-exited")
+	}
 	// Keep the tmux session alive after the agent exits so the operator can
 	// inspect the terminal. The shell variable expansion picks up $SHELL from
 	// the process env if set, otherwise falls back to /bin/sh.

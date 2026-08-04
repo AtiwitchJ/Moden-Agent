@@ -616,3 +616,31 @@ func TestTrimTrailingBlankLines(t *testing.T) {
 		t.Fatalf("trimTrailingBlankLines empty = %q", got)
 	}
 }
+
+func TestBuildLaunchCommandReportsExitForOneShot(t *testing.T) {
+	got := buildLaunchCommand(ports.RuntimeConfig{
+		Argv:       []string{"claude", "--print", "--", "do it"},
+		Env:        map[string]string{"AO_SESSION_ID": "demo-1"},
+		NotifyExit: true,
+	})
+
+	if !strings.Contains(got, "; ao session mark-exited; exec ") {
+		t.Fatalf("one-shot launch must report its exit before the keep-alive shell: %s", got)
+	}
+	agentIdx := strings.Index(got, "'claude'")
+	reportIdx := strings.Index(got, "ao session mark-exited")
+	if agentIdx == -1 || reportIdx == -1 || agentIdx > reportIdx {
+		t.Fatalf("mark-exited must run after the agent argv: %s", got)
+	}
+}
+
+func TestBuildLaunchCommandOmitsExitReportByDefault(t *testing.T) {
+	got := buildLaunchCommand(ports.RuntimeConfig{
+		Argv: []string{"claude"},
+		Env:  map[string]string{"AO_SESSION_ID": "demo-1"},
+	})
+
+	if strings.Contains(got, "mark-exited") {
+		t.Fatalf("an interactive launch must not report an exit: %s", got)
+	}
+}
