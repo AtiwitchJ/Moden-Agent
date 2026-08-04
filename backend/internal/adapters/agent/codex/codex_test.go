@@ -578,6 +578,65 @@ func containsSubsequence(values []string, needle []string) bool {
 	return false
 }
 
+func TestGetHeadlessCommandRunsExecSubcommand(t *testing.T) {
+	p := &Plugin{resolvedBinary: "codex"}
+
+	cmd, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{
+		Prompt: "-implement the card",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if len(cmd) < 2 || cmd[0] != "codex" || cmd[1] != "exec" {
+		t.Fatalf("command must start with `codex exec`: %#v", cmd)
+	}
+	if cmd[len(cmd)-2] != "--" || cmd[len(cmd)-1] != "-implement the card" {
+		t.Fatalf("prompt must be passed last after `--`: %#v", cmd)
+	}
+	for _, want := range []string{"--dangerously-bypass-approvals-and-sandbox", "--dangerously-bypass-hook-trust"} {
+		if !containsFlag(cmd, want) {
+			t.Fatalf("command missing %s: %#v", want, cmd)
+		}
+	}
+}
+
+func TestGetHeadlessCommandCarriesModelOverride(t *testing.T) {
+	p := &Plugin{resolvedBinary: "codex"}
+
+	cmd, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{
+		Config: ports.AgentConfig{Model: "gpt-5-codex"},
+		Prompt: "do it",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !containsSubsequence(cmd, []string{"--model", "gpt-5-codex"}) {
+		t.Fatalf("command missing model override: %#v", cmd)
+	}
+}
+
+func TestGetHeadlessCommandRejectsEmptyPrompt(t *testing.T) {
+	p := &Plugin{resolvedBinary: "codex"}
+
+	if _, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{}); err == nil {
+		t.Fatal("expected an error for a one-shot launch with no prompt")
+	}
+}
+
+func TestCodexPluginSatisfiesAgentHeadless(t *testing.T) {
+	var _ ports.AgentHeadless = (*Plugin)(nil)
+}
+
+func containsFlag(cmd []string, flag string) bool {
+	for _, arg := range cmd {
+		if arg == flag {
+			return true
+		}
+	}
+	return false
+}
+
 func countCodexHookCommand(entries []codexMatcherGroup, command string) int {
 	count := 0
 	for _, entry := range entries {

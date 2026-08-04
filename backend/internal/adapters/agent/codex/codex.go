@@ -37,6 +37,7 @@ func New() *Plugin {
 var _ adapters.Adapter = (*Plugin)(nil)
 var _ ports.Agent = (*Plugin)(nil)
 var _ ports.AgentAuthChecker = (*Plugin)(nil)
+var _ ports.AgentHeadless = (*Plugin)(nil)
 
 // Manifest returns the adapter's static self-description.
 func (p *Plugin) Manifest() adapters.Manifest {
@@ -90,6 +91,52 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	}
 
 	return cmd, nil
+}
+
+// GetHeadlessCommand builds the argv for a one-shot Codex run. Shape:
+//
+//	codex exec -c check_for_update_on_startup=false \
+//	           --dangerously-bypass-hook-trust \
+//	           --dangerously-bypass-approvals-and-sandbox \
+//	           [--model <model>] \
+//	           [-c model_instructions_file=... | -c developer_instructions=...] \
+//	           -- <prompt>
+//
+// `codex exec` is Codex's non-interactive mode: it runs the prompt to
+// completion and exits. Approvals and the sandbox are bypassed outright rather
+// than mapped from config — a headless run has no one to answer an approval
+// prompt, and a run that stalls on one would hang the caller waiting for it.
+// The TUI-only flags from GetLaunchCommand (rate-limit nudge, terminal
+// compatibility, workspace trust) are deliberately omitted: `exec` renders no
+// TUI. The prompt is required and passed after `--` so a leading "-" is not
+// read as a flag.
+func (p *Plugin) GetHeadlessCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error) {
+	if strings.TrimSpace(cfg.Prompt) == "" {
+		return nil, fmt.Errorf("codex: a one-shot launch requires a prompt")
+	}
+
+	binary, err := p.codexBinary(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	cmd = []string{binary, "exec"}
+	appendNoUpdateCheckFlag(&cmd)
+	appendHookTrustBypassFlag(&cmd)
+	appendSessionHookFlags(&cmd)
+	cmd = append(cmd, "--dangerously-bypass-approvals-and-sandbox")
+
+	if model := strings.TrimSpace(cfg.Config.Model); model != "" {
+		cmd = append(cmd, "--model", model)
+	}
+
+	if cfg.SystemPromptFile != "" {
+		cmd = append(cmd, "-c", "model_instructions_file="+cfg.SystemPromptFile)
+	} else if cfg.SystemPrompt != "" {
+		cmd = append(cmd, "-c", "developer_instructions="+codexTOMLConfigString(cfg.SystemPrompt))
+	}
+
+	return append(cmd, "--", cfg.Prompt), nil
 }
 
 // GetPromptDeliveryStrategy reports that Codex receives its prompt in the
