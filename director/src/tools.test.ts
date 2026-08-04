@@ -14,8 +14,14 @@ describe("argv builders", () => {
 
 	it("builds the spawn-worker argv", () => {
 		expect(buildSpawnWorkerArgv("proj-1", "claude-code", "implement X")).toEqual([
-			"spawn", "--project", "proj-1", "--agent", "claude-code", "--prompt", "implement X",
+			"spawn", "--project", "proj-1", "--agent", "claude-code", "--name", "claude-code-worker", "--prompt", "implement X",
 		]);
+	});
+
+	it("truncates the spawn-worker display name to 20 characters", () => {
+		const argv = buildSpawnWorkerArgv("proj-1", "some-very-long-harness-id", "implement X");
+		const name = argv[argv.indexOf("--name") + 1];
+		expect(name.length).toBeLessThanOrEqual(20);
 	});
 
 	it("builds the terminal answer argv", () => {

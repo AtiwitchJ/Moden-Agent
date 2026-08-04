@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { createDeepAgent } from "deepagents";
+import { createDeepAgent, LocalShellBackend } from "deepagents";
 import { tool } from "@langchain/core/tools";
 import { z } from "zod";
 import { loadADHDSkill } from "./adhd.js";
@@ -89,7 +89,11 @@ async function main(): Promise<void> {
 			name: "spawn_worker",
 			description: "Delegate an implementation subtask to a worker agent session.",
 			schema: z.object({
-				agent: z.string().describe("Harness to run the worker on, e.g. claude-code"),
+				agent: z
+				.string()
+				.describe(
+					"Harness id to run the worker on, e.g. hermes, claude-code. Use the VALUE of the card's codingAgent/reviewerAgent/testingAgent field, never the field name itself.",
+				),
 				prompt: z.string().describe("The exact subtask, including the card id"),
 			}),
 		},
@@ -108,10 +112,17 @@ async function main(): Promise<void> {
 		},
 	);
 
+	// deepagents defaults to an in-memory StateBackend when no backend is given,
+	// so the built-in ls/read_file/write_file/edit_file/glob/grep tools would
+	// operate on an empty virtual filesystem instead of the real worktree.
+	// LocalShellBackend roots those tools (plus its own execute()) at cwd,
+	// which the tmux runtime already sets to the session's worktree path.
+	const backend = await LocalShellBackend.create();
 	const agent = await createDeepAgent({
 		model: createDirectorModel(cfg.model, process.env),
 		tools: [showCard, transitionCard, spawnWorker, answerWorker],
 		systemPrompt: [directorSystemPrompt(cfg.cardId), adhdSkill, gitWorkflowSkill].filter(Boolean).join("\n\n"),
+		backend,
 	});
 
 	let messages: Array<{ role: string; content: string }> = [];

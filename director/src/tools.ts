@@ -14,7 +14,8 @@ export function buildTransitionArgv(cardId: string, to: string, reason: string):
 }
 
 export function buildSpawnWorkerArgv(projectId: string, agent: string, prompt: string): string[] {
-	return ["spawn", "--project", projectId, "--agent", agent, "--prompt", prompt];
+	const name = `${agent}-worker`.slice(0, 20);
+	return ["spawn", "--project", projectId, "--agent", agent, "--name", name, "--prompt", prompt];
 }
 
 export function buildSendWorkerAnswerArgv(sessionId: string, answer: string): string[] {

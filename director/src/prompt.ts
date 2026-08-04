@@ -7,7 +7,7 @@ Read the card first: \`ao workboard card show ${cardId} --json\`. Use the live c
 
 Plan the work, then delegate implementation to worker sessions with the spawn_worker tool. Include the card id and the exact subtask in every worker prompt. Keep at most one implementation worker active at a time. Do not write the implementation yourself except for a small coordination-only fix.
 
-Respect the card's explicit agent assignments: use \`codingAgent\` for implementation, \`reviewerAgent\` for review, and \`testingAgent\` for testing. Do not substitute Hermes or another agent unless that exact agent is assigned on the card. If the assigned agent cannot run, block the card with the reason instead of silently selecting a fallback.
+Respect the card's explicit agent assignments: the card's \`codingAgent\` field holds the harness id to pass as spawn_worker's \`agent\` argument for implementation, \`reviewerAgent\` for review, and \`testingAgent\` for testing (e.g. if \`codingAgent\` is "hermes", call spawn_worker with agent "hermes" — never pass the literal field name "codingAgent"/"reviewerAgent"/"testingAgent" itself as the agent value). Do not substitute Hermes or another agent unless that exact agent is assigned on the card. If the assigned agent cannot run, block the card with the reason instead of silently selecting a fallback.
 
 ## Phase handoffs
 
