@@ -29,4 +29,10 @@ type SpawnConfig struct {
 	// It is intentionally harness-specific: ordinary agent sessions must not
 	// acquire workboard authority merely by receiving an environment variable.
 	DirectorCardID string
+	// OneShot runs the agent in its headless mode: it executes the prompt to
+	// completion and exits, instead of holding an interactive session open.
+	// The session is otherwise ordinary — worktree, runtime pane, sidebar row —
+	// so a caller can still watch it. Requires the harness's adapter to
+	// implement AgentHeadless.
+	OneShot bool
 }

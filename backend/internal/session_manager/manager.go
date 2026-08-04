@@ -47,6 +47,10 @@ var (
 	// failure is invisible: a live-looking session that is a bare shell. Refuse
 	// the spawn instead of creating one.
 	ErrDirectorCardRequired = errors.New("session: director harness requires a work card id")
+	// ErrOneShotUnsupported reports a one-shot spawn for a harness whose
+	// adapter has no headless command. Launching its interactive TUI instead
+	// would hang whatever waits for the run to finish.
+	ErrOneShotUnsupported = errors.New("agent harness does not support one-shot runs")
 	// ErrNotResumable means a terminated session cannot be relaunched: its adapter
 	// cannot natively resume it AND it has no prompt to fresh-launch from, and it is
 	// not an orchestrator (orchestrators are promptless by design and relaunch fresh
@@ -262,6 +266,15 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		return domain.SessionRecord{}, fmt.Errorf("spawn: %w: %q", ErrUnknownHarness, cfg.Harness)
 	}
 
+	// Reject a one-shot request the adapter cannot honour before any durable
+	// state exists, so a bad request costs no worktree and no orphan row.
+	if cfg.OneShot {
+		agent, _ := m.agents.Agent(cfg.Harness)
+		if _, headless := agent.(ports.AgentHeadless); !headless {
+			return domain.SessionRecord{}, fmt.Errorf("spawn: %w: %q", ErrOneShotUnsupported, cfg.Harness)
+		}
+	}
+
 	if err := m.validateRuntimePrerequisites(); err != nil {
 		return domain.SessionRecord{}, fmt.Errorf("spawn: %w", err)
 	}
@@ -347,7 +360,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		Config:         agentConfig,
 		Permissions:    agentConfig.Permissions,
 	}
-	argv, err := agent.GetLaunchCommand(ctx, launchCfg)
+	argv, err := launchArgv(ctx, agent, launchCfg, cfg.OneShot)
 	if err != nil {
 		_ = m.workspace.Destroy(ctx, ws)
 		m.rollbackSpawnSeedRow(ctx, id)
@@ -367,6 +380,7 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		WorkspacePath: launchPath,
 		Argv:          argv,
 		Env:           m.runtimeEnv(id, cfg.ProjectID, cfg.IssueID, project.Config.Env, cfg.Harness, prompt, systemPrompt, agentConfig, cfg.DirectorCardID),
+		NotifyExit:    cfg.OneShot,
 	})
 	if err != nil {
 		_ = m.workspace.Destroy(ctx, ws)
@@ -381,8 +395,28 @@ func (m *Manager) Spawn(ctx context.Context, cfg ports.SpawnConfig) (domain.Sess
 		m.markSpawnFailedTerminated(ctx, id)
 		return domain.SessionRecord{}, fmt.Errorf("spawn %s: completed: %w", id, err)
 	}
-	m.deliverPromptAfterStart(ctx, id, handle, agent, launchCfg, prompt)
+	// A headless launch always carries its prompt in argv, and its process has
+	// no interactive prompt to type into — sending would land on the keep-alive
+	// shell after the agent exits.
+	if !cfg.OneShot {
+		m.deliverPromptAfterStart(ctx, id, handle, agent, launchCfg, prompt)
+	}
 	return m.getRecord(ctx, id)
+}
+
+// launchArgv picks the adapter command for a spawn: its headless one-shot
+// command when the spawn asked for one, otherwise its interactive launch
+// command. Spawn rejects a one-shot request for an adapter without the
+// capability before reaching here, so the assertion is defense in depth.
+func launchArgv(ctx context.Context, agent ports.Agent, cfg ports.LaunchConfig, oneShot bool) ([]string, error) {
+	if !oneShot {
+		return agent.GetLaunchCommand(ctx, cfg)
+	}
+	headless, ok := agent.(ports.AgentHeadless)
+	if !ok {
+		return nil, fmt.Errorf("%w: adapter exposes no headless command", ErrOneShotUnsupported)
+	}
+	return headless.GetHeadlessCommand(ctx, cfg)
 }
 
 // deliverPromptAfterStart sends the initial prompt to agents that cannot take

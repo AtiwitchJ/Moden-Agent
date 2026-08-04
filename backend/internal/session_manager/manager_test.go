@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"strings"
 	"testing"
@@ -2560,5 +2561,113 @@ func TestHermesWorkboardPromptKeepsReviewAndTestingInCommander(t *testing.T) {
 		if !strings.Contains(prompt, want) {
 			t.Fatalf("Hermes workboard prompt missing %q:\n%s", want, prompt)
 		}
+	}
+}
+
+// headlessAgent mimics claude-code: it implements the optional one-shot
+// capability and records which command the manager asked for.
+type headlessAgent struct {
+	fakeAgent
+	headlessCalls int
+	lastHeadless  ports.LaunchConfig
+}
+
+func (a *headlessAgent) GetHeadlessCommand(_ context.Context, cfg ports.LaunchConfig) ([]string, error) {
+	a.headlessCalls++
+	a.lastHeadless = cfg
+	return []string{"headless"}, nil
+}
+
+// afterStartHeadlessAgent reports PromptDeliveryAfterStart while also
+// supporting one-shot, so a test can prove the manager skips the after-start
+// send for a headless launch (which carries its prompt in argv).
+type afterStartHeadlessAgent struct{ headlessAgent }
+
+func (afterStartHeadlessAgent) GetPromptDeliveryStrategy(context.Context, ports.LaunchConfig) (ports.PromptDeliveryStrategy, error) {
+	return ports.PromptDeliveryAfterStart, nil
+}
+
+func TestSpawn_OneShotUsesHeadlessCommandAndAsksForExitReport(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: testRoleAgents()}
+	agent := &headlessAgent{}
+	rt := &fakeRuntime{}
+	m := New(Deps{
+		Runtime: rt, Agents: singleAgent{agent: agent}, Workspace: &fakeWorkspace{}, Store: st,
+		Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		LookPath: func(string) (string, error) { return "/bin/true", nil },
+	})
+
+	if _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Prompt: "do it", OneShot: true}); err != nil {
+		t.Fatal(err)
+	}
+	if agent.headlessCalls != 1 {
+		t.Fatalf("GetHeadlessCommand calls = %d, want 1", agent.headlessCalls)
+	}
+	if !reflect.DeepEqual(rt.lastCfg.Argv, []string{"headless"}) {
+		t.Fatalf("runtime argv = %#v, want the headless command", rt.lastCfg.Argv)
+	}
+	if !rt.lastCfg.NotifyExit {
+		t.Fatal("a one-shot spawn must ask the runtime to report the agent's exit")
+	}
+}
+
+func TestSpawn_InteractiveKeepsLaunchCommandAndNoExitReport(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: testRoleAgents()}
+	agent := &headlessAgent{}
+	rt := &fakeRuntime{}
+	m := New(Deps{
+		Runtime: rt, Agents: singleAgent{agent: agent}, Workspace: &fakeWorkspace{}, Store: st,
+		Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		LookPath: func(string) (string, error) { return "/bin/true", nil },
+	})
+
+	if _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Prompt: "do it"}); err != nil {
+		t.Fatal(err)
+	}
+	if agent.headlessCalls != 0 {
+		t.Fatalf("GetHeadlessCommand calls = %d, want 0 for an interactive spawn", agent.headlessCalls)
+	}
+	if rt.lastCfg.NotifyExit {
+		t.Fatal("an interactive spawn must not ask for an exit report")
+	}
+}
+
+func TestSpawn_OneShotRejectsAgentWithoutHeadlessSupport(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: testRoleAgents()}
+	rt := &fakeRuntime{}
+	ws := &fakeWorkspace{}
+	m := New(Deps{
+		Runtime: rt, Agents: fakeAgents{}, Workspace: ws, Store: st,
+		Messenger: &fakeMessenger{}, Lifecycle: &fakeLCM{store: st},
+		LookPath: func(string) (string, error) { return "/bin/true", nil },
+	})
+
+	_, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Prompt: "do it", OneShot: true})
+	if !errors.Is(err, ErrOneShotUnsupported) {
+		t.Fatalf("err = %v, want ErrOneShotUnsupported", err)
+	}
+	if len(st.sessions) != 0 {
+		t.Fatalf("rejected one-shot spawn left %d session rows behind, want 0", len(st.sessions))
+	}
+}
+
+func TestSpawn_OneShotSkipsAfterStartPromptDelivery(t *testing.T) {
+	st := newFakeStore()
+	st.projects["mer"] = domain.ProjectRecord{ID: "mer", Config: testRoleAgents()}
+	msg := &fakeMessenger{}
+	m := New(Deps{
+		Runtime: &fakeRuntime{}, Agents: singleAgent{agent: &afterStartHeadlessAgent{}},
+		Workspace: &fakeWorkspace{}, Store: st, Messenger: msg, Lifecycle: &fakeLCM{store: st},
+		LookPath: func(string) (string, error) { return "/bin/true", nil },
+	})
+
+	if _, err := m.Spawn(ctx, ports.SpawnConfig{ProjectID: "mer", Kind: domain.KindWorker, Prompt: "do it", OneShot: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(msg.msgs) != 0 {
+		t.Fatalf("one-shot spawn sent %d messages into the pane, want 0", len(msg.msgs))
 	}
 }
