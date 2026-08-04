@@ -53,7 +53,7 @@ func generateBriefing(card domain.WorkCard, phase commander.Phase, cycle *domain
 	case commander.PhaseTesting:
 		fmt.Fprintf(&b, "Testing agent: %s\n", firstNonEmpty(card.TestingAgent, "hermes"))
 		fmt.Fprintf(&b, "\nRead the card and PR:\nao workboard get %s --json\n\n", card.ID)
-		fmt.Fprintf(&b, "The card JSON includes durable coding and review handoffs. Use their changed files, prior checks, and remaining focus to select tests; if either is missing, inspect git diff, git status, and the repository test scripts first. Record your own handoff, then report: pass | fail.")
+		fmt.Fprintf(&b, "The card JSON includes durable coding and review handoffs. Use their changed files, prior checks, and remaining focus to select tests; if either is missing, inspect git diff, git status, and the repository test scripts first. Record your own handoff, then report the result: ao workboard card set-test-result --command \"<test command>\" --exit <0 for pass, non-zero for fail> --output \"<summary>\".")
 	}
 
 	return b.String(), nil

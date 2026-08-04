@@ -240,6 +240,26 @@ func TestGenerateBriefing_RequiresPriorPhaseHandoff(t *testing.T) {
 	}
 }
 
+// TestGenerateBriefing_TestingPhaseNamesTheRealReportingCommand catches a
+// briefing/CLI mismatch: the testing briefing told an agent to "report: pass |
+// fail", but `ao workboard card set-verdict --verdict` only accepts approved,
+// changes_requested, or inconclusive — pass/fail are rejected outright. An
+// agent following the briefing literally, the same way a reviewer maps its
+// own "approved | changes_requested | inconclusive" onto set-verdict, would
+// hit a CLI error instead of ever completing the phase.
+func TestGenerateBriefing_TestingPhaseNamesTheRealReportingCommand(t *testing.T) {
+	briefing, err := generateBriefing(card("c1", "p1", "testing"), commander.PhaseTesting, nil)
+	if err != nil {
+		t.Fatalf("generateBriefing: %v", err)
+	}
+	if !strings.Contains(briefing, "ao workboard card set-test-result") {
+		t.Fatalf("testing briefing = %q, want it to name set-test-result instead of an unsupported pass|fail verdict", briefing)
+	}
+	if strings.Contains(briefing, "report: pass | fail") {
+		t.Fatalf("testing briefing still tells the agent to report a verdict set-verdict rejects: %s", briefing)
+	}
+}
+
 func TestTick_RunningCardWithLiveSession_DoesNothing(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}

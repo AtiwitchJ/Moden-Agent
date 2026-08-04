@@ -187,8 +187,32 @@ func TestDispatchOnceSpawnsWorkerWithCardHarnessAndPrompt(t *testing.T) {
 		t.Fatalf("spawn count = %d, want 1", len(spawner.configs))
 	}
 	got := spawner.configs[0]
-	if got.ProjectID != "p1" || got.Kind != domain.KindWorker || got.Harness != domain.HarnessCodex || got.Prompt != "card title\n\ncard notes" || got.TargetPath != "/repo/services/api" {
+	wantPrompt := "card title\n\ncard notes\n\nBefore completing, record a handoff with changed files, checks/results, commit or PR, and the review focus: ao workboard card handoff card --phase coding --summary \"...\"."
+	if got.ProjectID != "p1" || got.Kind != domain.KindWorker || got.Harness != domain.HarnessCodex || got.Prompt != wantPrompt || got.TargetPath != "/repo/services/api" {
 		t.Fatalf("spawn config = %#v", got)
+	}
+}
+
+// TestDispatchOnceWorkerPromptInstructsTheHandoffCommand is the
+// user-reported gap: a card's very first coding spawn (this plain, non-Hermes
+// path) carried nothing but the card's title and notes, so a coding agent had
+// no way to know it should ever call `ao workboard card handoff` — the card
+// sat in running forever waiting for a report that was never coming. This
+// asserts the instruction survives regardless of what a card's own notes say,
+// so future edits to this prompt can't silently drop it again.
+func TestDispatchOnceWorkerPromptInstructsTheHandoffCommand(t *testing.T) {
+	now := time.Date(2026, time.July, 17, 9, 0, 0, 0, time.UTC)
+	card := readyCard("card-9", domain.CardPriorityNormal, now)
+	store := newDispatchStore(1, []domain.WorkCard{card})
+	spawner := &dispatchSpawner{}
+	dispatcher := NewDispatcher(DispatchDeps{Store: store, Spawner: spawner, Clock: func() time.Time { return now }})
+
+	if _, err := dispatcher.DispatchOnce(context.Background(), "p1"); err != nil {
+		t.Fatalf("DispatchOnce: %v", err)
+	}
+	prompt := spawner.configs[0].Prompt
+	if !strings.Contains(prompt, "ao workboard card handoff card-9 --phase coding") {
+		t.Fatalf("prompt = %q, want it to instruct the coding agent to record a handoff", prompt)
 	}
 }
 
@@ -523,7 +547,8 @@ func TestDispatchOnceRollsBackSpawnWhenSessionLinkFails(t *testing.T) {
 	if len(claimed) != 0 {
 		t.Fatalf("claimed = %v, want none", claimed)
 	}
-	if got := spawner.rollbackIDs; !reflect.DeepEqual(got, []domain.SessionID{"session-card title\n\ncard notes"}) {
+	wantSessionID := domain.SessionID("session-" + codingWorkerPrompt(readyCard("card", domain.CardPriorityNormal, now)))
+	if got := spawner.rollbackIDs; !reflect.DeepEqual(got, []domain.SessionID{wantSessionID}) {
 		t.Fatalf("rollback sessions = %v", got)
 	}
 	card := store.cards["card"]

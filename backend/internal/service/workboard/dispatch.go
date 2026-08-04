@@ -267,7 +267,7 @@ func (d *Dispatcher) DispatchOnce(ctx context.Context, projectID string) ([]stri
 				ProjectID:  domain.ProjectID(projectID),
 				Kind:       domain.KindWorker,
 				Harness:    domain.AgentHarness(card.Agent),
-				Prompt:     card.Title + "\n\n" + card.Notes,
+				Prompt:     codingWorkerPrompt(card),
 				TargetPath: card.TargetPath,
 			})
 		}
@@ -389,6 +389,18 @@ func dispatchRole(commanding bool) string {
 		return "Hermes commander"
 	}
 	return "worker"
+}
+
+// codingWorkerPrompt builds the initial prompt for a plain (non-Director,
+// non-Hermes-commanded) project's first coding spawn. The instruction is
+// required, not decorative: commander/orchestrator only advances a card past
+// running when it sees a coding-phase `ao workboard card handoff` (wired via
+// workboard's reportPhaseOutcome). Without it in this prompt, a worker spawned
+// here has no way to know it should ever call that command, and the card sits
+// in running until someone reports on its behalf by hand.
+func codingWorkerPrompt(card domain.WorkCard) string {
+	return card.Title + "\n\n" + card.Notes +
+		"\n\nBefore completing, record a handoff with changed files, checks/results, commit or PR, and the review focus: ao workboard card handoff " + card.ID + " --phase coding --summary \"...\"."
 }
 
 // hermesCardBriefing is intentionally short: Hermes's system prompt
