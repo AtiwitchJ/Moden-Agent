@@ -18,6 +18,7 @@ import (
 	"sync"
 
 	"github.com/modernagent/modern-agent/backend/internal/adapters"
+	"github.com/modernagent/modern-agent/backend/internal/adapters/agent/headless"
 	"github.com/modernagent/modern-agent/backend/internal/ports"
 )
 
@@ -40,6 +41,7 @@ func New() *Plugin {
 
 var _ adapters.Adapter = (*Plugin)(nil)
 var _ ports.Agent = (*Plugin)(nil)
+var _ ports.AgentHeadless = (*Plugin)(nil)
 
 // Manifest returns the adapter's static self-description.
 func (p *Plugin) Manifest() adapters.Manifest {
@@ -90,6 +92,15 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	}
 
 	return cmd, nil
+}
+
+// GetHeadlessCommand builds the argv for a one-shot run. Cursor's launch
+// command is already non-interactive (`-p`) — it runs the prompt to completion
+// and exits — so the one-shot form is the same command with approvals bypassed
+// (`--yolo`) and a prompt required. See the headless package for why both are
+// enforced.
+func (p *Plugin) GetHeadlessCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error) {
+	return headless.FromLaunch(ctx, p.GetLaunchCommand, cfg)
 }
 
 // GetPromptDeliveryStrategy reports that Cursor receives its prompt in the

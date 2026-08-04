@@ -39,6 +39,41 @@ func TestGetLaunchCommandBuildsArgv(t *testing.T) {
 	}
 }
 
+func TestGetHeadlessCommandRunsOneShot(t *testing.T) {
+	p := &Plugin{resolvedBinary: "cursor-agent"}
+
+	cmd, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{
+		Prompt:      "implement the card",
+		Permissions: ports.PermissionModeAcceptEdits,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	interactive, err := p.GetLaunchCommand(context.Background(), ports.LaunchConfig{
+		Prompt:      "implement the card",
+		Permissions: ports.PermissionModeBypassPermissions,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(cmd, interactive) {
+		t.Fatalf("this adapter's launch command is already one-shot, so the headless command must match it under bypass permissions\nheadless:    %#v\ninteractive: %#v", cmd, interactive)
+	}
+}
+
+func TestGetHeadlessCommandRejectsEmptyPrompt(t *testing.T) {
+	p := &Plugin{resolvedBinary: "cursor-agent"}
+
+	if _, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{}); err == nil {
+		t.Fatal("expected an error for a one-shot launch with no prompt")
+	}
+}
+
+func TestPluginSatisfiesAgentHeadless(t *testing.T) {
+	var _ ports.AgentHeadless = (*Plugin)(nil)
+}
+
 func TestGetLaunchCommandOmitsPromptWhenEmpty(t *testing.T) {
 	plugin := &Plugin{resolvedBinary: "cursor-agent"}
 
