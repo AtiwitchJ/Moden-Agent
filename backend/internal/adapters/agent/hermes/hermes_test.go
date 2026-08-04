@@ -8,6 +8,32 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/ports"
 )
 
+func TestGetHeadlessCommandRunsSingleQuery(t *testing.T) {
+	p := &Plugin{resolvedBinary: "hermes"}
+
+	cmd, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{Prompt: "implement the card"})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	want := []string{"hermes", "chat", "-Q", "--yolo", "-q", "implement the card"}
+	if !reflect.DeepEqual(cmd, want) {
+		t.Fatalf("unexpected command\nwant: %#v\n got: %#v", want, cmd)
+	}
+}
+
+func TestGetHeadlessCommandRejectsEmptyPrompt(t *testing.T) {
+	p := &Plugin{resolvedBinary: "hermes"}
+
+	if _, err := p.GetHeadlessCommand(context.Background(), ports.LaunchConfig{}); err == nil {
+		t.Fatal("expected an error for a one-shot launch with no prompt")
+	}
+}
+
+func TestPluginSatisfiesAgentHeadless(t *testing.T) {
+	var _ ports.AgentHeadless = (*Plugin)(nil)
+}
+
 func TestGetLaunchCommandBuildsCrossPlatformArgv(t *testing.T) {
 	plugin := &Plugin{resolvedBinary: "hermes"}
 

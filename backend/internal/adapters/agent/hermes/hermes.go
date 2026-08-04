@@ -40,6 +40,7 @@ func New() *Plugin {
 
 var _ adapters.Adapter = (*Plugin)(nil)
 var _ ports.Agent = (*Plugin)(nil)
+var _ ports.AgentHeadless = (*Plugin)(nil)
 
 // Manifest returns the adapter's static self-description.
 func (p *Plugin) Manifest() adapters.Manifest {
@@ -90,6 +91,26 @@ func (p *Plugin) GetLaunchCommand(ctx context.Context, cfg ports.LaunchConfig) (
 	}
 
 	return cmd, nil
+}
+
+// GetHeadlessCommand builds the argv for a one-shot hermes run:
+//
+//	hermes chat -Q --yolo -q <prompt>
+//
+// `chat -q` is hermes's single-query mode: it answers once and exits, which is
+// why this adapter's PromptDeliveryAfterStart strategy (needed for the TUI
+// launch, which takes no prompt at all) does not apply here — the prompt rides
+// the command. `-Q` suppresses the banner so the output is programmatic, and
+// `--yolo` bypasses the approval prompts a headless run cannot answer.
+func (p *Plugin) GetHeadlessCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error) {
+	if strings.TrimSpace(cfg.Prompt) == "" {
+		return nil, fmt.Errorf("hermes: a one-shot launch requires a prompt")
+	}
+	binary, err := p.hermesBinary(ctx)
+	if err != nil {
+		return nil, err
+	}
+	return []string{binary, "chat", "-Q", "--yolo", "-q", cfg.Prompt}, nil
 }
 
 // GetPromptDeliveryStrategy reports that Hermes receives prompts through its
