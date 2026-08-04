@@ -4,7 +4,7 @@
 
 **Goal:** Every shipped agent adapter that has a real non-interactive mode implements `ports.AgentHeadless`, so `ao spawn --oneshot` (and therefore the Director) works with any of them instead of only `claude-code` and `codex`.
 
-**Architecture:** Three shapes of work, decided by what each adapter's `GetLaunchCommand` already does. Most adapters already launch a non-interactive CLI (`aider -m`, `pi --print`, `goose run -t`, `cursor-agent -p`, …) — for those, `GetHeadlessCommand` delegates to the existing launch command through one shared helper, forcing bypass permissions and requiring a prompt. Three adapters (`opencode`, `hermes`, `agy`) launch a TUI but have a separate verified one-shot form, so they get a real second argv builder. The rest launch a TUI with no confirmed headless mode and are recorded on an explicit exclusion list that a registry test enforces.
+**Architecture:** Two shapes of work, decided by what each adapter's `GetLaunchCommand` already does. Most adapters already launch a non-interactive CLI (`aider -m`, `pi --print`, `goose run -t`, `cursor-agent -p`, …) — for those, `GetHeadlessCommand` delegates to the existing launch command through one shared helper, forcing bypass permissions and requiring a prompt. Three adapters (`opencode`, `hermes`, `agy`) launch a TUI but have a separate verified one-shot form, so they get a real second argv builder. Every remaining TUI-only harness is **out of scope**: it goes straight onto a documented exclusion list that a registry test enforces, so `ao spawn --oneshot` rejects it with a clear error instead of hanging.
 
 **Tech Stack:** Go 1.x, the adapter packages under `backend/internal/adapters/agent/`.
 
@@ -34,12 +34,12 @@ Ordered exactly as `backend/internal/adapters/agent/registry/registry.go:47-75` 
 | `grok` | `grok --no-auto-update [--permission-mode <m>] -p <p>` | A — delegate |
 | `cursor` | `cursor-agent -p --output-format stream-json --trust … <p>` | A — delegate |
 | `qwen` | approval flag + `-p <p>` | A — delegate |
-| `copilot` | `copilot [permission flags]`, prompt sent after start | C — exclusion candidate |
+| `copilot` | `copilot [permission flags]`, prompt sent after start | excluded — TUI, out of scope |
 | `kimi` | `kimi -p <p>` | A — delegate |
-| `droid` | `droid [--settings <path>] … [prompt]` (TUI) | C — exclusion candidate |
-| `amp` | `amp [--permission-mode <m>] … [-- <p>]` (TUI) | C — exclusion candidate |
+| `droid` | `droid [--settings <path>] … [prompt]` (TUI) | excluded — TUI, out of scope |
+| `amp` | `amp [--permission-mode <m>] … [-- <p>]` (TUI) | excluded — TUI, out of scope |
 | `agy` | `agy --add-dir <ws> … [--prompt-interactive <p>]` (TUI) | B — new argv |
-| `crush` | `crush [--cwd <ws>] [--yolo] [-- <p>]` (TUI) | C — exclusion candidate |
+| `crush` | `crush [--cwd <ws>] [--yolo] [-- <p>]` (TUI) | excluded — TUI, out of scope |
 | `aider` | `aider -m <p> … --no-stream --no-pretty` | A — delegate |
 | `goose` | `[env GOOSE_MODE=<m>] goose run [--system <t>] -t <p>` | A — delegate |
 | `auggie` | `auggie --print … [-- <p>]` | A — delegate |
@@ -47,16 +47,18 @@ Ordered exactly as `backend/internal/adapters/agent/registry/registry.go:47-75` 
 | `devin` | `devin [--permission-mode <m>] -p <p>` | A — delegate |
 | `cline` | `cline --json … -- <p>` when prompted | A — delegate |
 | `kiro` | `kiro-cli chat --no-interactive [trust flags] -- <p>` | A — delegate |
-| `kilocode` | `[env KILO_CONFIG_CONTENT=<json>] kilocode [--prompt <p>]` (TUI) | C — exclusion candidate |
+| `kilocode` | `[env KILO_CONFIG_CONTENT=<json>] kilocode [--prompt <p>]` (TUI) | excluded — TUI, out of scope |
 | `vibe` | `vibe --trust --output text … -p <p>` | A — delegate |
 | `pi` | `pi --print [--append-system-prompt <s>] [<p>]` | A — delegate |
-| `autohand` | `autohand [--path <ws>] … [-- <p>]` (TUI) | C — exclusion candidate |
+| `autohand` | `autohand [--path <ws>] … [-- <p>]` (TUI) | excluded — TUI, out of scope |
 | `command` | runs a user-supplied command | excluded by definition |
-| `openclaw` | `openclaw [--cwd <ws>] [--yolo] [-- <p>]` (TUI) | C — exclusion candidate |
+| `openclaw` | `openclaw [--cwd <ws>] [--yolo] [-- <p>]` (TUI) | excluded — TUI, out of scope |
 | `hermes` | `hermes [--yolo]`, prompt sent after start | B — new argv |
 | `director` | AO's own Director loop | excluded by definition |
 
-Verified locally against installed binaries while writing this plan: `claude`, `codex`, `agy`, `cursor-agent`, `hermes`, `opencode`. Everything else in Groups A and C is a **claim from the adapter's own doc comment**, not a verified fact — hence the mandatory `--help` step in every task.
+Verified locally against installed binaries while writing this plan: `claude`, `codex`, `agy`, `cursor-agent`, `hermes`, `opencode`. Every other Group A row is a **claim from the adapter's own doc comment**, not a verified fact — hence the mandatory `--help` step in Task 2.
+
+The seven TUI-only harnesses (`copilot`, `droid`, `amp`, `crush`, `kilocode`, `autohand`, `openclaw`) are deliberately **not** implemented here. None has a confirmed self-terminating mode, and a half-working one would hang a Director waiting on it — worse than an honest rejection. They go on the exclusion list in Task 6 with that reason. Revisit one only when its binary is installed and its `--help` proves a non-interactive mode; that is a new, separately scoped change.
 
 ---
 
@@ -66,8 +68,9 @@ Verified locally against installed binaries while writing this plan: `claude`, `
 - Create: `backend/internal/adapters/agent/headless/headless_test.go`.
 - Modify (Group A, one `GetHeadlessCommand` method + one assertion each): `grok/`, `cursor/`, `qwen/`, `kimi/`, `aider/`, `goose/`, `auggie/`, `continueagent/`, `devin/`, `cline/`, `kiro/`, `vibe/`, `pi/`.
 - Modify (Group B, a real second argv builder each): `opencode/`, `hermes/`, `agy/`.
-- Modify (Group C, only if a headless mode is confirmed): `copilot/`, `droid/`, `amp/`, `crush/`, `kilocode/`, `autohand/`, `openclaw/`.
 - Create: `backend/internal/adapters/agent/registry/headless_test.go` — the drift guard listing every harness with no headless mode.
+
+Not modified by this plan: `copilot/`, `droid/`, `amp/`, `crush/`, `kilocode/`, `autohand/`, `openclaw/`, `command/`, `director/`.
 
 ---
 
@@ -618,34 +621,20 @@ git commit -m "feat(agent): add a headless one-shot launch capability for agy"
 
 ---
 
-### Task 6: Group C triage + the registry drift guard
+### Task 6: The exclusion list + registry drift guard
 
 **Files:**
 - Create: `backend/internal/adapters/agent/registry/headless_test.go`
-- Modify (only those whose CLI proves it has a headless mode): `backend/internal/adapters/agent/{copilot,droid,amp,crush,kilocode,autohand,openclaw}/`
 
 **Interfaces:**
 - Consumes: everything above.
 - Produces: `noHeadlessHarnesses` — the documented exclusion list, enforced by a test over the real registry.
 
-- [ ] **Step 1: Triage each remaining harness**
+The seven TUI-only harnesses are **out of scope for this plan** — do not implement `GetHeadlessCommand` for any of them here. They are recorded, not fixed. An excluded harness fails `ao spawn --oneshot` with the clear `ErrOneShotUnsupported` error from plan 1, which is the correct behavior: a Director that gets an honest rejection can block the card with a reason, while a half-working headless command would leave it waiting on a process that never exits.
 
-```bash
-for b in copilot droid amp crush kilocode autohand openclaw; do
-  echo "===== $b"; command -v "$b" >/dev/null 2>&1 && "$b" --help 2>&1 | head -40 || echo "NOT INSTALLED"
-done
-```
+- [ ] **Step 1: Write the drift guard test**
 
-For each, decide with the same three outcomes as Task 2 Step 1. Notes carried from earlier reading, to check rather than trust:
-- `copilot`: the adapter's own comment says `-p` "runs Copilot in programmatic mode and exits when done" — that is exactly what a one-shot spawn wants, even though it is wrong for the interactive pane. If `--help` confirms `-p`, implement it. The reference table's `gh copilot exec` is a different binary from the one this adapter resolves (`copilot`) — do not use it.
-- `openclaw`: the reference table claims `openclaw agent -m "<p>" --non-interactive`, while this repo's adapter launches a bare `openclaw … [-- <p>]` TUI. Verify against `--help`; the table has already been wrong twice.
-- `amp`, `droid`, `crush`, `kilocode`, `autohand`: no known headless mode. Confirm or refute from `--help`.
-
-For any harness you confirm and implement, follow Task 3's shape: verify, write the failing test with the exact argv, implement `GetHeadlessCommand` with a doc comment naming why each flag is there, add the `var _ ports.AgentHeadless` assertion, run the package's tests, commit.
-
-- [ ] **Step 2: Write the drift guard test**
-
-Create `backend/internal/adapters/agent/registry/headless_test.go`. Fill `noHeadlessHarnesses` from the Task 2 and Task 6 triage results — every harness you did **not** implement, each with the reason:
+Create `backend/internal/adapters/agent/registry/headless_test.go`. The `noHeadlessHarnesses` entries below are the seven out-of-scope TUI harnesses plus the two excluded by definition; add to them any Group A harness that Task 2's triage left unimplemented (interactive-only, or binary not installed), copying the reason from that task's commit body:
 
 ```go
 package registry
@@ -666,8 +655,21 @@ import (
 var noHeadlessHarnesses = map[string]string{
 	"command":  "runs a user-supplied command; one-shot semantics are the caller's, not ours",
 	"director": "AO's own Director loop, which drives cards rather than executing one",
-	// Fill in from the triage, e.g.:
-	// "amp": "interactive TUI only; `amp --help` shows no non-interactive mode",
+
+	// TUI-only launches with no confirmed self-terminating mode. Out of scope
+	// deliberately: a half-working headless command would hang a Director
+	// waiting on a process that never exits, which is worse than this honest
+	// rejection. Revisit one only with its binary installed and its --help
+	// showing a non-interactive mode.
+	"copilot":  "interactive TUI; the adapter delivers its prompt after start",
+	"droid":    "interactive TUI launch",
+	"amp":      "interactive TUI launch",
+	"crush":    "interactive TUI launch",
+	"kilocode": "interactive TUI launch",
+	"autohand": "interactive TUI launch",
+	"openclaw": "interactive TUI launch",
+
+	// Add any Group A harness Task 2 left unimplemented, with its finding, e.g.:
 	// "kimi": "unverified: binary not installed",
 }
 
@@ -691,12 +693,12 @@ func TestEveryHarnessIsHeadlessOrDocumented(t *testing.T) {
 }
 ```
 
-- [ ] **Step 3: Run the guard to verify it reflects reality**
+- [ ] **Step 2: Run the guard to verify it reflects reality**
 
 Run: `cd backend && go test ./internal/adapters/agent/registry/ -run Headless -v`
 Expected: PASS once every registered harness either implements the interface or carries a reason. A failure here names exactly which harness is unaccounted for — fix the list or the adapter, not the test's logic.
 
-- [ ] **Step 4: Commit**
+- [ ] **Step 3: Commit**
 
 ```bash
 git add backend/internal/adapters/agent/
@@ -754,8 +756,10 @@ Skip if nothing needed fixing.
 
 ## Self-Review
 
-**Spec coverage:** this plan has no separate spec — it extends `docs/superpowers/specs/2026-08-04-director-one-shot-workers-design.md` §1, whose stated follow-up was "adding another harness later is ~5 lines plus a table test". Every registered harness in `registry.go:47-75` appears in the inventory table and is routed to exactly one of: done in plan 1 (2), delegate (13), new argv (3), triage (7), excluded by definition (2). 2+13+3+7+2 = 27, matching the registry.
+**Spec coverage:** this plan has no separate spec — it extends `docs/superpowers/specs/2026-08-04-director-one-shot-workers-design.md` §1, whose stated follow-up was "adding another harness later is ~5 lines plus a table test". Every registered harness in `registry.go:47-75` appears in the inventory table and is routed to exactly one of: done in plan 1 (2), delegate (13), new argv (3), excluded as TUI-only and out of scope (7), excluded by definition (2). 2+13+3+7+2 = 27, matching the registry. The four harnesses in the default reviewer/testing chains (`claude-code`, `codex`, `opencode`, `hermes`) are all in the implemented set, which Task 7 Step 4 re-checks.
 
-**Placeholder scan:** the only intentionally unfilled content is `noHeadlessHarnesses`' entries in Task 6 Step 2, which cannot be written before the triage in Step 1 runs — the step states exactly what fills it and shows the entry format. Task 2 and Task 6 do not name specific argvs for uninstalled binaries by design; guessing them is the failure mode this plan exists to prevent, and both tasks give the exact `--help` command and the three-way decision that replaces guessing.
+**Placeholder scan:** the only intentionally open content is the "add any Group A harness Task 2 left unimplemented" line inside `noHeadlessHarnesses`, which cannot be written before Task 2's `--help` triage runs — Task 6 Step 1 says exactly what fills it and shows the entry format. Task 2 does not name argvs for uninstalled binaries by design; guessing them is the failure mode this plan exists to prevent, and the task gives the exact `--help` command and the three-way decision that replaces guessing.
 
-**Type consistency:** `GetHeadlessCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error)` is identical in Tasks 2-6 and matches plan 1's `ports.AgentHeadless`. `headless.FromLaunch` keeps one signature across Tasks 1 and 2. `noHeadlessHarnesses` is a `map[string]string` keyed by manifest id in both its declaration and the test that reads it.
+**Type consistency:** `GetHeadlessCommand(ctx context.Context, cfg ports.LaunchConfig) (cmd []string, err error)` is identical in Tasks 2-5 and matches plan 1's `ports.AgentHeadless`. `headless.FromLaunch` keeps one signature across Tasks 1 and 2. `noHeadlessHarnesses` is a `map[string]string` keyed by manifest id in both its declaration and the test that reads it.
+
+**Scope check:** the seven TUI-only harnesses were dropped from implementation on purpose. Task 6 records them with a reason and the guard test enforces that they stay recorded; picking one up later is a separate change that starts with installing its binary and reading its `--help`.
