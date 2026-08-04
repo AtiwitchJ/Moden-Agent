@@ -93,16 +93,41 @@ func isActivePhase(status domain.CardStatus) bool {
 		status == domain.CardStatusRedo
 }
 
-// checkActiveSession returns (hasActive, sessionRecord, error).
+// checkActiveSession returns (hasActive, sessionRecord, error). A card counts
+// as having an active session either through this package's own active_session
+// bookkeeping, or through a live (non-terminated) session that a different
+// commander already linked via card.SessionID — workboard's dispatch.go claims
+// a Todo/Ready card and spawns its worker directly through session_manager,
+// never writing an active_session row, since that bookkeeping is this
+// package's alone. Without this cross-check, Tick could not see that spawn and
+// would start a second, redundant coding session on the very next tick.
 func (o *ConfiguredOrchestrator) checkActiveSession(ctx context.Context, card domain.WorkCard) (bool, ActiveSessionRecord, error) {
 	session, ok, err := o.store.GetActiveSession(ctx, card.ID)
 	if err != nil {
 		return false, ActiveSessionRecord{}, err
 	}
-	if !ok {
+	if ok {
+		return true, session, nil
+	}
+	if card.SessionID == "" {
 		return false, ActiveSessionRecord{}, nil
 	}
-	return true, session, nil
+	sessions, err := o.store.ListSessions(ctx, domain.ProjectID(card.ProjectID))
+	if err != nil {
+		return false, ActiveSessionRecord{}, err
+	}
+	for _, s := range sessions {
+		if string(s.ID) != card.SessionID || s.IsTerminated {
+			continue
+		}
+		return true, ActiveSessionRecord{
+			CardID:    card.ID,
+			SessionID: card.SessionID,
+			Phase:     string(commander.PhaseCoding),
+			CreatedAt: s.CreatedAt,
+		}, nil
+	}
+	return false, ActiveSessionRecord{}, nil
 }
 
 // isSessionLive checks whether the active session is still within its

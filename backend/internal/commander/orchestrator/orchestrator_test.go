@@ -241,6 +241,80 @@ func TestTick_RunningCardWithLiveSession_DoesNothing(t *testing.T) {
 	}
 }
 
+// TestTick_RunningCardLinkedToLiveSessionByAnotherCommander_DoesNotDoubleSpawn
+// covers the collision between the two independent commanders that both drive
+// plain (non-Director) projects: workboard's dispatch.go claims a Todo/Ready
+// card, spawns its worker directly through session_manager, and links
+// card.SessionID — but it never writes an active_session row, since that
+// bookkeeping belongs to this package. Before this test, Tick's
+// checkActiveSession only consulted active_session, so it saw "no active
+// session" on a card another commander had just started and spawned a second,
+// redundant coding worker on the very same tick.
+func TestTick_RunningCardLinkedToLiveSessionByAnotherCommander_DoesNotDoubleSpawn(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "running")
+	c.SessionID = "dispatch-session"
+	store.cards[c.ID] = c
+	// No active_session row: dispatch.go's plain path linked card.SessionID
+	// directly and never called InsertActiveSession.
+	store.listSessionsOut = []domain.SessionRecord{
+		{ID: "dispatch-session", ProjectID: "p1", IsTerminated: false, CreatedAt: now.Add(-1 * time.Minute)},
+	}
+
+	err := oc.Tick(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if len(sp.spawned) != 0 {
+		t.Fatalf("spawned count = %d, want 0 — dispatch.go already started a live session for this card", len(sp.spawned))
+	}
+}
+
+// TestTick_RunningCardLinkedToTerminatedSession_StillSpawns proves the new
+// cross-check does not mask a genuinely dead hand-off: if the session
+// dispatch.go linked has since terminated (crashed, killed, exited) and
+// nothing else registered a fresh active_session, Tick must still spawn a
+// coding worker rather than leaving the card stuck forever.
+func TestTick_RunningCardLinkedToTerminatedSession_StillSpawns(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "running")
+	c.SessionID = "dispatch-session"
+	store.cards[c.ID] = c
+	store.listSessionsOut = []domain.SessionRecord{
+		{ID: "dispatch-session", ProjectID: "p1", IsTerminated: true, CreatedAt: now.Add(-1 * time.Minute)},
+	}
+
+	err := oc.Tick(context.Background(), "p1")
+	if err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if len(sp.spawned) != 1 {
+		t.Fatalf("spawned count = %d, want 1 — the linked session is terminated, so the card has no live worker", len(sp.spawned))
+	}
+}
+
 func TestTick_WIPAtLimit_RefusesNewSpawn(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}
