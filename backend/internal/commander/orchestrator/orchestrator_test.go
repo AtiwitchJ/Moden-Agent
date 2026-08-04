@@ -711,6 +711,38 @@ func TestTick_ManyQueuedRedoCardsQueueLikeTodoInsteadOfDeadlocking(t *testing.T)
 	}
 }
 
+// TestOnAgentCompleted_KillsThePreviousPhaseSession proves a completed phase's
+// session is actually torn down, not just cleared from bookkeeping. Before
+// this fix, DeleteActiveSession only removed the DB row — the live tmux pane
+// kept running idle forever, one leaked process per phase transition.
+func TestOnAgentCompleted_KillsThePreviousPhaseSession(t *testing.T) {
+	store := newFakeStore()
+	killer := &fakeKiller{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:  store,
+		Killer: killer,
+		Clock:  func() time.Time { return now },
+		NewID:  func() string { return "ev-1" },
+	})
+
+	c := card("c1", "p1", "review")
+	store.cards[c.ID] = c
+	store.activeSessions["c1"] = ActiveSessionRecord{
+		CardID: "c1", SessionID: "reviewer-session", Phase: "review", Agent: "claude-code", CreatedAt: now,
+	}
+
+	if err := oc.OnAgentCompleted(context.Background(), "c1", commander.AgentResult{
+		Phase: commander.PhaseReview, Verdict: "approved",
+	}); err != nil {
+		t.Fatalf("OnAgentCompleted: %v", err)
+	}
+
+	if len(killer.killed) != 1 || killer.killed[0] != "reviewer-session" {
+		t.Fatalf("killed = %v, want [reviewer-session]", killer.killed)
+	}
+}
+
 func TestOnAgentCompleted_VerdictApprovedOnReviewCard_TransitionsToTesting(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}
@@ -769,6 +801,46 @@ func TestGetCardUsesGetWorkCard_NotListWorkCardsWithEmptyFilters(t *testing.T) {
 	}
 	if got := store.cards["card-1"].Status; got != domain.CardStatusReview {
 		t.Fatalf("status = %s, want review", got)
+	}
+}
+
+// TestOnAgentFailed_KillsThePreviousSessionBeforeFallbackSpawns proves the
+// failed agent's session is torn down before its fallback replacement spawns
+// — otherwise the failed one just sits there idle forever, same leak as the
+// success path fixed in TestOnAgentCompleted_KillsThePreviousPhaseSession.
+func TestOnAgentFailed_KillsThePreviousSessionBeforeFallbackSpawns(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	killer := &fakeKiller{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Killer:   killer,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "running")
+	c.CodingAgent = "claude-code"
+	c.Agent = "codex"
+	store.cards[c.ID] = c
+	store.activeSessions["c1"] = ActiveSessionRecord{
+		CardID: "c1", SessionID: "failed-coding-session", Phase: "coding", Agent: "claude-code", CreatedAt: now,
+	}
+
+	if err := oc.OnAgentFailed(context.Background(), "c1", commander.AgentAttempt{
+		Phase: commander.PhaseCoding, Agent: "claude-code", FailureReason: "error", AttemptNumber: 1,
+	}); err != nil {
+		t.Fatalf("OnAgentFailed: %v", err)
+	}
+
+	if len(killer.killed) != 1 || killer.killed[0] != "failed-coding-session" {
+		t.Fatalf("killed = %v, want [failed-coding-session]", killer.killed)
+	}
+	if len(sp.spawned) != 1 || sp.spawned[0].Spec.Agent != "codex" {
+		t.Fatalf("spawned = %+v, want the codex fallback to still spawn", sp.spawned)
 	}
 }
 

@@ -145,8 +145,18 @@ func (o *ConfiguredOrchestrator) OnAgentFailed(ctx context.Context, cardID strin
 		return fmt.Errorf("card %s not found", cardID)
 	}
 
+	// See OnAgentCompleted's matching comment: the failed session stays live
+	// in its pane until something tears it down, whether the card is about to
+	// enter redo or a fallback agent is about to take over the same phase.
+	previous, hadPrevious, sessionErr := o.store.GetActiveSession(ctx, cardID)
+	if sessionErr != nil {
+		return fmt.Errorf("get active session for %s: %w", cardID, sessionErr)
+	}
 	if err := o.store.DeleteActiveSession(ctx, cardID); err != nil {
 		return fmt.Errorf("delete active session for %s: %w", cardID, err)
+	}
+	if hadPrevious {
+		o.killSupersededSession(ctx, previous)
 	}
 
 	phase := commander.Phase(attempt.Phase)
@@ -232,8 +242,22 @@ func (o *ConfiguredOrchestrator) OnAgentCompleted(ctx context.Context, cardID st
 		return fmt.Errorf("card %s not found", cardID)
 	}
 
+	// The completed phase's session is done its job but stays live in its
+	// pane until something tears it down — killSupersededSession's own doc
+	// comment notes the same fact for a timed-out replacement. Capture it
+	// before DeleteActiveSession removes the only record of which session
+	// that was, then kill it best-effort: a session already gone (or a nil
+	// killer) is a normal, harmless case, never a reason to fail the
+	// completion this callback exists to apply.
+	previous, hadPrevious, sessionErr := o.store.GetActiveSession(ctx, cardID)
+	if sessionErr != nil {
+		return fmt.Errorf("get active session for %s: %w", cardID, sessionErr)
+	}
 	if err := o.store.DeleteActiveSession(ctx, cardID); err != nil {
 		return fmt.Errorf("delete active session for %s: %w", cardID, err)
+	}
+	if hadPrevious {
+		o.killSupersededSession(ctx, previous)
 	}
 
 	phase := commander.Phase(result.Phase)
