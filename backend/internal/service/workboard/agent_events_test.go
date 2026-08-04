@@ -1,8 +1,10 @@
 package workboard
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log/slog"
 	"reflect"
 	"strings"
 	"testing"
@@ -159,6 +161,39 @@ func TestRecordAgentEventSurvivesReporterError(t *testing.T) {
 		Payload: `{"verdict":"approved"}`,
 	}); err != nil {
 		t.Fatalf("RecordAgentEvent: %v, want a reporter failure to stay best-effort", err)
+	}
+}
+
+// TestRecordAgentEventLogsReporterError proves a swallowed ReportVerdict
+// error is not silent: best-effort must still leave a trace, or a card that
+// should have advanced and silently didn't looks identical to one where
+// nothing was ever reported at all — undiagnosable from the outside, which is
+// exactly what happened live before this fix (a dropped phase_completed with
+// no error anywhere).
+func TestRecordAgentEventLogsReporterError(t *testing.T) {
+	now := time.Date(2026, time.August, 3, 12, 0, 0, 0, time.UTC)
+	card := domain.WorkCard{
+		ID: "card-1", ProjectID: "p1", BoardID: defaultBoardID, Title: "Fix", Notes: "Details",
+		Status: domain.CardStatusReview, Agent: "codex", SessionID: "sess-1",
+	}
+	store := &actionsStoreFake{cards: map[string]domain.WorkCard{"card-1": card}}
+	reporter := &fakeAgentReporter{err: errors.New("orchestrator boom")}
+	var logBuf bytes.Buffer
+	svc := NewWithDeps(Deps{
+		Store: store, Reporter: reporter, Logger: slog.New(slog.NewTextHandler(&logBuf, nil)),
+		Clock: func() time.Time { return now }, NewID: func() string { return "evt-1" },
+	})
+
+	if _, err := svc.RecordAgentEvent(context.Background(), "card-1", AgentEventInput{
+		Kind:    "agent_verdict",
+		Payload: `{"verdict":"approved"}`,
+	}); err != nil {
+		t.Fatalf("RecordAgentEvent: %v", err)
+	}
+
+	logged := logBuf.String()
+	if !strings.Contains(logged, "orchestrator boom") || !strings.Contains(logged, "card-1") {
+		t.Fatalf("log output = %q, want it to name the card and the swallowed error", logged)
 	}
 }
 

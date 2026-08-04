@@ -189,6 +189,7 @@ func Run() error {
 		// commander/orchestrator's OnAgentCompleted/OnAgentFailed — without it
 		// those had the correct phase-advancement logic but no caller.
 		Reporter: orch,
+		Logger:   log,
 	})
 	lcStack.trackerDone = startTrackerIntake(ctx, store, sessionSvc, workboardSvc, log)
 	previewDone := preview.NewPoller(store, sessionSvc, "http://"+cfg.Addr(), preview.PollerConfig{Logger: log}).Start(ctx)

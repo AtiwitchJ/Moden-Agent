@@ -200,7 +200,13 @@ func (s *Service) reportPhaseOutcome(ctx context.Context, card domain.WorkCard, 
 	default:
 		return
 	}
-	_ = s.reporter.ReportVerdict(ctx, card.ID, phase, verdict)
+	if err := s.reporter.ReportVerdict(ctx, card.ID, phase, verdict); err != nil {
+		// Best-effort by design (see the doc comment above), but silent
+		// best-effort is a black hole: a card that should have advanced and
+		// didn't leaves no trace anywhere else. Logging here is the only
+		// record that this specific report was dropped and why.
+		s.logger.Warn("reportPhaseOutcome: ReportVerdict failed", "cardID", card.ID, "kind", kind, "phase", phase, "verdict", verdict, "err", err)
+	}
 }
 
 // phaseForStatus maps a card's current status onto the phase name an agent

@@ -4,6 +4,7 @@ package workboard
 import (
 	"context"
 	"encoding/json"
+	"log/slog"
 	"path/filepath"
 	"strings"
 	"time"
@@ -113,6 +114,7 @@ type Service struct {
 	dispatchKicker  DispatchKicker
 	statusProvider  DirectorStatusProvider
 	reporter        AgentReporter
+	logger          *slog.Logger
 	clock           func() time.Time
 	newID           func() string
 }
@@ -133,6 +135,7 @@ type Deps struct {
 	DispatchKicker  DispatchKicker
 	StatusProvider  DirectorStatusProvider
 	Reporter        AgentReporter
+	Logger          *slog.Logger
 	Clock           func() time.Time
 	NewID           func() string
 }
@@ -147,7 +150,10 @@ func NewWithDeps(d Deps) *Service {
 	s := &Service{
 		store: d.Store, sender: d.Sender, spawner: d.Spawner, killer: d.Killer,
 		dispatchKicker: d.DispatchKicker, statusProvider: d.StatusProvider, reporter: d.Reporter,
-		clock: d.Clock, newID: d.NewID,
+		logger: d.Logger, clock: d.Clock, newID: d.NewID,
+	}
+	if s.logger == nil {
+		s.logger = slog.Default()
 	}
 	if s.clock == nil {
 		s.clock = time.Now
