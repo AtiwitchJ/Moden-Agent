@@ -3,9 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"io"
 	"net/url"
 	"runtime"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"github.com/spf13/cobra"
@@ -14,19 +16,27 @@ import (
 	"github.com/modernagent/modern-agent/backend/internal/adapters/runtime/tmux"
 )
 
+// sessionWaitPollInterval is how often `ao spawn --wait` re-reads the session.
+// A package var so tests can shrink it; two seconds is well under any real
+// one-shot run and costs the daemon nothing.
+var sessionWaitPollInterval = 2 * time.Second
+
 // maxDisplayNameLen caps the sidebar label set by `--name`. Mirrored by the
 // daemon's spawn handler so a direct API call is held to the same limit.
 const maxDisplayNameLen = 20
 
 type spawnOptions struct {
-	project    string
-	harness    string
-	branch     string
-	prompt     string
-	issue      string
-	name       string
-	claimPR    string
-	noTakeover bool
+	project     string
+	harness     string
+	branch      string
+	prompt      string
+	issue       string
+	name        string
+	claimPR     string
+	noTakeover  bool
+	oneShot     bool
+	wait        bool
+	waitTimeout time.Duration
 }
 
 // spawnRequest mirrors the daemon's SpawnSessionRequest body for
@@ -38,6 +48,7 @@ type spawnRequest struct {
 	Branch      string `json:"branch,omitempty"`
 	Prompt      string `json:"prompt,omitempty"`
 	DisplayName string `json:"displayName"`
+	OneShot     bool   `json:"oneShot,omitempty"`
 }
 
 type spawnResult struct {
@@ -70,6 +81,9 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 			if opts.noTakeover && opts.claimPR == "" {
 				return usageError{fmt.Errorf("--no-takeover requires --claim-pr")}
 			}
+			if opts.wait && !opts.oneShot {
+				return usageError{fmt.Errorf("--wait requires --oneshot")}
+			}
 			claimRef := ""
 			if opts.claimPR != "" {
 				project, err := ctx.fetchProjectDetails(cmd.Context(), opts.project)
@@ -88,6 +102,7 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				Branch:      opts.branch,
 				Prompt:      opts.prompt,
 				DisplayName: name,
+				OneShot:     opts.oneShot,
 			}
 			var res spawnResult
 			if err := ctx.postJSON(cmd.Context(), "sessions", req, &res); err != nil {
@@ -124,7 +139,13 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 				attach = "Attach from the AO dashboard (ConPTY sessions have no CLI attach command)"
 			}
 			_, err := fmt.Fprintf(out, "attach with: %s\n", attach)
-			return err
+			if err != nil {
+				return err
+			}
+			if !opts.wait {
+				return nil
+			}
+			return ctx.waitForSessionExit(cmd.Context(), out, res.Session.ID, opts.waitTimeout)
 		},
 	}
 	f := cmd.Flags()
@@ -144,6 +165,9 @@ func newSpawnCommand(ctx *commandContext) *cobra.Command {
 	f.StringVar(&opts.name, "name", "", "Display name shown in the sidebar (required, max 20 characters)")
 	f.StringVar(&opts.claimPR, "claim-pr", "", "Immediately claim an existing PR for the spawned session")
 	f.BoolVar(&opts.noTakeover, "no-takeover", false, "Refuse if another active session owns the claimed PR (requires --claim-pr)")
+	f.BoolVar(&opts.oneShot, "oneshot", false, "Run the agent headlessly: execute the prompt to completion, then exit")
+	f.BoolVar(&opts.wait, "wait", false, "Block until the one-shot session exits (requires --oneshot)")
+	f.DurationVar(&opts.waitTimeout, "wait-timeout", 30*time.Minute, "How long --wait blocks before giving up")
 	return cmd
 }
 
@@ -164,4 +188,33 @@ type rollbackSessionResponse struct {
 	SessionID string `json:"sessionId"`
 	Deleted   bool   `json:"deleted,omitempty"`
 	Killed    bool   `json:"killed,omitempty"`
+}
+
+// waitForSessionExit blocks until the session's row reports terminated, which
+// a one-shot session reaches by running `ao session mark-exited` after its
+// agent finishes. The timeout is what keeps a caller (the Director) from
+// blocking forever on an agent that wedged instead of exiting.
+func (c *commandContext) waitForSessionExit(ctx context.Context, out io.Writer, id string, timeout time.Duration) error {
+	if timeout <= 0 {
+		timeout = 30 * time.Minute
+	}
+	deadline := time.Now().Add(timeout)
+	for {
+		var res sessionResponse
+		if err := c.getJSON(ctx, "sessions/"+url.PathEscape(id), &res); err != nil {
+			return err
+		}
+		if res.Session.IsTerminated {
+			_, err := fmt.Fprintf(out, "session %s exited\n", id)
+			return err
+		}
+		if time.Now().After(deadline) {
+			return fmt.Errorf("timed out after %s waiting for session %s to exit", timeout, id)
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-time.After(sessionWaitPollInterval):
+		}
+	}
 }

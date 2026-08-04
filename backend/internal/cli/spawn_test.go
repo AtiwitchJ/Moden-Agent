@@ -9,6 +9,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestSpawnCommand_RequiresProject asserts `ao spawn` rejects a missing
@@ -147,5 +148,92 @@ func TestSpawnCommand_RejectsOverlongName(t *testing.T) {
 	_, _, err := executeCLI(t, Deps{}, "spawn", "--project", "demo", "--name", strings.Repeat("x", 21))
 	if err == nil || ExitCode(err) != 2 || !strings.Contains(err.Error(), "20 characters or fewer") {
 		t.Fatalf("err=%v exit=%d, want 20 characters or fewer", err, ExitCode(err))
+	}
+}
+
+// sessionResponse is shared with internal/cli/session.go and already includes
+// Session.IsTerminated.
+
+func TestSpawnOneShotWaitsForExit(t *testing.T) {
+	cfg := setConfigEnv(t)
+	restore := sessionWaitPollInterval
+	sessionWaitPollInterval = time.Millisecond
+	t.Cleanup(func() { sessionWaitPollInterval = restore })
+
+	polls := 0
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions":
+			var req spawnRequest
+			_ = json.NewDecoder(r.Body).Decode(&req)
+			if !req.OneShot {
+				t.Fatalf("spawn request = %#v, want oneShot true", req)
+			}
+			_, _ = io.WriteString(w, `{"session":{"id":"demo-9","status":"idle"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sessions/demo-9":
+			polls++
+			if polls < 2 {
+				_, _ = io.WriteString(w, `{"session":{"id":"demo-9","status":"running","isTerminated":false}}`)
+				return
+			}
+			_, _ = io.WriteString(w, `{"session":{"id":"demo-9","status":"terminated","isTerminated":true}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	out, errOut, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }},
+		"spawn", "--project", "demo", "--name", "worker", "--oneshot", "--wait")
+	if err != nil {
+		t.Fatalf("spawn --oneshot --wait failed: %v stderr=%s", err, errOut)
+	}
+	if !strings.Contains(out, "session demo-9 exited") {
+		t.Fatalf("output missing the exit line: %s", out)
+	}
+	if polls < 2 {
+		t.Fatalf("polled %d times, want at least 2 (one live, one terminated)", polls)
+	}
+}
+
+func TestSpawnWaitTimesOut(t *testing.T) {
+	cfg := setConfigEnv(t)
+	restore := sessionWaitPollInterval
+	sessionWaitPollInterval = time.Millisecond
+	t.Cleanup(func() { sessionWaitPollInterval = restore })
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		switch {
+		case r.Method == http.MethodPost && r.URL.Path == "/api/v1/sessions":
+			_, _ = io.WriteString(w, `{"session":{"id":"demo-9","status":"idle"}}`)
+		case r.Method == http.MethodGet && r.URL.Path == "/api/v1/sessions/demo-9":
+			_, _ = io.WriteString(w, `{"session":{"id":"demo-9","status":"running","isTerminated":false}}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	t.Cleanup(srv.Close)
+	writeRunFileFor(t, cfg, srv)
+
+	_, _, err := executeCLI(t, Deps{ProcessAlive: func(int) bool { return true }},
+		"spawn", "--project", "demo", "--name", "worker", "--oneshot", "--wait", "--wait-timeout", "10ms")
+	if err == nil {
+		t.Fatal("expected a timeout error")
+	}
+	if !strings.Contains(err.Error(), "demo-9") {
+		t.Fatalf("timeout error = %v, want it to name the session", err)
+	}
+}
+
+func TestSpawnWaitRequiresOneShot(t *testing.T) {
+	var out, errb bytes.Buffer
+	root := NewRootCommand(Deps{Out: &out, Err: &errb})
+	root.SetArgs([]string{"spawn", "--project", "demo", "--name", "worker", "--wait"})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "--wait requires --oneshot") {
+		t.Fatalf("err = %v, want it to mention --wait requires --oneshot", err)
 	}
 }

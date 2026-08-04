@@ -527,6 +527,10 @@ type SpawnSessionRequest struct {
 	// `ao spawn --name` always sets it; other clients (e.g. the desktop new-task
 	// dialog) may omit it and fall back to the session id in the read model.
 	DisplayName string `json:"displayName,omitempty" maxLength:"20"`
+	// OneShot runs the agent headlessly: it executes the prompt to completion
+	// and exits, instead of holding an interactive session open. The session is
+	// otherwise ordinary, so it still appears with its own pane and sidebar row.
+	OneShot bool `json:"oneShot,omitempty"`
 }
 
 // SessionResponse is the { session } body shared by session create/get.
