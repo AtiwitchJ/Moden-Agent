@@ -2,6 +2,20 @@ package tmux
 
 import "fmt"
 
+// MessageEndSentinel terminates a message the tmux runtime sends into a
+// session's stdin. The Director splits whole inbound messages on this
+// string instead of relying on a quiet window; the previous design
+// truncated large handoffs (>300ms between tmux chunks) into partial
+// turns, so the model saw an incomplete report and could not act on it.
+const MessageEndSentinel = "\n.AO_MSG_END.\n"
+
+// wrapMessageWithSentinel appends MessageEndSentinel to a message body so
+// the receiver can split on a known terminator instead of inferring end-of-
+// message from chunk timing.
+func wrapMessageWithSentinel(message string) string {
+	return message + MessageEndSentinel
+}
+
 // newSessionArgs builds args for `tmux new-session -d -s <id> -x 220 -y 50
 // -c <cwd> <shell> -c <launchCmd>`. The shell -c form runs the launch command
 // inside the configured shell so exported env vars and quoting work correctly.

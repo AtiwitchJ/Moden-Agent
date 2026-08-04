@@ -461,8 +461,9 @@ func TestSendMessageChunksAndSendsEnter(t *testing.T) {
 	if got, want := fr.calls[1].args, sendKeysLiteralArgs("sess-1", "世"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("chunk 2 args = %#v, want %#v", got, want)
 	}
-	if got, want := fr.calls[2].args, sendKeysLiteralArgs("sess-1", "界"); !reflect.DeepEqual(got, want) {
-		t.Fatalf("chunk 3 args = %#v, want %#v", got, want)
+	// Last chunk carries the sentinel so the Director can split whole messages.
+	if got, want := fr.calls[2].args, sendKeysLiteralArgs("sess-1", wrapMessageWithSentinel("界")); !reflect.DeepEqual(got, want) {
+		t.Fatalf("chunk 3 args = %#v, want %#v (with sentinel)", got, want)
 	}
 	if got, want := fr.calls[3].args, sendEnterArgs("sess-1"); !reflect.DeepEqual(got, want) {
 		t.Fatalf("Enter args = %#v, want %#v", got, want)

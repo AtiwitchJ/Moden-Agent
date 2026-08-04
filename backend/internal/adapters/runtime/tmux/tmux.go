@@ -200,8 +200,17 @@ func (r *Runtime) SendMessage(ctx context.Context, handle ports.RuntimeHandle, m
 	if err != nil {
 		return err
 	}
-	for _, chunk := range chunks(message, r.chunkSize) {
-		if _, err := r.run(ctx, sendKeysLiteralArgs(id, chunk)...); err != nil {
+	msgChunks := chunks(message, r.chunkSize)
+	for i, chunk := range msgChunks {
+		var toSend string
+		if i == len(msgChunks)-1 {
+			// The last chunk carries the sentinel so the Director can split
+			// whole messages instead of relying on chunk timing.
+			toSend = wrapMessageWithSentinel(chunk)
+		} else {
+			toSend = chunk
+		}
+		if _, err := r.run(ctx, sendKeysLiteralArgs(id, toSend)...); err != nil {
 			return fmt.Errorf("tmux runtime: send message %s: %w", id, err)
 		}
 	}
