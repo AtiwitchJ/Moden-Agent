@@ -461,8 +461,14 @@ func resolveSystemPrompt(cfg ports.LaunchConfig) (string, error) {
 //     safe filesystem bash; still prompts for network/system bash, MCP, web)
 //   - auto               → --permission-mode auto (classifier-gated
 //     auto-approval; auto-runs what a safety model deems safe)
-//   - bypass-permissions → --permission-mode bypassPermissions (skip all
-//     checks; equivalent to --dangerously-skip-permissions)
+//   - bypass-permissions → --dangerously-skip-permissions, NOT
+//     --permission-mode bypassPermissions. They are not equivalent for an
+//     unattended launch: --permission-mode bypassPermissions still renders a
+//     one-time interactive "WARNING: Claude Code running in Bypass
+//     Permissions mode … Yes, I accept / No, exit" gate on first use, which
+//     nothing answers on a spawned worker session — confirmed live, the
+//     agent just sits there forever. --dangerously-skip-permissions bypasses
+//     that gate entirely and was otherwise indistinguishable in testing.
 //
 // Empty/unrecognized normalizes to default, so no flag is emitted.
 func appendPermissionFlags(cmd *[]string, permissions ports.PermissionMode) {
@@ -474,7 +480,7 @@ func appendPermissionFlags(cmd *[]string, permissions ports.PermissionMode) {
 	case ports.PermissionModeAuto:
 		*cmd = append(*cmd, "--permission-mode", "auto")
 	case ports.PermissionModeBypassPermissions:
-		*cmd = append(*cmd, "--permission-mode", "bypassPermissions")
+		*cmd = append(*cmd, "--dangerously-skip-permissions")
 	}
 }
 
