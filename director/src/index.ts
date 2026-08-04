@@ -7,7 +7,7 @@ import { IterationBudget } from "./budget.js";
 import { loadConfig } from "./config.js";
 import { reportExited } from "./exit_report.js";
 import { loadGitWorkflowSkill } from "./git_workflow.js";
-import { inboundInstruction } from "./inbound.js";
+import { extractMessages, inboundInstruction } from "./inbound.js";
 import { createDirectorModel } from "./model.js";
 import { directorSystemPrompt } from "./prompt.js";
 import {
@@ -176,27 +176,22 @@ async function main(): Promise<void> {
 	// open turns the Director terminal into a control channel: a worker's
 	// `ao send` message is a new model turn, not text lost at a shell prompt.
 	//
-	// One `ao send` arrives as several stdin chunks (tmux send-keys is chunked,
-	// then Enter). Buffer until the message stops arriving, so a multi-line
-	// handoff report reaches the model whole instead of one turn per line.
-	//
-	// ponytail: a fixed quiet window, not a framed protocol. The ceiling is a
-	// message that stalls mid-flight for longer than the window arriving as two
-	// turns. Upgrade path: have `ao send` frame messages with an explicit
-	// terminator the Director splits on.
-	const INBOUND_QUIET_MS = 300;
+	// The tmux runtime (backend/internal/adapters/runtime/tmux/commands.go)
+	// appends MESSAGE_END_SENTINEL to the last chunk of every outbound
+	// message. We split on the sentinel instead of timing: a quiet window
+	// truncates messages whose tmux chunks arrive further apart than the
+	// window, which is every large handoff — the model would see a partial
+	// report and could not act on it.
 	process.stdin.setEncoding("utf8");
 	let pendingInput = "";
-	let flushTimer: NodeJS.Timeout | undefined;
-	const flushInbound = () => {
-		const message = pendingInput.trim();
-		pendingInput = "";
-		if (message !== "" && !terminalCard) enqueue(inboundInstruction(message));
-	};
 	process.stdin.on("data", (chunk: string) => {
 		pendingInput += chunk;
-		if (flushTimer) clearTimeout(flushTimer);
-		flushTimer = setTimeout(flushInbound, INBOUND_QUIET_MS);
+		const { messages, remainder } = extractMessages(pendingInput);
+		pendingInput = remainder;
+		for (const message of messages) {
+			const trimmed = message.trim();
+			if (trimmed !== "" && !terminalCard) enqueue(inboundInstruction(trimmed));
+		}
 	});
 	process.stdin.resume();
 	await finished;

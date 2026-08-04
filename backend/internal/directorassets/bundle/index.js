@@ -115607,6 +115607,7 @@ ${skill}`;
 }
 
 // src/inbound.ts
+var MESSAGE_END_SENTINEL = "\n.AO_MSG_END.\n";
 function inboundInstruction(message) {
   return `A worker session sent this message on your terminal channel:
 
@@ -115617,6 +115618,17 @@ Decide what it is before you act:
 - A question or a blocker: resolve it, then reply with the answer_worker tool.
 - A phase handoff report (a completed phase, its changed files, checks and their results, commit or PR, and the next phase's focus): verify it against the live card with show_card, then either start the next phase's worker or advance the card with transition_card. Do not reply with answer_worker to a report that asks you nothing.
 - Neither: read the card and continue driving it.`;
+}
+function extractMessages(buffer) {
+  const messages = [];
+  let start = 0;
+  while (true) {
+    const idx = buffer.indexOf(MESSAGE_END_SENTINEL, start);
+    if (idx === -1) break;
+    messages.push(buffer.slice(start, idx));
+    start = idx + MESSAGE_END_SENTINEL.length;
+  }
+  return { messages, remainder: buffer.slice(start) };
 }
 
 // node_modules/@langchain/anthropic/dist/output_parsers.js
@@ -135638,19 +135650,16 @@ You are supervised by Director session ${cfg.sessionId}. If your CLI asks a ques
   };
   const opening = cfg.prompt.trim() || `Drive work card ${cfg.cardId} to completion.`;
   enqueue(opening);
-  const INBOUND_QUIET_MS = 300;
   process.stdin.setEncoding("utf8");
   let pendingInput = "";
-  let flushTimer;
-  const flushInbound = () => {
-    const message = pendingInput.trim();
-    pendingInput = "";
-    if (message !== "" && !terminalCard) enqueue(inboundInstruction(message));
-  };
   process.stdin.on("data", (chunk) => {
     pendingInput += chunk;
-    if (flushTimer) clearTimeout(flushTimer);
-    flushTimer = setTimeout(flushInbound, INBOUND_QUIET_MS);
+    const { messages: messages2, remainder } = extractMessages(pendingInput);
+    pendingInput = remainder;
+    for (const message of messages2) {
+      const trimmed = message.trim();
+      if (trimmed !== "" && !terminalCard) enqueue(inboundInstruction(trimmed));
+    }
   });
   process.stdin.resume();
   await finished;
