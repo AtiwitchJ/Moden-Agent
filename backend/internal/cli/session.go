@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"net/url"
+	"os"
 	"sort"
 	"strings"
 	"time"
@@ -147,7 +148,40 @@ func newSessionCommand(ctx *commandContext) *cobra.Command {
 	cmd.AddCommand(newSessionRenameCommand(ctx))
 	cmd.AddCommand(newSessionCleanupCommand(ctx))
 	cmd.AddCommand(newSessionClaimPRCommand(ctx))
+	cmd.AddCommand(newSessionMarkExitedCommand(ctx))
 	return cmd
+}
+
+func newSessionMarkExitedCommand(ctx *commandContext) *cobra.Command {
+	return &cobra.Command{
+		Use:    "mark-exited",
+		Short:  "Report that this session's own agent process is exiting (internal)",
+		Hidden: true,
+		Args:   noArgs,
+		RunE: func(cmd *cobra.Command, _ []string) error {
+			return ctx.markSessionExited(cmd.Context())
+		},
+	}
+}
+
+// markSessionExited lets a fully autonomous agent (the Director) report its
+// own exit right before it happens, on every exit path — success, blocked, or
+// a crash. It self-targets via AO_SESSION_ID, the same way `ao hooks` derives
+// which session a callback belongs to.
+//
+// Best-effort by design, mirroring runHook in hooks.go: a failed report must
+// never fail the agent's own exit. Daemon-restart crash recovery
+// independently catches a process that died without reporting at all — this
+// only closes the far more common case where the daemon keeps running for a
+// long time and nothing else ever observes the exit, permanently blocking the
+// project from starting another Director.
+func (c *commandContext) markSessionExited(ctx context.Context) error {
+	sessionID := strings.TrimSpace(os.Getenv("AO_SESSION_ID"))
+	if !sessionIDPattern.MatchString(sessionID) {
+		return nil
+	}
+	_ = c.postJSON(ctx, "sessions/"+url.PathEscape(sessionID)+"/exited", struct{}{}, nil)
+	return nil
 }
 
 func newSessionListCommand(ctx *commandContext) *cobra.Command {

@@ -807,6 +807,12 @@ type SetActivityResponse struct {
 	State     string           `json:"state"`
 }
 
+// ExitedResponse is the body of POST /api/v1/sessions/{sessionId}/exited.
+type ExitedResponse struct {
+	OK        bool             `json:"ok"`
+	SessionID domain.SessionID `json:"sessionId"`
+}
+
 // OrchestratorIDParam is the {id} path parameter for orchestrator routes.
 type OrchestratorIDParam struct {
 	ID string `path:"id" description:"Orchestrator session identifier, e.g. project-orchestrator."`

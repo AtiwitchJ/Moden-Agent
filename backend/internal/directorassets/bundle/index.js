@@ -114799,6 +114799,40 @@ function loadConfig(env) {
   return { model, cardId, sessionId, prompt: (env.AO_PROMPT ?? "").trim(), maxIterations };
 }
 
+// src/tools.ts
+function buildShowCardArgv(cardId) {
+  return ["workboard", "card", "show", cardId, "--json"];
+}
+function buildTransitionArgv(cardId, to, reason) {
+  if (reason.trim() === "") {
+    throw new Error("a transition reason is required");
+  }
+  return ["workboard", "card", "transition", cardId, "--to", to, "--reason", reason];
+}
+function buildSpawnWorkerArgv(agent, prompt) {
+  return ["spawn", "--agent", agent, "--prompt", prompt];
+}
+function buildSendWorkerAnswerArgv(sessionId, answer) {
+  if (sessionId.trim() === "") throw new Error("a worker session id is required");
+  if (answer.trim() === "") throw new Error("an answer is required");
+  return ["send", "--session", sessionId, "--message", answer];
+}
+async function runAo(run, argv) {
+  const { code, stdout, stderr } = await run(argv);
+  if (code !== 0) {
+    throw new Error(`ao ${argv.join(" ")} failed (exit ${code}): ${stderr.trim() || stdout.trim()}`);
+  }
+  return stdout;
+}
+
+// src/exit_report.ts
+async function reportExited(run) {
+  try {
+    await runAo(run, ["session", "mark-exited"]);
+  } catch {
+  }
+}
+
 // src/git_workflow.ts
 import { readFile as readFile2 } from "node:fs/promises";
 import { join as join2 } from "node:path";
@@ -134724,32 +134758,6 @@ If the work is ambiguous, a check cannot run, a worker fails, or you need a huma
 Do this **as soon as you identify the blocker**, not after deliberating about it. Your iteration budget is finite. A blocked card carrying a precise question is a good outcome; a session that exhausts its budget while thinking about the question leaves the card stuck and tells the human nothing. Never end a run without the card in a terminal state or a recorded blocked reason.`;
 }
 
-// src/tools.ts
-function buildShowCardArgv(cardId) {
-  return ["workboard", "card", "show", cardId, "--json"];
-}
-function buildTransitionArgv(cardId, to, reason) {
-  if (reason.trim() === "") {
-    throw new Error("a transition reason is required");
-  }
-  return ["workboard", "card", "transition", cardId, "--to", to, "--reason", reason];
-}
-function buildSpawnWorkerArgv(agent, prompt) {
-  return ["spawn", "--agent", agent, "--prompt", prompt];
-}
-function buildSendWorkerAnswerArgv(sessionId, answer) {
-  if (sessionId.trim() === "") throw new Error("a worker session id is required");
-  if (answer.trim() === "") throw new Error("an answer is required");
-  return ["send", "--session", sessionId, "--message", answer];
-}
-async function runAo(run, argv) {
-  const { code, stdout, stderr } = await run(argv);
-  if (code !== 0) {
-    throw new Error(`ao ${argv.join(" ")} failed (exit ${code}): ${stderr.trim() || stdout.trim()}`);
-  }
-  return stdout;
-}
-
 // src/index.ts
 var runner = (argv) => new Promise((resolve4, reject) => {
   const child = spawn2("ao", argv, { stdio: ["ignore", "pipe", "pipe"] });
@@ -134886,6 +134894,7 @@ You are supervised by Director session ${cfg.sessionId}. If your CLI asks a ques
   process.stdin.resume();
   await finished;
   process.stdin.pause();
+  await reportExited(runner);
 }
 function isFinished(result) {
   const msgs = result.messages ?? [];
@@ -134896,11 +134905,12 @@ function summarize(messages) {
   const last = messages[messages.length - 1];
   return (last?.content ?? "").slice(0, 500);
 }
-main().catch((err) => {
+main().catch(async (err) => {
   console.error(
     `director: ${err instanceof Error ? err.message : String(err)}`
   );
   process.exitCode = 1;
+  await reportExited(runner);
 });
 /*! Bundled license information:
 

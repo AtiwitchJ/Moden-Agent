@@ -29,6 +29,7 @@ type APIDeps struct {
 	Org                orgsvc.Manager
 	Sessions           controllers.SessionService
 	Activity           controllers.ActivityRecorder
+	ExitReporter       controllers.ExitReporter
 	Messages           controllers.MessageService
 	PRs                prsvc.ActionManager
 	Reviews            reviewsvc.Manager
@@ -82,8 +83,9 @@ func NewAPI(cfg config.Config, deps APIDeps) *API {
 			Mgr: deps.Org,
 		},
 		sessions: &controllers.SessionsController{
-			Svc:      deps.Sessions,
-			Activity: deps.Activity,
+			Svc:          deps.Sessions,
+			Activity:     deps.Activity,
+			ExitReporter: deps.ExitReporter,
 		},
 		messages:      &controllers.MessagesController{Svc: deps.Messages},
 		prs:           &controllers.PRsController{Svc: deps.PRs},

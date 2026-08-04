@@ -207,6 +207,7 @@ var schemaNames = map[string]string{
 	"ControllersListSessionPRsResponse":           "ListSessionPRsResponse",
 	"ControllersSetActivityRequest":               "SetActivityRequest",
 	"ControllersSetActivityResponse":              "SetActivityResponse",
+	"ControllersExitedResponse":                   "ExitedResponse",
 	"ControllersSpawnOrchestratorRequest":         "SpawnOrchestratorRequest",
 	"ControllersSpawnOrchestratorResponse":        "SpawnOrchestratorResponse",
 	"ControllersOrchestratorResponse":             "OrchestratorResponse",
@@ -1189,6 +1190,17 @@ func sessionOperations() []operation {
 			resps: []respUnit{
 				{http.StatusOK, controllers.SetActivityResponse{}},
 				{http.StatusBadRequest, envelope.APIError{}},
+				{http.StatusNotFound, envelope.APIError{}},
+				{http.StatusInternalServerError, envelope.APIError{}},
+				{http.StatusNotImplemented, envelope.APIError{}},
+			},
+		},
+		{
+			method: http.MethodPost, path: "/api/v1/sessions/{sessionId}/exited", id: "reportSessionExited", tag: "sessions",
+			summary:    "Report that this session's own agent process is exiting",
+			pathParams: []any{controllers.SessionIDParam{}},
+			resps: []respUnit{
+				{http.StatusOK, controllers.ExitedResponse{}},
 				{http.StatusNotFound, envelope.APIError{}},
 				{http.StatusInternalServerError, envelope.APIError{}},
 				{http.StatusNotImplemented, envelope.APIError{}},

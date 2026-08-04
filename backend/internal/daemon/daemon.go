@@ -238,6 +238,7 @@ func Run() error {
 		CDC:                store,
 		Events:             cdcPipe.Broadcaster,
 		Activity:           lcStack.LCM,
+		ExitReporter:       lcStack.LCM,
 		Telemetry:          telemetrySink,
 	})
 	if err != nil {

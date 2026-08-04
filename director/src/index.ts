@@ -5,6 +5,7 @@ import { z } from "zod";
 import { loadADHDSkill } from "./adhd.js";
 import { IterationBudget } from "./budget.js";
 import { loadConfig } from "./config.js";
+import { reportExited } from "./exit_report.js";
 import { loadGitWorkflowSkill } from "./git_workflow.js";
 import { inboundInstruction } from "./inbound.js";
 import { createDirectorModel } from "./model.js";
@@ -188,6 +189,7 @@ async function main(): Promise<void> {
 	process.stdin.resume();
 	await finished;
 	process.stdin.pause();
+	await reportExited(runner);
 }
 
 /** DeepAgents returns when the model stops requesting tools; treat the absence
@@ -207,9 +209,10 @@ function summarize(
 	return (last?.content ?? "").slice(0, 500);
 }
 
-main().catch((err: unknown) => {
+main().catch(async (err: unknown) => {
 	console.error(
 		`director: ${err instanceof Error ? err.message : String(err)}`,
 	);
 	process.exitCode = 1;
+	await reportExited(runner);
 });

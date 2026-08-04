@@ -57,11 +57,22 @@ type ActivityRecorder interface {
 	ApplyActivitySignal(ctx context.Context, id domain.SessionID, s ports.ActivitySignal) error
 }
 
+// ExitReporter marks a session terminated without tearing down its runtime or
+// workspace. Satisfied directly by *lifecycle.Manager — same rationale as
+// ActivityRecorder: an agent process reporting its own exit is a pure
+// lifecycle reduction, not a session-service operation. Unlike Kill, it never
+// destroys the runtime: the reporting process's own pane would be the thing
+// destroyed, out from under the very call reporting it.
+type ExitReporter interface {
+	MarkTerminated(ctx context.Context, id domain.SessionID) error
+}
+
 // SessionsController owns the session routes. Nil keeps routes registered but
 // returns OpenAPI-backed 501s.
 type SessionsController struct {
-	Svc      SessionService
-	Activity ActivityRecorder
+	Svc          SessionService
+	Activity     ActivityRecorder
+	ExitReporter ExitReporter
 }
 
 // Register mounts the session routes on the supplied router.
@@ -83,6 +94,7 @@ func (c *SessionsController) Register(r chi.Router) {
 	r.Post("/sessions/{sessionId}/rollback", c.rollback)
 	r.Post("/sessions/{sessionId}/send", c.send)
 	r.Post("/sessions/{sessionId}/activity", c.activity)
+	r.Post("/sessions/{sessionId}/exited", c.exited)
 	r.Get("/orchestrators", c.listOrchestrators)
 	r.Post("/orchestrators", c.spawnOrchestrator)
 	r.Get("/orchestrators/{id}", c.getOrchestrator)
@@ -467,6 +479,31 @@ func (c *SessionsController) activity(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	envelope.WriteJSON(w, http.StatusOK, SetActivityResponse{OK: true, SessionID: sessionID(r), State: in.State})
+}
+
+// exited lets an agent process report its own exit (via `ao session
+// mark-exited`, called from the agent itself right before it exits). It never
+// tears down the runtime or workspace: the caller's own pane is what would be
+// destroyed, out from under the process making the call. This closes the gap
+// a fully autonomous agent (the Director) hits every time it finishes
+// normally — nothing else observes that exit while the daemon keeps running,
+// so a stale, still-"live" session row would otherwise block the project from
+// ever starting another one. Daemon-restart crash recovery independently
+// catches the case where the process died without reporting at all.
+func (c *SessionsController) exited(w http.ResponseWriter, r *http.Request) {
+	if c.ExitReporter == nil {
+		apispec.NotImplemented(w, r, "POST", "/api/v1/sessions/{sessionId}/exited")
+		return
+	}
+	if err := c.ExitReporter.MarkTerminated(r.Context(), sessionID(r)); err != nil {
+		if errors.Is(err, ports.ErrSessionNotFound) {
+			envelope.WriteAPIError(w, r, http.StatusNotFound, "not_found", "SESSION_NOT_FOUND", "Unknown session", nil)
+			return
+		}
+		envelope.WriteError(w, r, err)
+		return
+	}
+	envelope.WriteJSON(w, http.StatusOK, ExitedResponse{OK: true, SessionID: sessionID(r)})
 }
 
 func (c *SessionsController) spawnOrchestrator(w http.ResponseWriter, r *http.Request) {

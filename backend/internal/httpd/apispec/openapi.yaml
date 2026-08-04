@@ -1821,6 +1821,45 @@ paths:
       summary: Report an agent activity-state signal for a session
       tags:
       - sessions
+  /api/v1/sessions/{sessionId}/exited:
+    post:
+      operationId: reportSessionExited
+      parameters:
+      - description: Session identifier, e.g. project-1.
+        in: path
+        name: sessionId
+        required: true
+        schema:
+          description: Session identifier, e.g. project-1.
+          type: string
+      responses:
+        "200":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/ExitedResponse'
+          description: OK
+        "404":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Found
+        "500":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Internal Server Error
+        "501":
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/APIError'
+          description: Not Implemented
+      summary: Report that this session's own agent process is exiting
+      tags:
+      - sessions
   /api/v1/sessions/{sessionId}/kill:
     post:
       operationId: killSession
@@ -3488,6 +3527,16 @@ components:
           type: string
       required:
       - projectId
+      type: object
+    ExitedResponse:
+      properties:
+        ok:
+          type: boolean
+        sessionId:
+          type: string
+      required:
+      - ok
+      - sessionId
       type: object
     FileRef:
       properties:
