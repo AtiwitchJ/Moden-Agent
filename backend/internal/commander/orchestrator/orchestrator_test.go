@@ -412,6 +412,71 @@ func TestReportVerdict_TestingPass_TransitionsToDone(t *testing.T) {
 	}
 }
 
+// TestTick_RedoCardWithNoSession_RespawnsAndReturnsToRunning covers the
+// requested behavior: redo is a queue like todo, not a resting state. Once
+// Tick starts a fresh coding attempt for a redo card, the card must move back
+// to running immediately — the same way a todo card becomes running the
+// moment dispatch claims and spawns it — instead of sitting under "redo"
+// for the whole retry.
+func TestTick_RedoCardWithNoSession_RespawnsAndReturnsToRunning(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "redo")
+	store.cards[c.ID] = c
+
+	if err := oc.Tick(context.Background(), "p1"); err != nil {
+		t.Fatalf("Tick: %v", err)
+	}
+
+	if len(sp.spawned) != 1 {
+		t.Fatalf("spawned count = %d, want 1", len(sp.spawned))
+	}
+	if sp.spawned[0].Spec.Phase != commander.PhaseCoding {
+		t.Fatalf("spawned phase = %v, want PhaseCoding", sp.spawned[0].Spec.Phase)
+	}
+	got := store.cards["c1"]
+	if got.Status != domain.CardStatusRunning {
+		t.Fatalf("card status = %q, want running once the retry has started", got.Status)
+	}
+}
+
+// TestTick_RedoCardSpawnFailure_StaysInRedoForRetry proves a failed respawn
+// leaves the card in redo rather than falsely marking it running, so the next
+// tick retries it exactly like a todo card whose spawn just failed.
+func TestTick_RedoCardSpawnFailure_StaysInRedoForRetry(t *testing.T) {
+	store := newFakeStore()
+	sp := &fakeSpawner{spawnErr: errors.New("spawn boom")}
+	now := time.Date(2026, time.August, 3, 10, 0, 0, 0, time.UTC)
+	oc := New(Config{
+		Store:    store,
+		Spawner:  sp,
+		Clock:    func() time.Time { return now },
+		NewID:    func() string { return "ev-1" },
+		WIPLimit: 4,
+	})
+
+	c := card("c1", "p1", "redo")
+	store.cards[c.ID] = c
+
+	if err := oc.Tick(context.Background(), "p1"); err == nil {
+		t.Fatal("Tick: want an error when the respawn fails")
+	}
+
+	got := store.cards["c1"]
+	if got.Status != domain.CardStatusRedo {
+		t.Fatalf("card status = %q, want redo (unchanged) after a failed respawn", got.Status)
+	}
+}
+
 func TestTick_WIPAtLimit_RefusesNewSpawn(t *testing.T) {
 	store := newFakeStore()
 	sp := &fakeSpawner{}

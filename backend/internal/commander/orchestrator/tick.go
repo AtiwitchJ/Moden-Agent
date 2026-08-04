@@ -79,6 +79,18 @@ func (o *ConfiguredOrchestrator) tickActiveCards(ctx context.Context, cards []do
 				if err := o.spawnCodingSession(ctx, card, cycle); err != nil {
 					return err
 				}
+				// redo is a queue, not a resting state — mirrors how a todo
+				// card becomes running the moment dispatch claims and spawns
+				// it. Flipped only after a successful spawn: a failed one
+				// leaves the card in redo so the next tick retries it.
+				if err := domain.ValidateWorkflowTransition(card.Status, domain.CardStatusRunning, "hermes-director"); err != nil {
+					return fmt.Errorf("validate redo→running for %s: %w", card.ID, err)
+				}
+				card.Status = domain.CardStatusRunning
+				card.UpdatedAt = o.clock()
+				if err := o.store.UpdateWorkCard(ctx, card); err != nil {
+					return fmt.Errorf("update card %s to running after redo respawn: %w", card.ID, err)
+				}
 			}
 		}
 	}
