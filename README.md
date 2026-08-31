@@ -1,18 +1,18 @@
 <div align="center">
 
-<p style="text-align: center;"><img src="docs/assets/modern_agent_logo.png" alt="Modern Agent" width="200" height="200" style="max-width: 100%; height: auto; margin-left: 50px;" /></p>
+<p align="center"><img src="docs/assets/modern_agent_logo.png" alt="Modern Agent" width="180" height="180" /></p>
 
 # Modern Agent
 
 **The orchestration layer for parallel AI coding agents**
 
-[![Stars](https://img.shields.io/github/stars/ModernAgent/modern-agent)](https://github.com/ModernAgent/modern-agent/stargazers)
-[![Contributors](https://img.shields.io/github/contributors/ModernAgent/modern-agent)](https://github.com/ModernAgent/modern-agent/graphs/contributors)
+[![Stars](https://img.shields.io/github/stars/modernagent/modern-agent)](https://github.com/modernagent/modern-agent/stargazers)
+[![Contributors](https://img.shields.io/github/contributors/modernagent/modern-agent)](https://github.com/modernagent/modern-agent/graphs/contributors)
 [![Twitter](https://img.shields.io/badge/Twitter-1DA1F2?logo=twitter&logoColor=white)](https://x.com/modernagent)
 [![Discord](https://img.shields.io/badge/Discord-join%20the%20community-5865F2?logo=discord&logoColor=white)](https://discord.com/invite/UZv7JjxbwG)
 [![License: Apache-2.0](https://img.shields.io/badge/License-Apache--2.0-blue.svg)](https://www.apache.org/licenses/LICENSE-2.0)
 
-An Agentic IDE that supervises parallel AI coding agents in isolated workspaces, with complete control and automatic feedback loops from CI failures, review comments, and merge conflicts.
+An Agentic IDE that supervises parallel AI coding agents in isolated workspaces, with complete control, workboard orchestration, and automatic feedback loops from CI failures, review comments, and merge conflicts.
 
 ![Modern Agent Dashboard](docs/assets/modern_agent_dashboard.png)
 
@@ -22,44 +22,42 @@ An Agentic IDE that supervises parallel AI coding agents in isolated workspaces,
 
 ## What is Modern Agent?
 
-Modern Agent is a meta-harness agent IDE for running AI coding agents in parallel. It gives terminal-based agents like Claude Code, Codex, Cursor, Aider, Goose, and others a shared workspace where their sessions, terminals, branches, pull requests, and feedback loops can be supervised from one place.
+Modern Agent is a meta-harness agent IDE for running AI coding agents in parallel. It gives terminal-based agents like Claude Code, OpenAI Codex, Cursor, OpenCode, Aider, Goose, and 20+ others a shared workspace where their sessions, terminals, branches, pull requests, and feedback loops can be supervised from one place.
 
-The agents still do the coding. Modern Agent provides the harness around them: isolated workspaces, live terminal access, session state, PR awareness, and automatic loops that send CI failures, review comments, and merge conflicts back to the right agent. Instead of manually coordinating a pile of agent terminals, Modern Agent turns parallel agent work into a managed workflow.
+The agents still do the coding. Modern Agent provides the harness around them: isolated workspaces in git worktrees, live terminal multiplexing, durable session facts, PR awareness, workboard task orchestration, and automatic loops that send CI failures, review comments, and merge conflicts back to the right agent. Instead of manually juggling dozens of terminal windows, Modern Agent turns parallel agent work into a structured, observable workflow.
 
 ---
 
 ## Why Modern Agent?
 
-AI coding agents become much more useful when they can work in parallel, but parallel work gets messy quickly. Branches overlap, terminals get lost, CI failures need follow-up, review comments need replies, and merge conflicts have to reach the right worker.
+AI coding agents become exponentially more productive when working in parallel, but coordinating parallel work gets messy quickly. Branches overlap, terminals get lost, CI failures need follow-up, review comments need replies, and merge conflicts have to reach the right worker.
 
-Modern Agent is built to keep that loop visible and manageable. It helps you:
+Modern Agent is built to keep that loop visible, resilient, and manageable:
 
-- Start multiple agents from the same project without mixing their work
-- Keep every session in a separate git worktree
-- See which agents are working, waiting, finished, or blocked
-- Route CI failures, review comments, and merge conflicts back to the right session
-- Use different agent CLIs through one common supervisor
+- **Work in true isolation**: Every session spawns into its own dedicated git worktree and platform-native terminal runtime.
+- **Supervise across agents**: Run different agent CLIs side-by-side (e.g. Claude Code, Codex, Cursor, OpenCode, Antigravity) through a unified desktop supervisor and CLI.
+- **Automated feedback loops**: CI failures, human review comments, and merge conflicts are continuously observed and routed back as agent nudges.
+- **Workboard & Director orchestration**: Manage tasks with work cards, WIP limits, auto-dispatch, and autonomous multi-phase workflows (Plan, Build, Review, Test).
+- **Durable & crash-proof**: Durable facts are stored in SQLite with CDC event streaming, computing derived display status at read time.
 
 ---
 
 ## How it works
 
-At a high level, Modern Agent follows a simple loop:
+At a high level, Modern Agent follows a reactive feedback loop:
 
-1. Add a project you want agents to work on.
-2. Start one or more sessions from the desktop app or CLI.
-3. Modern Agent creates an isolated git worktree for each session.
-4. Modern Agent launches the selected coding agent in that session's terminal runtime.
-5. The local daemon watches session state, terminal activity, pull requests, CI, and review feedback.
-6. The desktop app and CLI show the current state and let you send follow-up instructions to the right session.
-
-The result is a local control layer for agentic coding: agents still do the coding, while Modern Agent keeps their workspaces, status, terminals, and feedback loops organized.
+1. **Add a project**: Register any local git repository with Modern Agent.
+2. **Spawn sessions**: Start one or more sessions from the desktop app, CLI (`ao spawn`), or the Workboard auto-dispatcher.
+3. **Isolated worktree**: Modern Agent creates an isolated git worktree for each session with a dedicated runtime (`tmux` on Darwin/Linux, `conpty` on Windows).
+4. **Launch agent**: The selected coding agent harness executes inside the session's terminal runtime.
+5. **Observe & broadcast**: The local daemon watches session state, terminal activity, pull requests, CI checks, and review feedback, streaming CDC updates over SSE.
+6. **Interact & steer**: The desktop app and `ao` CLI provide live terminal multiplexing, notifications, PR management, and follow-up steering.
 
 ---
 
 <div align="center">
 
-[What is Modern Agent?](#what-is-modern-agent) • [Why Modern Agent?](#why-modern-agent) • [How it works](#how-it-works) • [Features](#features) • [Quick Start](#quick-start) • [Architecture](#architecture) • [Documentation](#documentation) • [Contributing](#contributing)
+[What is Modern Agent?](#what-is-modern-agent) • [Why Modern Agent?](#why-modern-agent) • [How it works](#how-it-works) • [Features](#features) • [Supported Agents](#supported-agents) • [Quick Start](#quick-start) • [CLI Reference](#cli-reference) • [Architecture](#architecture) • [Configuration](#configuration) • [Documentation](#documentation) • [Contributing](#contributing)
 
 </div>
 
@@ -67,22 +65,54 @@ The result is a local control layer for agentic coding: agents still do the codi
 
 ## Features
 
-| Feature                        | Description                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-| :----------------------------- | :-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Agent-Agnostic Platform**    | 23+ agent adapters including [Claude Code](https://code.claude.com/docs/en/overview), [OpenAI Codex](https://openai.com/), [Cursor](https://cursor.com/), [OpenCode](https://opencode.ai/), [Aider](https://aider.chat/), [Amp](https://ampcode.com/manual), [Goose](https://goose-docs.ai/), [GitHub Copilot](https://github.com/features/copilot), [Grok](https://x.ai/grok), [Qwen Code](https://github.com/QwenLM/qwen-code), [Kimi Code](https://www.kimi.com/code), [Cline](https://cline.bot/), [Continue](https://www.continue.dev/), [Kiro](https://kiro.dev/), and more |
-| **Isolated Workspaces**        | Each session spawns into its own git worktree with dedicated runtime                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| **Platform-Native Runtimes**   | tmux on Darwin/Linux, conpty on Windows for optimal performance                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| **Tracker Intake**             | Auto-spawn worker sessions from matching GitHub issues assigned to you                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                            |
-| **Live PR Observation**        | Provider-neutral SCM observer scanning all project remotes with cross-fork support                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                |
-| **Automatic Feedback Routing** | CI failures, review comments, and merge conflicts routed to the owning agent                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
-| **Durable Facts Storage**      | SQLite persists immutable facts with display status derived at read time                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| **CDC Broadcasting**           | DB triggers append changes to change_log, broadcasted via SSE                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **Desktop Experience**         | Native Electron app with React UI and live terminal streaming                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
-| **Loopback-Only Daemon**       | HTTP control over 127.0.0.1 with no auth, CORS, or TLS by design                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Feature | Description |
+| :--- | :--- |
+| **Agent-Agnostic Platform** | **27 built-in agent adapters** including Claude Code, OpenAI Codex, Cursor, OpenCode, Antigravity (agy), Aider, Amp, Goose, GitHub Copilot, Grok, Qwen Code, Kimi Code, Cline, Continue, Devin, Droid, and custom commands |
+| **Director & Workboard** | Kanban workboard with card auto-dispatch, WIP limits, phase progression, and Director agent orchestration |
+| **Isolated Workspaces** | Each session runs in its own isolated git worktree with isolated branch and environment |
+| **Platform-Native Runtimes** | Native PTY multiplexing via `tmux` on Darwin/Linux and `conpty` on Windows over WebSocket (`/mux`) |
+| **Live PR Observation** | SCM observer with lazy GitHub auth, ETag-guarded polling, and semantic diffing across remotes and forks |
+| **Automatic Feedback Loops** | Automatic agent nudges for CI test failures, PR review comments, and merge conflicts |
+| **Durable Facts Storage** | SQLite persistence with goose migrations & sqlc queries; display status is derived at read time |
+| **CDC Broadcasting** | DB triggers capture changes into `change_log`, broadcasted in real time via Server-Sent Events (SSE) |
+| **Desktop Experience** | Electron + React 19 UI with TanStack Router/Query, Tailwind CSS, shadcn/Radix primitives, and xterm.js streaming |
+| **Notification Center** | In-app notification center and system alerts for `needs_input`, `ready_to_merge`, `pr_merged`, and unmerged closures |
+| **Thin CLI (`ao`)** | Comprehensive Cobra CLI client communicating strictly over loopback HTTP |
+| **Loopback-Only Daemon** | HTTP daemon bound strictly to `127.0.0.1` with no auth, CORS, or TLS required by design |
+
+---
 
 ### Supported Agents
 
-Works with 23+ CLI-based coding agents including Claude Code, OpenAI Codex, Cursor, OpenCode, Aider, Amp, Goose, GitHub Copilot, Grok, Qwen Code, Kimi Code, Crush, Cline, Droid, Devin, Auggie, Continue, Kiro, and Kilo Code.
+Modern Agent includes 27 built-in adapters for terminal and CLI-based coding agents:
+
+- **Anthropic Claude Code** (`claude-code`)
+- **OpenAI Codex** (`codex`)
+- **OpenCode** (`opencode`)
+- **Cursor Agent** (`cursor`)
+- **Antigravity** (`agy`)
+- **xAI Grok** (`grok`)
+- **Qwen Code** (`qwen`)
+- **GitHub Copilot CLI** (`copilot`)
+- **Moonshot Kimi Code** (`kimi`)
+- **Factory Droid** (`droid`)
+- **Amp** (`amp`)
+- **Crush** (`crush`)
+- **Aider** (`aider`)
+- **Block Goose** (`goose`)
+- **Augment Auggie** (`auggie`)
+- **Continue** (`continueagent`)
+- **Cognition Devin** (`devin`)
+- **Cline** (`cline`)
+- **Kiro** (`kiro`)
+- **Kilo Code** (`kilocode`)
+- **Mistral Vibe** (`vibe`)
+- **Pi** (`pi`)
+- **AutoHand** (`autohand`)
+- **OpenClaw** (`openclaw`)
+- **Hermes** (`hermes`)
+- **Director Agent** (`director`)
+- **Custom Command** (`command`)
 
 **If it runs in a terminal, it runs on Modern Agent.**
 
@@ -93,108 +123,185 @@ Works with 23+ CLI-based coding agents including Claude Code, OpenAI Codex, Curs
 ### Prerequisites
 
 | Requirement | Minimum | Recommended |
-| ----------- | ------- | ----------- |
-| Go          | 1.25+   | Latest      |
-| Node.js     | 20+     | Latest LTS  |
-| Git         | Any     | Latest      |
-| pnpm        | Any     | Latest      |
+| :--- | :--- | :--- |
+| **Go** | 1.25+ | Latest |
+| **Node.js** | 20+ | Latest LTS (22+) |
+| **Git** | 2.30+ | Latest |
+| **npm** / **pnpm** | npm 10+ / pnpm 9+ | Latest |
 
-**Optional:**
-
-- `tmux` (Darwin/Linux) - For Unix runtime
-- `gh` (GitHub CLI) - For authenticated GitHub API calls
+**Optional dependencies:**
+- `tmux` (macOS/Linux) — For Unix terminal runtime
+- `gh` (GitHub CLI) — For authenticated GitHub SCM observation
 
 ### Installation
 
-Download the latest release for your platform:
+Download the latest release for your platform from [Releases](https://github.com/modernagent/modern-agent/releases/latest):
 
-| Platform    | Download                                                                                          |
-| ----------- | ------------------------------------------------------------------------------------------------- |
-| **Windows** | [Setup.exe](https://github.com/ModernAgent/modern-agent/releases/latest)                   |
-| **macOS**   | [Modern Agent.dmg](https://github.com/ModernAgent/modern-agent/releases/latest)      |
-| **Linux**   | [Modern Agent.AppImage](https://github.com/ModernAgent/modern-agent/releases/latest) |
+| Platform | Download |
+| :--- | :--- |
+| **macOS** | [Modern Agent.dmg](https://github.com/modernagent/modern-agent/releases/latest) |
+| **Windows** | [Setup.exe](https://github.com/modernagent/modern-agent/releases/latest) |
+| **Linux** | [Modern Agent.AppImage](https://github.com/modernagent/modern-agent/releases/latest) / `.deb` / `.rpm` |
 
-**Direct Download:** [Latest Release](https://github.com/ModernAgent/modern-agent/releases/latest)
+### Running from Source
+
+```bash
+# 1. Clone the repository
+git clone https://github.com/modernagent/modern-agent.git
+cd modern-agent
+
+# 2. Build and start the backend daemon via ao CLI
+cd backend
+go run ./cmd/ao doctor    # Check environment health
+go run ./cmd/ao start     # Start daemon in background
+
+# 3. Launch the desktop frontend
+cd ../frontend
+npm install
+npm run dev               # Start Electron supervisor app
+```
 
 ---
 
-## Telemetry
+## CLI Reference
 
-Modern Agent collects minimal telemetry for reliability and product understanding. Data is stored locally by default; remote transmission is opt-in via environment variables. [Read the full telemetry policy](docs/telemetry.md).
+The `ao` command is a thin client that interacts with the local daemon via loopback HTTP:
+
+```bash
+# Daemon Lifecycle
+ao start                         # Start the daemon in the background
+ao stop                          # Gracefully stop the daemon
+ao status [--json]               # Check daemon process and health status
+ao doctor [--json]               # Run system diagnostic checks
+
+# Project & Session Management
+ao project add <path>            # Register a local repository as a project
+ao project ls                    # List registered projects
+ao spawn --project <id> --harness claude-code   # Spawn a new agent session
+ao session ls                    # List active and past sessions
+ao session get <session-id>      # View session details
+ao session kill <session-id>     # Terminate a running session
+ao session restore <session-id>  # Restore a terminated session
+ao session cleanup               # Clean up terminated sessions and worktrees
+ao send <session-id> "message"   # Send follow-up instruction to a session
+ao preview [url]                 # Open session web preview in inspector
+
+# Workboard & Orchestrator
+ao workboard get <card-id>       # Fetch work card status and details
+ao workboard card transition <card-id> --status <status>   # Transition card phase
+ao orchestrator ls               # List active orchestrators
+
+# Pull Requests & Reviews
+ao pr list                       # List open pull requests across sessions
+ao pr merge <pr-number>          # Merge an approved pull request
+ao pr resolve-comments <pr-num>  # Resolve review comments
+ao review list                   # List code reviews
+ao review execute <project-id>   # Trigger review on a project
+
+# Organization & Policy
+ao org status                    # Show multi-company / holding org hierarchy
+ao policy get <project-id>       # View approval gate policies
+```
 
 ---
 
 ## Architecture
 
-Modern Agent is a long-running Go daemon built around **inbound/outbound port contracts** with swappable adapters.
+Modern Agent follows a clear three-stage pipeline:
 
-**Core mental model:** OBSERVE external facts → UPDATE durable facts → DERIVE display status / ACT
-
-**Key components:**
-
-- **Frontend** - Electron + React UI with TanStack Router/Query and shadcn/ui
-- **Backend Daemon** - Go-based HTTP server with controllers, services, and adapters
-- **Runtime** - Platform-specific: `tmux` on Darwin/Linux, `conpty` on Windows
-- **Storage** - SQLite with change-data-capture (CDC) for real-time updates
-- **Adapters** - 23+ agent adapters, git worktree workspace, GitHub SCM integration
-
-For detailed architecture diagrams, data flows, and load-bearing rules, see [architecture.md](docs/architecture.md).
-
----
-
-## Documentation
-
-| Document                                                 | Description                                             |
-| -------------------------------------------------------- | ------------------------------------------------------- |
-| [Architecture](docs/architecture.md)                     | System architecture, data flows, and load-bearing rules |
-| [Backend Code Structure](docs/backend-code-structure.md) | Package-by-package ownership and dependency rules       |
-| [AGENTS.md](AGENTS.md)                                   | Contributor and worker-agent contract                   |
-
----
-
-## Testing
-
-```bash
-# Backend tests
-cd backend
-go test -race ./...
-
-# Frontend tests
-cd frontend
-pnpm test
-
-# Full CI validation locally
-npx @redwoodjs/agent-ci run --all
+```mermaid
+flowchart LR
+    A[OBSERVE<br/>External Facts] --> B[UPDATE<br/>Durable Facts]
+    B --> C[DERIVE<br/>Display Status / ACT]
 ```
+
+- **Frontend**: Electron + React 19 desktop application with TanStack Router/Query, Tailwind CSS, shadcn/Radix UI, and xterm.js terminal emulator.
+- **Backend Daemon**: Go daemon serving loopback REST endpoints, SSE event stream (`/api/v1/events`), and WebSocket terminal multiplexer (`/mux`).
+- **Runtime**: `tmux` on macOS/Linux and `conpty` on Windows for platform-native PTY management.
+- **Persistence**: SQLite with goose migrations; DB triggers capture changes into `change_log` for CDC streaming. Status is never stored—it is derived at read time from durable facts.
+- **Adapters**: 27 agent harness adapters, git worktree workspace manager, and GitHub SCM provider.
+
+For complete architectural details, see [docs/architecture.md](docs/architecture.md).
 
 ---
 
 ## Configuration
 
-All configuration is environment-driven. The daemon takes no config file.
+The daemon is configured entirely through environment variables with sensible defaults:
 
-| Variable              | Default              | Purpose                     |
-| --------------------- | -------------------- | --------------------------- |
-| `AO_PORT`             | `3001`               | HTTP bind port              |
-| `AO_REQUEST_TIMEOUT`  | `60s`                | Per-request timeout         |
-| `AO_SHUTDOWN_TIMEOUT` | `10s`                | Graceful shutdown cap       |
-| `AO_RUN_FILE`         | `~/.ao/running.json` | PID/port handshake          |
-| `AO_DATA_DIR`         | `~/.ao/data`         | SQLite data directory       |
-| `AO_AGENT`            | `claude-code`        | Compatibility agent adapter |
-| `GITHUB_TOKEN`        | -                    | GitHub auth token           |
+| Variable | Default | Purpose |
+| :--- | :--- | :--- |
+| `AO_PORT` | `3001` | Daemon loopback HTTP port |
+| `AO_DATA_DIR` | `~/.ao/data` | SQLite database and data directory |
+| `AO_RUN_FILE` | `~/.ao/running.json` | Daemon handshake and discovery file |
+| `AO_REQUEST_TIMEOUT` | `60s` | REST API request timeout |
+| `AO_SHUTDOWN_TIMEOUT` | `10s` | Graceful shutdown deadline |
+| `AO_AGENT` | `claude-code` | Default compatibility agent harness |
+| `AO_ALLOWED_ORIGINS` | `app://renderer` | CORS allowed origins (comma-separated) |
+| `AO_WEB_UI_DIR` | `~/.ao/web` | Static SPA directory served at `/` (if present) |
+| `AO_STALL_THRESHOLD` | `4m` | Inactivity threshold before flagging a session as stalled |
+| `AO_STALL_AUTOKILL` | `on` | Auto-kill confirmed-stalled sessions (`on` / `off`) |
+| `AO_ORG_HEARTBEAT` | `on` | Enable HQ heartbeat observer (`on` / `off`) |
+| `AO_TELEMETRY_EVENTS` | `off` | Local telemetry event logging (`off` / `on`) |
+| `AO_TELEMETRY_METRICS` | `off` | Local telemetry metric logging (`off` / `on`) |
+| `AO_TELEMETRY_REMOTE` | `off` | Remote telemetry exporter (`off` / `posthog`) |
+| `AO_TELEMETRY_POSTHOG_KEY` | - | PostHog project API key |
+| `AO_TELEMETRY_POSTHOG_HOST` | `https://us.i.posthog.com` | PostHog ingestion host |
+| `GITHUB_TOKEN` | - | GitHub personal access token for SCM observer |
 
 ### Health Checks
 
 ```bash
-curl localhost:3001/healthz   # Liveness probe
-curl localhost:3001/readyz    # Readiness probe
+curl http://127.0.0.1:3001/healthz   # Liveness probe
+curl http://127.0.0.1:3001/readyz    # Readiness probe
 ```
+
+---
+
+## Testing & Development
+
+```bash
+# Run all backend tests (with race detector)
+cd backend
+go test -race ./...
+go vet ./...
+
+# Run frontend typecheck and tests
+cd frontend
+npm run typecheck
+npm test
+
+# Repo-wide linting & code generation (from repo root)
+npm run lint                 # go test ./... + golangci-lint
+npm run frontend:typecheck   # Frontend TypeScript check
+npm run sqlc                 # Regenerate SQLite models and queries
+npm run api                  # Regenerate OpenAPI spec & TypeScript types
+```
+
+---
+
+## Telemetry
+
+Modern Agent collects minimal telemetry for reliability and product understanding. Data is stored locally by default; remote transmission is opt-in. Sensitive paths, project names, and credentials are automatically redacted or SHA-256 hashed before transmission. For full details, see [docs/telemetry.md](docs/telemetry.md).
+
+---
+
+## Documentation
+
+| Document | Description |
+| :--- | :--- |
+| [Architecture](docs/architecture.md) | In-depth system design, data flows, and architectural invariants |
+| [Backend Code Structure](docs/backend-code-structure.md) | Package ownership, service boundaries, and dependency hierarchy |
+| [CLI Reference](docs/cli/README.md) | Detailed documentation of `ao` CLI commands and flags |
+| [Status & Roadmap](docs/STATUS.md) | Current shipping status, feature breakdown, and upcoming roadmap |
+| [AGENTS.md](AGENTS.md) | Contributor and AI coding agent guidelines |
+| [Telemetry Policy](docs/telemetry.md) | Telemetry privacy boundaries and data redaction details |
 
 ---
 
 ## Contributing
 
-We love contributions! Join our community on Discord to get started.
+Contributions are welcome! Please join our Discord community to get started.
 
 ### Join us on Discord
 
@@ -202,35 +309,22 @@ We love contributions! Join our community on Discord to get started.
 
 **Daily contributor sync:** Every day at **10:00 PM IST**
 
-Get your issues verified by core contributors, ask questions, share progress, and learn from the community. New contributors are always welcome!
-
-**Why join Discord?**
-
-- Get your issues and PRs verified by core contributors before investing time
-- Learn from experienced contributors in daily sync calls
-- Share your progress and get feedback
-- Get help troubleshooting in real-time
-- Stay updated on the latest developments and roadmap
-
-### Quick Start
-
-1. **Join the Discord** - Connect with the community and get guidance
-2. **Read the contributor contract** - See [AGENTS.md](AGENTS.md) for repo layout, daemon/API boundaries, and coding conventions
-3. **Pick a focused problem** - Browse [open issues](https://github.com/ModernAgent/modern-agent/issues) and choose one small enough for a focused PR
-4. **Open a clear PR** - Keep changes narrow, explain user-visible impact, link issues, include tests
-5. **Iterate with contributors** - Use review feedback to tighten the PR until verified
+1. **Join the Discord** — Connect with the community and get real-time guidance.
+2. **Review guidelines** — Read [AGENTS.md](AGENTS.md) for architectural boundaries and coding conventions.
+3. **Pick an issue** — Browse [open issues](https://github.com/modernagent/modern-agent/issues) for focused improvements.
+4. **Submit a PR** — Keep changes narrow, explain user impact, and include automated tests.
 
 ---
 
 ## License
 
-Apache License 2.0 - see [LICENSE](LICENSE) for details.
+Apache License 2.0 — see [LICENSE](LICENSE) for details.
 
 ---
 
 <div align="center">
 
-**[Star us on GitHub](https://github.com/ModernAgent/modern-agent)** • **[Report Issues](https://github.com/ModernAgent/modern-agent/issues)** • **[Discussions](https://github.com/ModernAgent/modern-agent/discussions)**
+**[Star us on GitHub](https://github.com/modernagent/modern-agent)** • **[Report Issues](https://github.com/modernagent/modern-agent/issues)** • **[Discussions](https://github.com/modernagent/modern-agent/discussions)**
 
 Made with love by the Modern Agent community
 
